@@ -70,6 +70,8 @@ declare global {
 			/** The zoom truth (owner round 7): subscribes to "lh:zoom" pushes; returns unsubscribe. */
 			onZoom?: (cb: (factor: number) => void) => () => void;
 			getZoom?: () => Promise<number>;
+			/** Native folder picker (Settings → Obsidian); null = cancelled. */
+			pickFolder?: (defaultPath?: string) => Promise<string | null>;
 			/** Observational update events and a snapshot for late subscribers. */
 			onUpdateStatus?: (cb: (status: UpdateState) => void) => () => void;
 			getUpdateState?: () => Promise<UpdateState>;
@@ -547,6 +549,20 @@ function SessionsSidebar() {
 	const ctxAnchorRef = useRef<HTMLElement | null>(null);
 	const [renamingId, setRenamingId] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<ChatListItem | null>(null);
+	// «Summarize to Obsidian» (owner, 2026-11-01): one model call; this line
+	// reports progress and the outcome, then clears itself.
+	const [vaultNotice, setVaultNotice] = useState<{ text: string; error?: boolean } | null>(null);
+	const summarizeToVault = useCallback(async (chatId: string) => {
+		setVaultNotice({ text: "Summarizing to Obsidian…" });
+		try {
+			const res = await fetch(`/api/chats/${chatId}/vault-summary`, { method: "POST" });
+			const body = (await res.json().catch(() => ({}))) as { file?: string; error?: string };
+			setVaultNotice(res.ok ? { text: `Summary saved: ${body.file?.split("/").pop() ?? "Obsidian"}` } : { text: body.error ?? `Summary failed (${res.status})`, error: true });
+		} catch (err) {
+			setVaultNotice({ text: err instanceof Error ? err.message : String(err), error: true });
+		}
+		setTimeout(() => setVaultNotice(null), 8000);
+	}, []);
 
 	const openContext = (e: React.MouseEvent<HTMLButtonElement>, chat: ChatListItem) => {
 		e.preventDefault(); // suppress the native menu
@@ -913,6 +929,18 @@ function SessionsSidebar() {
 						</button>
 						<button
 							type="button"
+							data-testid="ctx-vault-summary"
+							onClick={() => {
+								const chatId = ctxChatId;
+								setCtxChatId(null);
+								void summarizeToVault(chatId);
+							}}
+							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
+						>
+							Summarize to Obsidian
+						</button>
+						<button
+							type="button"
 							data-testid="ctx-delete"
 							onClick={() => {
 								const target = chats?.find((c) => c.id === ctxChatId);
@@ -935,6 +963,15 @@ function SessionsSidebar() {
 					onClose={() => setDeleting(null)}
 					onDeleted={onDeleted}
 				/>
+				{vaultNotice && (
+					<p
+						role="status"
+						data-testid="vault-notice"
+						className={`mx-3 mb-3 rounded-sm border px-2.5 py-1.5 text-xs ${vaultNotice.error ? "border-red-500/40 text-red-500" : "border-border text-muted-foreground"}`}
+					>
+						{vaultNotice.text}
+					</p>
+				)}
 			</aside>
 	);
 }

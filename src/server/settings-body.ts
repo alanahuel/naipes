@@ -24,7 +24,7 @@ import type {
 	ModelsSettings,
 	RoleModelOverride,
 } from "../core/settings.ts";
-import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
+import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, normalizeVaultFolder, type ObsidianSettings } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
 
@@ -386,6 +386,42 @@ export function parseDictationSettingsBody(body: unknown): SettingsBodyResult<Di
 	return { ok: true, settings: { language: raw.language } };
 }
 
+/** obsidian (owner, 2026-11-01): { enabled?: boolean, vaultPath?: absolute
+ *  path string, folders?: vault-relative folders, outputFolder?: vault-relative
+ *  folder }. Strict write side: a
+ *  bad type or an escaping/relative folder is a 400, never a silent drop. */
+export function parseObsidianSettingsBody(body: unknown): SettingsBodyResult<ObsidianSettings> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	const settings: ObsidianSettings = {};
+	if (raw.enabled !== undefined) {
+		if (typeof raw.enabled !== "boolean") return { ok: false, error: "enabled must be a boolean" };
+		settings.enabled = raw.enabled;
+	}
+	if (raw.vaultPath !== undefined) {
+		if (typeof raw.vaultPath !== "string") return { ok: false, error: "vaultPath must be a string" };
+		const vaultPath = raw.vaultPath.trim();
+		if (vaultPath !== "" && !vaultPath.startsWith("/")) return { ok: false, error: "vaultPath must be an absolute path" };
+		settings.vaultPath = vaultPath;
+	}
+	if (raw.folders !== undefined) {
+		if (!Array.isArray(raw.folders)) return { ok: false, error: "folders must be an array" };
+		const folders: string[] = [];
+		for (const folder of raw.folders) {
+			const normalized = normalizeVaultFolder(folder);
+			if (normalized === null) return { ok: false, error: `invalid vault folder: ${JSON.stringify(folder)}` };
+			if (!folders.includes(normalized)) folders.push(normalized);
+		}
+		settings.folders = folders;
+	}
+	if (raw.outputFolder !== undefined) {
+		const outputFolder = normalizeVaultFolder(raw.outputFolder);
+		if (outputFolder === null) return { ok: false, error: `invalid output folder: ${JSON.stringify(raw.outputFolder)}` };
+		settings.outputFolder = outputFolder;
+	}
+	return { ok: true, settings };
+}
+
 /** The section→parser map for PUT /api/settings/[section] (the route also
  *  carries the special prompts sub-resource). */
 export const SETTINGS_SECTIONS = {
@@ -397,6 +433,7 @@ export const SETTINGS_SECTIONS = {
 	compaction: parseCompactionSettingsBody,
 	models: parseModelsSettingsBody,
 	dictation: parseDictationSettingsBody,
+	obsidian: parseObsidianSettingsBody,
 } as const;
 
 export type SettingsSectionName = keyof typeof SETTINGS_SECTIONS;

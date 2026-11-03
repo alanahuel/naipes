@@ -46,3 +46,6 @@ export * from "./model-catalog.ts";
 export { subscriptionControlsResponse, subscriptionBrowserResponse } from "./web-subscription-http.ts";
 export { claudeCodeControlsResponse } from "./claude-code-http.ts";
 export { sessionCost } from "./pricing.ts";
+// The Obsidian connection (owner, 2026-11-01): overview for the settings
+// section, settings-write reconfigure, and the «Resumir» button.
+export { vaultOverview, reconfigureVault, startVaultSync, summarizeChatToVault, type VaultOverview, type VaultFolder } from "./vault.ts";

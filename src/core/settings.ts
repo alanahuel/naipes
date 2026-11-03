@@ -33,6 +33,7 @@ import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
 import type { SearchEngineId } from "./search.ts";
 import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
+import { DEFAULT_VAULT_OUTPUT_FOLDER } from "./vault-notes.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
  *  changes (a field renamed/meaning changed); pure additions never bump. */
@@ -236,6 +237,23 @@ export interface GeneralSettings {
 	autoUpdate?: boolean;
 }
 
+/** The Obsidian vault connection (owner, 2026-11-01). Both directions ride
+ *  ONE switch: vault → graph (the chosen folders are watched and every new
+ *  or changed note is extracted, a changed/deleted note's old contribution
+ *  is removed first) and app → vault (transcripts, practice results,
+ *  concept notes and on-demand summaries are written under the configurable
+ *  output folder, which is never read back). */
+export interface ObsidianSettings {
+	enabled?: boolean;
+	/** Absolute vault root. Empty/absent = no vault chosen (the sync is idle). */
+	vaultPath?: string;
+	/** Vault-relative folders to read (POSIX separators, no leading slash).
+	 *  Empty = nothing is read (the safe default: every note costs a run). */
+	folders?: string[];
+	/** Vault-relative folder the app writes its notes into (never read back). */
+	outputFolder?: string;
+}
+
 /** One app-wide dictation preference, shared by every composer. */
 export interface DictationSettings {
 	language?: DictationLanguage;
@@ -374,6 +392,7 @@ export interface UserSettings {
 	appearance?: AppearanceSettings;
 	graph?: GraphSettings;
 	compaction?: CompactionSettings;
+	obsidian?: ObsidianSettings;
 	[key: string]: unknown;
 }
 
@@ -400,6 +419,7 @@ export interface FactorySettings {
 	};
 	graph: Required<GraphSettings>;
 	compaction: Required<CompactionSettings>;
+	obsidian: Required<ObsidianSettings>;
 }
 
 export const FACTORY_SETTINGS: FactorySettings = {
@@ -416,6 +436,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 	},
 	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096 },
 	compaction: { thresholdTokens: 150_000 },
+	obsidian: { enabled: false, vaultPath: "", folders: [], outputFolder: DEFAULT_VAULT_OUTPUT_FOLDER },
 };
 
 /** The chunk budget's validated floor (GraphSettings.extractionChunkTokens
@@ -609,6 +630,30 @@ function sanitizeCompaction(raw: Record<string, unknown>): CompactionSettings {
 	return out;
 }
 
+/** Vault-relative folder normalization shared by the sanitizer and the PUT
+ *  parser: POSIX separators, no leading/trailing slash, no `.`/`..`
+ *  segments (a folder may never escape the vault). null = invalid. */
+export function normalizeVaultFolder(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	const parts = value.replace(/\\/g, "/").split("/").filter((part) => part.length > 0);
+	if (parts.length === 0 || parts.some((part) => part === "." || part === "..")) return null;
+	return parts.join("/");
+}
+
+function sanitizeObsidian(raw: Record<string, unknown>): ObsidianSettings {
+	const out: ObsidianSettings = {};
+	const enabled = boolOrDrop(raw.enabled);
+	if (enabled !== undefined) out.enabled = enabled;
+	if (typeof raw.vaultPath === "string") out.vaultPath = raw.vaultPath.trim();
+	if (Array.isArray(raw.folders)) {
+		const folders = raw.folders.map(normalizeVaultFolder).filter((f): f is string => f !== null);
+		out.folders = [...new Set(folders)];
+	}
+	const outputFolder = normalizeVaultFolder(raw.outputFolder);
+	if (outputFolder !== null) out.outputFolder = outputFolder;
+	return out;
+}
+
 /**
  * Coerce arbitrary JSON (disk file, network body) into a valid delta record:
  * known fields validated strictly (invalid ones drop/clamp per module doc),
@@ -646,6 +691,9 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 		if (r.compaction !== undefined && r.compaction !== null && typeof r.compaction === "object") {
 			out.compaction = sanitizeCompaction(r.compaction as Record<string, unknown>);
 		}
+	}
+	if (r.obsidian !== null && typeof r.obsidian === "object" && !Array.isArray(r.obsidian)) {
+		out.obsidian = sanitizeObsidian(r.obsidian as Record<string, unknown>);
 	}
 	// Unknown top-level keys ride along untouched (forward-compat). One
 	// known-DEAD key is stripped instead of riding: `chat` (the old

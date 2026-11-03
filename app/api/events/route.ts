@@ -6,10 +6,19 @@
  * server seam (events-stream.ts); the framework route stays a thin
  * wrapper (the import law; tests drive the seam directly).
  */
-import { eventsResponse } from "@/src/server";
+import { eventsResponse, startVaultSync } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
 export function GET(): Response {
+	// Every app window opens this stream on load — the Obsidian connection
+	// starts here, once per server process (idempotent; a no-op until
+	// Settings → Obsidian turns it on). Not instrumentation.ts: that entry's
+	// file trace ignores outputFileTracingExcludes and would ship data/.
+	try {
+		startVaultSync();
+	} catch (err) {
+		console.error("[vault] startup failed:", err);
+	}
 	return eventsResponse();
 }

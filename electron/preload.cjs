@@ -80,6 +80,7 @@ contextBridge.exposeInMainWorld("lh", {
 		return () => ipcRenderer.removeListener("lh:zoom", listener);
 	},
 	getZoom: () => ipcRenderer.invoke("lh:zoom:get"),
+	pickFolder: (defaultPath) => ipcRenderer.invoke("lh:pick-folder", defaultPath),
 	onUpdateStatus: (cb) => {
 		const listener = (_event, status) => cb(status);
 		ipcRenderer.on("lh:update-status", listener);

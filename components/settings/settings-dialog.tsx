@@ -37,6 +37,7 @@ import {
 	type AppearanceSettings,
 	type CompactionSettings,
 	type GraphSettings,
+	type ObsidianSettings,
 	type UserSettings,
 } from "@/src/core";
 import { useAppearance } from "./appearance.tsx";
@@ -50,6 +51,7 @@ import { KeysSection } from "./keys-section.tsx";
 import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
 import { KeyboardSection } from "./keyboard-section.tsx";
+import { ObsidianSection } from "./obsidian-section.tsx";
 import { ChatGPTUIProvider } from "./chatgpt-connection.tsx";
 import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
 
@@ -61,6 +63,7 @@ const SECTIONS = [
 	{ id: "agent", label: "Agent" },
 	{ id: "appearance", label: "Appearance" },
 	{ id: "graph", label: "Graph" },
+	{ id: "obsidian", label: "Obsidian" },
 	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device" },
 	{ id: "general", label: "General" },
 ] as const;
@@ -226,7 +229,7 @@ export function SettingsDialogBody({
 	 *  schema mistake caught by the validation surface). */
 	const write = useCallback(
 		async (
-			section: "general" | "agent" | "models" | "appearance" | "graph" | "compaction",
+			section: "general" | "agent" | "models" | "appearance" | "graph" | "compaction" | "obsidian",
 			body: object,
 		) => {
 			setError(null);
@@ -417,6 +420,19 @@ export function SettingsDialogBody({
 										graph={record.graph}
 										onSectionChange={(next: GraphSettings) =>
 											void write("graph", next)
+										}
+									/>
+								</SettingsSection>
+							)}
+							{active === "obsidian" && (
+								<SettingsSection
+									title="Obsidian"
+									testid="section-obsidian"
+								>
+									<ObsidianSection
+										obsidian={record.obsidian}
+										onSectionChange={(next: ObsidianSettings) =>
+											write("obsidian", next)
 										}
 									/>
 								</SettingsSection>

@@ -174,6 +174,12 @@ export const graphStore: GraphStore = {
 	readSources(): NotesSource[] {
 		return Object.values(readSourceMap());
 	},
+	deleteSource(id: string): void {
+		const all = readSourceMap();
+		if (!(id in all)) return;
+		delete all[id];
+		writeSourceMap(all);
+	},
 	/** Idempotent per startedAt — same discipline as chats.appendExtractionUsage. */
 	appendSourceUsage(id: string, entry: ExtractionRunUsage): void {
 		const all = readSourceMap();

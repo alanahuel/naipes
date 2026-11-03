@@ -24,7 +24,7 @@
  *     would shadow every settings-page key change until restart.
  */
 
-const { app, BrowserWindow, Menu, ipcMain, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain, session, shell } = require("electron");
 const { createChatGPT, fileStore } = require("./chatgpt.cjs");
 const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt-ipc.cjs");
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
@@ -733,6 +733,17 @@ async function main() {
 	// window grows right. No-op when already wide.
 	// The renderer's first paint can race did-finish-load — it asks for
 	// the current factor itself (mirrors "lh:zoom" pushes).
+	// Settings → Obsidian: the native folder picker for the vault path.
+	// Returns the chosen absolute path, or null when cancelled.
+	ipcMain.handle("lh:pick-folder", async (event, defaultPath) => {
+		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted desktop request.");
+		const win = BrowserWindow.fromWebContents(event.sender);
+		const result = await dialog.showOpenDialog(win, {
+			properties: ["openDirectory"],
+			...(typeof defaultPath === "string" && defaultPath ? { defaultPath } : {}),
+		});
+		return result.canceled ? null : result.filePaths[0] ?? null;
+	});
 	ipcMain.handle("lh:zoom:get", (event) => BrowserWindow.fromWebContents(event.sender)?.webContents.getZoomFactor() ?? 1);
 	ipcMain.on("lh:expand-window", (event) => {
 		const win = BrowserWindow.fromWebContents(event.sender);

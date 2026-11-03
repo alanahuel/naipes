@@ -37,6 +37,7 @@ import {
 	type GeneralSettings,
 	type DictationSettings,
 	type CompactionSettings,
+	type ObsidianSettings,
 	type GraphSettings,
 	type ModelSlot,
 	type ModelSlotName,
@@ -95,6 +96,8 @@ export interface EffectiveSettings {
 	/** Compaction (owner round 14): resolved concrete — absent record
 	 *  section resolves to the factory 150k. */
 	compaction: Required<CompactionSettings>;
+	/** The Obsidian connection, concrete (empty vaultPath = no vault chosen). */
+	obsidian: Required<ObsidianSettings>;
 }
 
 /** The conversation pair's chain (BYOK, owner 2026-09-22): the chat's own
@@ -220,6 +223,12 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 		},
 		compaction: {
 			thresholdTokens: record?.compaction?.thresholdTokens ?? FACTORY_SETTINGS.compaction.thresholdTokens,
+		},
+		obsidian: {
+			enabled: record?.obsidian?.enabled ?? FACTORY_SETTINGS.obsidian.enabled,
+			vaultPath: record?.obsidian?.vaultPath ?? FACTORY_SETTINGS.obsidian.vaultPath,
+			folders: record?.obsidian?.folders ?? FACTORY_SETTINGS.obsidian.folders,
+			outputFolder: record?.obsidian?.outputFolder ?? FACTORY_SETTINGS.obsidian.outputFolder,
 		},
 	};
 }

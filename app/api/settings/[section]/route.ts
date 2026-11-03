@@ -5,7 +5,7 @@
  * discipline, same as the per-chat and defaults routes); sections are
  * independent, so partial writes can never clobber each other.
  *
- *   section ∈ general | chat | agent | appearance | graph | compaction | models | dictation
+ *   section ∈ general | chat | agent | appearance | graph | compaction | models | dictation | obsidian
  *   Body: the complete desired section object. Parse + validate strictly
  *   (server/settings-body.ts): a bad shape/type is a 400 carrying the
  *   supported list where one exists. The chat and models sections
@@ -39,6 +39,7 @@ import {
 	effectiveSettings,
 	promptOverrides,
 	readSettingsRecord,
+	reconfigureVault,
 	validateChatSettings,
 	validateModelsSettings,
 	writeSettingsRecord,
@@ -129,5 +130,8 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	// along untouched (other sections, unknown keys — sanitize preserves).
 	const next = { ...record, [section]: sectionOut };
 	writeSettingsRecord(next);
+	// The Obsidian connection re-reads its settings (watcher, folders,
+	// exports) after its section changes.
+	if (section === "obsidian") reconfigureVault();
 	return Response.json({ settings: next });
 }

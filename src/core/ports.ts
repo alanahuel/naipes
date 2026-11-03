@@ -101,6 +101,9 @@ export interface GraphStore {
 	upsertSource(source: NotesSource): void;
 	/** Every notes source record, by id order-insensitive. */
 	readSources(): NotesSource[];
+	/** Drop one source record (the Obsidian sync's clean replace — the
+	 *  ledger side is core/graph-deletion's job). Absent id = no-op. */
+	deleteSource(id: string): void;
 	/** Append one run's usage to a source record — idempotent per
 	 *  startedAt, mirroring ChatRecord.extractions. */
 	appendSourceUsage(id: string, entry: ExtractionRunUsage): void;

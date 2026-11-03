@@ -419,6 +419,9 @@ alone for a reader who never saw this source: names and statements may not lean 
 scaffolding (claim numbering, axiom tags, arc labels); a claim that only matters as part of how this
 document is organized is not knowledge — drop it.
 
+Write every name and statement in the language the source itself is written in — a Spanish source
+yields Spanish ideas, an English source English ones. Never translate the ideas into another language.
+
 When the prompt carries THE GRAPH SO FAR, you are continuing a source already partly extracted: build
 on it. Reference an existing idea by its id ("n_…") instead of restating it, and prefer chains that
 lean on established conclusions as premises — derive new material from what is already derived. Do
@@ -681,6 +684,13 @@ interface LhExtractionGlobal {
 function runs(): NonNullable<LhExtractionGlobal["__lhExtractionRuns"]> {
 	const g = globalThis as typeof globalThis & LhExtractionGlobal;
 	return (g.__lhExtractionRuns ??= { running: new Map(), inFlight: new Set(), lastStartedAt: 0 });
+}
+
+/** The deterministic notes-source id for a file path — "src_" + the path's
+ *  sha256 prefix. Exported so the Obsidian sync addresses the same source
+ *  a given vault path imports into. */
+export function notesSourceId(filePath: string): string {
+	return `src_${crypto.createHash("sha256").update(filePath).digest("hex").slice(0, 12)}`;
 }
 
 /** In-flight pipeline runs (oldest first) — the /api/graph/status payload. */
@@ -1418,7 +1428,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	/** Every explicit import processes the whole file. Identity, source digest,
 	 * auditor and usage history remain source-scoped; this is not exactly-once. */
 	async function importNotes(input: NotesImportInput): Promise<EmissionStats> {
-		const id = `src_${crypto.createHash("sha256").update(input.filePath).digest("hex").slice(0, 12)}`;
+		const id = notesSourceId(input.filePath);
 		// Acquire BEFORE source upsert: overlapping contents must not alter metadata.
 		if (inFlight.has(id)) throw new NotesImportError("busy", { nodes: 0, chains: 0 }, "This file is already being imported. Try again when it finishes.");
 		inFlight.add(id);
