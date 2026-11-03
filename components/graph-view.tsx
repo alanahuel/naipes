@@ -67,7 +67,7 @@ import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, use
 import { NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
 import Link from "next/link";
 import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, UploadIcon, WaypointsIcon } from "lucide-react";
-import { getStoredItem, incrementalLayout, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
+import { getStoredItem, incrementalLayout, noteDisplayName, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
 import { planCostLabel } from "@/components/usage-format";
 import { GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
@@ -454,12 +454,19 @@ function GraphCostPanel({ costs }: { costs: GraphCostSummary }) {
 function GraphSettingsControl({
 	settings,
 	changeSettings,
+	onRelayout,
 }: {
 	settings: GraphRenderSettings;
 	changeSettings: (update: (cur: RenderSettings) => RenderSettings) => void;
+	/** «Reorganizar» (owner, 2026-11-03): recompute the layout from
+	 *  scratch server-side, then refetch. Rejects on failure. */
+	onRelayout: () => Promise<void>;
 }) {
 	const t = useT();
 	const [open, setOpen] = useState(false);
+	// Two-step «Reorganizar»: the first click arms, the second runs —
+	// it replaces the whole arrangement, so never on a single misclick.
+	const [relayout, setRelayout] = useState<"idle" | "confirm" | "running" | "failed">("idle");
 	// Click anywhere outside (or Escape) closes the panel (2026-09-17) —
 	// the root wraps button + panel, so the toggle itself keeps working.
 	const rootRef = useRef<HTMLDivElement>(null);
@@ -498,6 +505,20 @@ function GraphSettingsControl({
 				// distance from the panel's right border.
 				<div className="absolute right-0 top-full mt-2 flex max-h-[60vh] w-72 flex-col rounded-xl border bg-card/85 p-2.5 shadow-lg backdrop-blur">
 					<div className="flex flex-col gap-2 overflow-y-auto pr-2.5">
+							{/* «Modo ligero» (owner, 2026-11-03): manual, off by
+							    default — no regions, 1x canvas, no live physics. */}
+							<label
+								className="flex cursor-pointer items-center justify-between text-[11px] text-muted-foreground"
+								title={t("graph.view.lightModeHint")}
+							>
+								<span>{t("graph.view.lightMode")}</span>
+								<input
+									type="checkbox"
+									checked={settings.lightMode}
+									onChange={(e) => changeSettings((cur) => ({ ...cur, lightMode: e.target.checked }))}
+									className="accent-primary"
+								/>
+							</label>
 							{/* Size/zoom/region sliders: LADDER-mapped 0-100, step 10 (11
 							    stops, every DEFAULT dead-center at 50, every value a nice
 							    number — src/core/render-settings.ts). Physics keeps the
@@ -552,6 +573,19 @@ function GraphSettingsControl({
 								display={labelZoomDisplay(settings.labelZoom)}
 								onChange={(p) =>
 									changeSettings((cur) => ({ ...cur, labelZoom: fromLadderPosition(p, LABEL_ZOOM_LADDER) }))}
+							/>
+							{/* The middle band (owner, 2026-11-03): areas far out →
+							    notes from this zoom → node names from the one above. */}
+							<SettingSlider
+								label={t("graph.view.noteZoom")}
+								disabled={!settings.clusterLabels}
+								min={0}
+								max={100}
+								step={10}
+								value={toLadderPosition(settings.noteZoom, LABEL_ZOOM_LADDER)}
+								display={labelZoomDisplay(settings.noteZoom)}
+								onChange={(p) =>
+									changeSettings((cur) => ({ ...cur, noteZoom: fromLadderPosition(p, LABEL_ZOOM_LADDER) }))}
 							/>
 							{/* Regions: the blurred cluster tints. Sliders + a fixed-set
 						    dropdown for the bitmap resolution (it's a discrete
@@ -826,6 +860,46 @@ function GraphSettingsControl({
 										physics: { ...cur.physics, depthBaseRadius: fromSliderPosition(p, DEPTH_BASE_RADIUS_RANGE.min, DEPTH_BASE_RADIUS_RANGE.max) },
 									}))}
 							/>
+							{/* «Reorganizar» (owner, 2026-11-03): next to the physics
+							    it applies — a from-scratch layout, islands per area. */}
+							{relayout === "confirm" ? (
+								<div className="flex gap-1.5">
+									<button
+										type="button"
+										className="flex-1 rounded-md border border-destructive/50 px-2 py-1 text-[11px] text-destructive hover:bg-destructive/10"
+										onClick={() => {
+											setRelayout("running");
+											onRelayout().then(
+												() => setRelayout("idle"),
+												() => setRelayout("failed"),
+											);
+										}}
+									>
+										{t("graph.view.relayoutConfirm")}
+									</button>
+									<button
+										type="button"
+										className="rounded-md border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent"
+										onClick={() => setRelayout("idle")}
+									>
+										{t("graph.view.relayoutCancel")}
+									</button>
+								</div>
+							) : (
+								<button
+									type="button"
+									disabled={relayout === "running"}
+									className="flex items-center justify-center gap-1.5 rounded-md border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-60"
+									onClick={() => setRelayout("confirm")}
+								>
+									{relayout === "running" && <Loader2Icon className="size-3 animate-spin" />}
+									{relayout === "running"
+										? t("graph.view.relayoutRunning")
+										: relayout === "failed"
+											? t("graph.view.relayoutFailed")
+											: t("graph.view.relayout")}
+								</button>
+							)}
 						</div>
 					</div>
 				</div>
@@ -853,6 +927,7 @@ export function GraphChromeRow({
 	onImportFiles,
 	settings,
 	changeSettings,
+	onRelayout,
 	onOpenChains,
 }: {
 	isEmpty: boolean;
@@ -867,6 +942,8 @@ export function GraphChromeRow({
 	onImportFiles: (files: FileList | null) => void;
 	settings: GraphRenderSettings;
 	changeSettings: (update: (cur: RenderSettings) => RenderSettings) => void;
+	/** «Reorganizar»: from-scratch relayout + refetch (rejects on failure). */
+	onRelayout: () => Promise<void>;
 	/** Opens the chain table overlay (the chains-overlay plan,
 	 *  2026-09-29). */
 	onOpenChains: () => void;
@@ -957,7 +1034,7 @@ export function GraphChromeRow({
 				// is a plain shrink-0 flex child — the panel itself positions
 				// within GraphSettingsControl's own relative root, unaffected.
 				<div className="graph-chrome-fade-in shrink-0">
-					<GraphSettingsControl settings={settings} changeSettings={changeSettings} />
+					<GraphSettingsControl settings={settings} changeSettings={changeSettings} onRelayout={onRelayout} />
 				</div>
 			)}
 		</>
@@ -1104,6 +1181,14 @@ export function GraphView({
 			cancelled = true;
 		};
 	}, [refreshTick]);
+
+	// «Reorganizar» (owner, 2026-11-03): from-scratch server layout, then
+	// the usual refetch carries the new positions in.
+	const relayoutGraph = useCallback(async () => {
+		const res = await fetch("/api/graph/positions/relayout", { method: "POST" });
+		if (!res.ok) throw new Error(`relayout failed: ${res.status}`);
+		setRefreshTick((n) => n + 1);
+	}, []);
 
 	// Notes import (the format-agnostic front door): file picker → POST
 	// /api/graph/import; the runs surface in the status chips below, and the
@@ -1434,7 +1519,19 @@ export function GraphView({
 			edges: snapshot.edges.map((e) => ({ from: e.from, to: e.to })),
 			logicalEdges: snapshot.logicalEdges.map((e) => ({ from: e.from, to: e.to })),
 			impLinks: snapshot.impLinks,
-			clusters: snapshot.clusters.map((c) => ({ id: c.id, label: c.label, members: c.members })),
+			// Notes show their NAME, not their path (owner, 2026-11-03);
+			// chats keep their title.
+			clusters: snapshot.clusters.map((c) => ({
+				id: c.id,
+				label: c.label !== null && snapshot.fileSources[c.id] !== undefined ? noteDisplayName(c.label) : c.label,
+				members: c.members,
+				areaId: c.areaId,
+			})),
+			areas: (snapshot.areas ?? []).map((a) => ({
+				id: a.id,
+				label: a.label ?? t("graph.view.sessionsArea"),
+				members: a.members,
+			})),
 			colors: {
 				node: tokenHex(NODE_COLOR_TOKEN),
 				edge: tokenHex("--ring"),
@@ -1621,6 +1718,7 @@ export function GraphView({
 					onImportFiles={onImportFiles}
 					settings={settings}
 					changeSettings={changeSettings}
+					onRelayout={relayoutGraph}
 					onOpenChains={() => setChainsOpen(true)}
 				/>
 			</div>

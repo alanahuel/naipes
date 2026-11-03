@@ -35,6 +35,7 @@ export default {
 	"graph.view.arrowSize": "Tamaño de las flechas",
 	"graph.view.labelSize": "Tamaño de los nombres",
 	"graph.view.labelZoom": "Nombres visibles hasta el zoom",
+	"graph.view.noteZoom": "Notas visibles hasta el zoom",
 	"graph.view.regions": "Regiones",
 	"graph.view.backgroundColors": "Colores de fondo",
 	"graph.view.dilation": "Expansión",
@@ -58,6 +59,14 @@ export default {
 	"graph.view.depthStrength": "Fuerza de la profundidad",
 	"graph.view.depthSpacing": "Separación entre niveles",
 	"graph.view.baseRadius": "Radio del anillo central",
+	"graph.view.lightMode": "Modo ligero",
+	"graph.view.lightModeHint": "Sin regiones difuminadas, resolución 1× y sin física en vivo: para equipos modestos",
+	"graph.view.relayout": "Reorganizar el grafo",
+	"graph.view.relayoutConfirm": "Confirmar: recalcular todo",
+	"graph.view.relayoutCancel": "Cancelar",
+	"graph.view.relayoutRunning": "Reorganizando…",
+	"graph.view.relayoutFailed": "No se pudo reorganizar",
+	"graph.view.sessionsArea": "Sesiones",
 
 	// La contextualización del grafo al empezar una sesión
 	"graph.context.title": "Contexto del grafo",

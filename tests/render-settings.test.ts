@@ -117,6 +117,8 @@ describe("sanitizeRenderSettings", () => {
 			edgeWidth: 2,
 			arrowLength: 3,
 			labelZoom: 2,
+			noteZoom: 3,
+			lightMode: true,
 			labelSize: 4,
 			clusterLabels: false,
 			clusterLabelSize: 20,

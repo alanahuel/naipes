@@ -52,6 +52,14 @@ export interface GraphRenderSettings {
 	arrowLength: number;
 	/** Camera-ratio threshold for node labels (see module doc). */
 	labelZoom: number;
+	/** Camera-ratio threshold for NOTE (cluster) labels — the middle band
+	 *  between areas (far) and node names (close). Same units and ladder
+	 *  as labelZoom; meant to sit above it (owner, 2026-11-03). */
+	noteZoom: number;
+	/** «Modo ligero» (owner, 2026-11-03): manual switch for modest PCs —
+	 *  no blurred regions, canvas at 1x resolution, no live physics
+	 *  (a drag moves just that node). Off by default. */
+	lightMode: boolean;
 	/** Node + hover label font size, WORLD units (scales with camera). */
 	labelSize: number;
 	/** Toggle for the cluster region labels (hulls always draw). */
@@ -94,6 +102,8 @@ export function sanitizeRenderSettings(raw: unknown): GraphRenderSettings {
 		edgeWidth: ladd(r.edgeWidth, EDGE_WIDTH_LADDER, DEFAULT_RENDER_SETTINGS.edgeWidth),
 		arrowLength: legacySizes ? DEFAULT_RENDER_SETTINGS.arrowLength : ladd(r.arrowLength, ARROW_LENGTH_LADDER, DEFAULT_RENDER_SETTINGS.arrowLength),
 		labelZoom: ladd(r.labelZoom, LABEL_ZOOM_LADDER, DEFAULT_RENDER_SETTINGS.labelZoom),
+		noteZoom: ladd(r.noteZoom, LABEL_ZOOM_LADDER, DEFAULT_RENDER_SETTINGS.noteZoom),
+		lightMode: typeof r.lightMode === "boolean" ? r.lightMode : DEFAULT_RENDER_SETTINGS.lightMode,
 		labelSize: legacySizes ? DEFAULT_RENDER_SETTINGS.labelSize : ladd(r.labelSize, LABEL_SIZE_LADDER, DEFAULT_RENDER_SETTINGS.labelSize),
 		clusterLabels:
 			typeof r.clusterLabels === "boolean" ? r.clusterLabels : DEFAULT_RENDER_SETTINGS.clusterLabels,
@@ -265,6 +275,10 @@ export const DEFAULT_RENDER_SETTINGS: GraphRenderSettings = {
 	// "labels until zoom default one" — the owner speaks in display
 	// values, and the display is ratio/0.5). Labels once zoomed past fit.
 	labelZoom: 0.5,
+	// Provisional (owner, 2026-11-03: tuned together on the live app):
+	// notes take over from areas a little past fit zoom.
+	noteZoom: 0.75,
+	lightMode: false,
 	labelSize: 3,
 	clusterLabels: true,
 	clusterLabelSize: 14,
