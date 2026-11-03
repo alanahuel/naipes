@@ -25,7 +25,9 @@ export type KeyAction =
 	| "toggle-dictation"
 	| "open-model-picker"
 	| "cycle-thinking"
-	| "toggle-sidebar"
+	| "go-home"
+	| "go-sessions"
+	| "go-knowledge"
 	| "sessions-search"
 	| "jump-graph"
 	| "new-session"
@@ -61,7 +63,10 @@ export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 	{ id: "open-settings", label: "Open settings", scope: "global", binding: "mod+," },
 	{ id: "open-model-picker", label: "Model selector", scope: "global", binding: "mod+k" },
 	{ id: "cycle-thinking", label: "Cycle thinking level", scope: "global", binding: "shift+tab" },
-	{ id: "toggle-sidebar", label: "Toggle sessions sidebar", scope: "global", binding: "mod+b" },
+	// The tabs (Naipes interface, stage 3 — the sidebar and its ⌘B are gone).
+	{ id: "go-home", label: "Go to Home", scope: "global", binding: "mod+1" },
+	{ id: "go-sessions", label: "Go to My sessions", scope: "global", binding: "mod+2" },
+	{ id: "go-knowledge", label: "Go to Knowledge", scope: "global", binding: "mod+3" },
 	{ id: "sessions-search", label: "Search sessions", scope: "global", binding: "mod+shift+f" },
 	// (The Alt+↑/↓/↵ session cycle was RETIRED, owner 2026-10-10: barely
 	// used, felt laggy. Session navigation lives IN the search now — ↑/↓
@@ -97,7 +102,9 @@ export const KEYBOARD_ACTION_MESSAGE: Record<KeyAction, MessageKey> = {
 	"open-settings": "keyboard.openSettings",
 	"open-model-picker": "keyboard.openModelPicker",
 	"cycle-thinking": "keyboard.cycleThinking",
-	"toggle-sidebar": "keyboard.toggleSidebar",
+	"go-home": "keyboard.goHome",
+	"go-sessions": "keyboard.goSessions",
+	"go-knowledge": "keyboard.goKnowledge",
 	"sessions-search": "keyboard.sessionsSearch",
 	"jump-graph": "keyboard.jumpGraph",
 	"new-session": "keyboard.newSession",

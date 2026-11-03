@@ -81,6 +81,7 @@ contextBridge.exposeInMainWorld("np", {
 	},
 	getZoom: () => ipcRenderer.invoke("np:zoom:get"),
 	setTheme: (theme) => ipcRenderer.send("np:set-theme", theme),
+	openDataFolder: () => ipcRenderer.send("np:open-data-folder"),
 	pickFolder: (defaultPath) => ipcRenderer.invoke("np:pick-folder", defaultPath),
 	onUpdateStatus: (cb) => {
 		const listener = (_event, status) => cb(status);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { runInNewContext } from "node:vm";
-import { THEME_BOOT_SCRIPT, THEME_STORAGE_KEY, effectiveTheme } from "../src/core/theme.ts";
+import { readFileSync } from "node:fs";
+import { effectiveTheme, themeClassFor } from "../src/core/theme.ts";
 import { isThemeMode, sanitizeUserSettings } from "../src/core/settings.ts";
 import { parseAppearanceSettingsBody } from "../src/server/settings-body.ts";
 
@@ -22,26 +22,19 @@ describe("theme mode", () => {
 		assert.equal(parseAppearanceSettingsBody({ mode: "auto" }).ok, false);
 	});
 
-	for (const [stored, systemDark, expected] of [
-		["dark", false, true],
-		["light", true, false],
-		["system", true, true],
-		[null, false, false],
-	] as const) {
-		it(`boot script: stored=${stored} systemDark=${systemDark} → dark=${expected}`, () => {
-			const classes = new Set<string>();
-			const root = {
-				classList: { toggle: (name: string, on: boolean) => (on ? classes.add(name) : classes.delete(name)) },
-				style: {} as Record<string, string>,
-				dataset: {} as Record<string, string>,
-			};
-			runInNewContext(THEME_BOOT_SCRIPT, {
-				localStorage: { getItem: (key: string) => (key === THEME_STORAGE_KEY ? stored : null) },
-				window: { matchMedia: () => ({ matches: systemDark }) },
-				document: { documentElement: root },
-			});
-			assert.equal(classes.has("dark"), expected);
-			assert.equal(root.style.colorScheme, expected ? "dark" : "light");
-		});
-	}
+	it("the server renders a class only for a forced mode (system = the CSS media query)", () => {
+		assert.equal(themeClassFor("system"), "");
+		assert.equal(themeClassFor("light"), "light");
+		assert.equal(themeClassFor("dark"), "dark");
+	});
+
+	it("globals.css carries the dark tokens for .dark AND for system-dark without .light", () => {
+		const css = readFileSync("app/globals.css", "utf-8");
+		assert.match(css, /@media \(prefers-color-scheme: dark\) \{\s*:root:not\(\.light\) \{/);
+		const block = (start: string) => css.slice(css.indexOf(start)).split("}")[0]!;
+		const forced = block(".dark {").split("\n").map((l) => l.trim()).filter((l) => l.startsWith("--")).join("\n");
+		const system = block(":root:not(.light) {").split("\n").map((l) => l.trim()).filter((l) => l.startsWith("--")).join("\n");
+		assert.ok(forced.length > 0);
+		assert.equal(system, forced, "the two dark blocks must stay identical");
+	});
 });

@@ -6,7 +6,6 @@ import { Conversation, ConversationContent, ConversationEmptyState } from "@/com
 import { Composer } from "@/components/composer";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
-import { SidebarToggle } from "@/components/sidebar";
 import { SetupDialog } from "@/components/setup-dialog";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { StatsBar } from "@/components/stats-bar";
@@ -157,7 +156,7 @@ export function DraftShell({
 		 * (the only pointer-events-auto spot), the empty state carrying the
 		 * orientation. The chain picker then owns the column top exactly
 		 * like the graph view's — no stacked bars. */
-		<div className="relative flex h-dvh">
+		<div className="relative flex h-full">
 			{/* Window-drag strip — deliberately FIRST in the DOM (the mask
 			    law: no-drag subtraction resolves by DOM order, so every
 			    carved control later in the tree subtracts correctly). */}
@@ -223,7 +222,6 @@ export function DraftShell({
 			    column so nothing of it blocks the canvas area. */}
 			<header className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 px-3 py-2">
 				<div className="pointer-events-auto">
-					<SidebarToggle />
 				</div>
 			</header>
 		</div>

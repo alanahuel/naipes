@@ -6,7 +6,7 @@ import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { formatTokens } from "@/components/usage-format";
 import { Hint } from "@/components/ui/hint";
-import { timeAgo } from "@/components/sidebar";
+import { timeAgo } from "@/components/sessions";
 import { resolveSettings } from "@/src/core";
 import { useT } from "@/components/i18n";
 
@@ -396,7 +396,7 @@ export function CoverageRingDetail({ coverage, chunkTokens }: { coverage: Sessio
 				<div className="flex justify-between gap-2">
 					<span>{t("graph.coverage.last")}</span>
 					<span className="tabular-nums text-card-foreground">
-						{coverage.lastFoldedAt ? timeAgo(coverage.lastFoldedAt) : "—"}
+						{coverage.lastFoldedAt ? timeAgo(coverage.lastFoldedAt, new Date(), t) : "—"}
 					</span>
 				</div>
 				{coverage.running && (

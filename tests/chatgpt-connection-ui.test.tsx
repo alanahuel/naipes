@@ -8,7 +8,8 @@ import { parseHTML } from "linkedom";
 import { createRequire } from "node:module";
 import { generateKeyPair, exportJWK, SignJWT } from "jose";
 import { ChatGPTBackgroundAccess, ChatGPTConnection, ChatGPTUIProvider, CHATGPT_NOTICE, CHATGPT_DISCONNECT_COPY } from "../components/settings/chatgpt-connection.tsx";
-import { SettingsDialogBody } from "../components/settings/settings-dialog.tsx";
+import { settingsHref } from "../components/settings/settings-dialog.tsx";
+import { SETTINGS_PAGES } from "../components/app-shell.tsx";
 import { KeysSection } from "../components/settings/keys-section.tsx";
 import { ModelControl } from "../components/model-picker.tsx";
 import type { ChatGPTStatus, ChatGPTControlBridge } from "../src/core/index.ts";
@@ -69,12 +70,9 @@ async function begin() { await click(byTest("chatgpt-login")); await click(byTes
 async function confirmDisconnect() { await click(byTest("chatgpt-disconnect")); await click(byTest("chatgpt-confirm-disconnect")); }
 afterEach(async () => { await act(async () => root?.unmount()); host?.remove(); root = undefined; host = undefined; delete window.np; globalThis.fetch = originalFetch; });
 
-test("Providers is the first/default page; General is last and other pages keep relative order", () => {
- const html = renderToStaticMarkup(<SettingsDialogBody onClose={() => {}} />);
- const ids = [...html.matchAll(/data-testid="settings-nav-([^"]+)"/g)].map((m) => m[1]);
- assert.deepEqual(ids, ["keys", "agent", "appearance", "graph", "obsidian", "keyboard", "general"]);
- assert.match(html, /settings-nav-keys[^>]*aria-current="true"/); assert.match(html, />Providers<\/button>/);
- assert.doesNotMatch(html, />Model providers<\/button>/);
+test("Tu IA is the default settings page and opens first from the profile menu", () => {
+ assert.equal(settingsHref(), "/settings/ai");
+ assert.equal(SETTINGS_PAGES[0]!.id, "ai");
 });
 
 test("Providers has exactly four ordered sections; unknown variables stay masked/read-only at the end of Model API keys", async () => {

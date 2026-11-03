@@ -39,10 +39,9 @@
  */
 
 import type { ReactNode } from "react";
-import { SidebarToggle } from "@/components/sidebar";
 
 export function TopBar({
-	drag = true,
+	drag = false,
 	onMouseDown,
 	children,
 }: {
@@ -53,9 +52,8 @@ export function TopBar({
 	return (
 		<header
 			onMouseDown={onMouseDown}
-			className={`${drag ? "np-drag " : ""}np-wco-gutter flex h-15 select-none items-center gap-3 border-b border-border px-3`}
+			className={`${drag ? "np-drag " : ""}flex h-15 select-none items-center gap-3 border-b border-border px-4`}
 		>
-			<SidebarToggle />
 			{children}
 		</header>
 	);

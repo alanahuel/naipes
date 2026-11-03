@@ -11,18 +11,15 @@ import {
 import { kbdEventForAction as kbdEventForActionFromUi } from "../components/keyboard-shortcuts.tsx";
 
 /**
- * The ⌘B sidebar bug interlude (owner, 2026-09-25): ⌘B did nothing because
- * the sidebar listened on the pre-convention "np:toggle-sidebar" while the
- * dispatcher sent "np:kbd-toggle-sidebar". The fix is structural — both
- * sides compose the event name through the ONE helper — and these pins
- * hold the chain together: the registry maps the keypress to the action,
- * the helper spells the event, and the UI dispatcher imports the same
- * helper (not its own copy).
+ * The one spelling for action events (born from the ⌘B sidebar bug, owner
+ * 2026-09-25): dispatcher and listeners compose the event name through the
+ * ONE helper. Stage 3 (Naipes interface) retired the sidebar and its ⌘B;
+ * the tabs took ⌘1/⌘2/⌘3.
  */
 
 describe("kbdEventForAction — the one spelling for action events", () => {
 	it("dispatch and listen names are the helper's output", () => {
-		assert.equal(kbdEventForAction("toggle-sidebar"), "np:kbd-toggle-sidebar");
+		assert.equal(kbdEventForAction("go-home"), "np:kbd-go-home");
 		assert.equal(kbdEventForAction("sessions-search"), "np:kbd-sessions-search");
 	});
 
@@ -31,23 +28,22 @@ describe("kbdEventForAction — the one spelling for action events", () => {
 	});
 });
 
-describe("the ⌘B chain — keypress → binding → action → event", () => {
+describe("the tabs — keypress → binding → action", () => {
 	it("mod+t is the toggle-user-thinking action (owner round, 2026-10-07)", () => {
 		assert.equal(actionForBinding("mod+t"), "toggle-user-thinking");
 		assert.equal(bindingForAction("toggle-user-thinking"), "mod+t");
-		assert.equal(kbdEventForAction("toggle-user-thinking"), "np:kbd-toggle-user-thinking");
 	});
 
-	it("mod+b is the toggle-sidebar action", () => {
-		assert.equal(actionForBinding("mod+b"), "toggle-sidebar");
-		assert.equal(bindingForAction("toggle-sidebar"), "mod+b");
-		assert.equal(formatBinding("mod+b"), IS_MAC ? "⌘B" : "Ctrl+B");
+	it("mod+1/2/3 open Inicio, Mis sesiones and Conocimiento", () => {
+		assert.equal(actionForBinding("mod+1"), "go-home");
+		assert.equal(actionForBinding("mod+2"), "go-sessions");
+		assert.equal(actionForBinding("mod+3"), "go-knowledge");
+		assert.equal(formatBinding("mod+1"), IS_MAC ? "⌘1" : "Ctrl+1");
 	});
 
-	it("the event the chain ends in is the one the sidebar answers on", () => {
-		const action = actionForBinding("mod+b");
-		assert.equal(action, "toggle-sidebar");
-		assert.equal(kbdEventForAction(action), "np:kbd-toggle-sidebar");
+	it("the sidebar toggle is gone: mod+b binds to nothing", () => {
+		assert.equal(actionForBinding("mod+b") ?? null, null);
+		assert.ok(!KEYBOARD_ACTIONS.some((a) => (a.id as string) === "toggle-sidebar"));
 	});
 });
 
@@ -60,7 +56,7 @@ describe("the thinking pill suffix — ⇧⇥ via the registry", () => {
 
 describe("the Alt session cycle is RETIRED (owner, 2026-10-10)", () => {
 	// Barely used, felt laggy — session navigation lives IN the search
-	// now (↑/↓ walk the filtered list, Enter opens; sidebar.tsx).
+	// now (↑/↓ walk the filtered list, Enter opens; sessions.tsx).
 	it("⌥↑ / ⌥↓ / ⌥↵ bind to NOTHING — no stray action fires", () => {
 		assert.equal(actionForBinding("alt+arrowup") ?? null, null);
 		assert.equal(actionForBinding("alt+arrowdown") ?? null, null);

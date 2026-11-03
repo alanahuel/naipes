@@ -216,12 +216,12 @@ describe("agent section compose helpers — the replace-whole PUT body", () => {
 
 describe("nextOverrides — the rebind persistence map", () => {
 	it("a rebind sets the action's override, keeping the others", () => {
-		const next = nextOverrides({ "toggle-sidebar": "mod+b" }, "open-settings", "mod+shift+s");
-		assert.deepEqual(next, { "toggle-sidebar": "mod+b", "open-settings": "mod+shift+s" });
+		const next = nextOverrides({ "go-home": "mod+h" }, "open-settings", "mod+shift+s");
+		assert.deepEqual(next, { "go-home": "mod+h", "open-settings": "mod+shift+s" });
 	});
 
 	it("null = reset that action to its default (key removed)", () => {
-		const next = nextOverrides({ "toggle-sidebar": "mod+b", find: "mod+f" }, "toggle-sidebar", null);
+		const next = nextOverrides({ "go-home": "mod+h", find: "mod+f" }, "go-home", null);
 		assert.deepEqual(next, { find: "mod+f" });
 	});
 });

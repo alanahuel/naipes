@@ -125,9 +125,11 @@ describe("ChainTableBody — clusters (the outermost layer)", () => {
 });
 
 describe("ChainTableBody — THE shared TopBar + the lines law (owner, round 2)", () => {
-	it("the body renders the standardized top bar: h-15, np-drag, select-none, NO title (serif = session name, always), close X", () => {
+	it("the body renders the standardized top bar: h-15, select-none, NO title (serif = session name, always), close X", () => {
 		const html = render();
-		assert.ok(html.includes("np-drag"), "the window-drag band");
+		// Stage 3: the overlay sits INSIDE the sheet — the top nav above it
+		// is the window's drag band, so this bar no longer drags.
+		assert.ok(!html.includes("np-drag"), "not a drag band");
 		assert.ok(html.includes("select-none"), "dragging never highlights the bar");
 		assert.ok(html.includes("h-15"), "the standard height");
 		assert.ok(!html.includes(">Chains<"), "NO title (owner round 11): the serif register always names a session");

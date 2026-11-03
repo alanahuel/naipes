@@ -3,36 +3,81 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CornerDownLeftIcon, DumbbellIcon } from "lucide-react";
-import { GraphView } from "@/components/graph-view";
-import { MinimalHome } from "@/components/minimal-home";
+import Link from "next/link";
+import { ChainTableOverlay } from "@/components/chain-table.tsx";
+import { SessionRow, useChatList } from "@/components/sessions";
 import { SetupDialog } from "@/components/setup-dialog";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
-import { SidebarToggle } from "@/components/sidebar";
 import { StatsBar } from "@/components/stats-bar";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
-import type { TurnUsage } from "@/src/core";
+import type { ChatListItem, GraphSnapshot, TurnUsage } from "@/src/core";
 import { useT } from "@/components/i18n";
 
-/**
- * Home — the knowledge graph is the main view, full-bleed edge to edge
- * (owner, graph-view round 1): the canvas owns the whole column, running
- * under the header and the new-session dock, both of which float over it
- * with no gradient scrims. Sessions live in the toggleable sidebar.
- */
-export function Home({
-	initialConfigured,
-	rendering = true,
+/** «Seguir con»: what needs you first (your turn, a waiting problem, the
+ *  tutor working), then the most recent — three at most. Pure — tested. */
+export function continueWith(chats: readonly ChatListItem[], limit = 3): ChatListItem[] {
+	const attention = (c: ChatListItem) =>
+		c.pendingQuestion || ((c.kind ?? "teach") === "practice" && c.pendingProblem) || c.busy || c.compacting ? 0 : 1;
+	return [...chats]
+		.sort((a, b) => attention(a) - attention(b) || b.updatedAt.localeCompare(a.updatedAt))
+		.slice(0, limit);
+}
+
+/** The practice picker without the graph tab: Inicio owns the chain
+ *  table (select mode) and loads the snapshot only while it is open. */
+function PracticePicker({
+	open,
+	selection,
+	onSelectionChange,
+	onClose,
 }: {
-	initialConfigured: boolean;
-	/** GRAPH RENDERING off (owner, 2026-10-06): the home's main view is
-	 * the chains view, not the canvas. Read server-side per navigation —
-	 * changing the setting applies on the next visit home. */
-	rendering?: boolean;
+	open: boolean;
+	selection: ReadonlySet<string>;
+	onSelectionChange: (picked: { id: string; name: string; statement: string }[]) => void;
+	onClose: () => void;
 }) {
+	const [snapshot, setSnapshot] = useState<GraphSnapshot | null>(null);
+	useEffect(() => {
+		if (!open) return;
+		fetch("/api/graph")
+			.then((res) => res.json() as Promise<GraphSnapshot>)
+			.then(setSnapshot)
+			.catch(() => {});
+	}, [open]);
+	return (
+		<ChainTableOverlay
+			open={open && (snapshot?.propositions.length ?? 0) > 0}
+			nodes={snapshot?.propositions ?? []}
+			chains={snapshot?.chains ?? []}
+			sessions={snapshot?.sessions ?? {}}
+			fileSources={snapshot?.fileSources ?? {}}
+			onClose={onClose}
+			selectMode
+			controlledSelection={selection}
+			onSelectionChange={(ids) => {
+				const props = snapshot?.propositions ?? [];
+				const picked: { id: string; name: string; statement: string }[] = [];
+				for (const id of ids) {
+					const n = props.find((node) => node.id === id);
+					if (n) picked.push({ id: n.id, name: n.name, statement: n.statement });
+				}
+				onSelectionChange(picked);
+			}}
+		/>
+	);
+}
+
+/**
+ * INICIO (Naipes interface, stage 3): «¿Qué quieres aprender?» — the
+ * teach/practice composer — then «Seguir con» (the sessions that need you).
+ * The knowledge graph moved to its own tab; picking ideas for practice
+ * opens the chain table right here.
+ */
+export function Home({ initialConfigured }: { initialConfigured: boolean }) {
 	const t = useT();
 	const router = useRouter();
 	const [topic, setTopic] = useState("");
@@ -157,61 +202,15 @@ export function Home({
 		}
 	};
 
+	const { chats } = useChatList();
+	const recent = chats ? continueWith(chats) : null;
+
 	return (
-		<div className="relative h-dvh">
-			{/* Window-drag strip (merged chrome, owner 2026-09-17): a dedicated
-			    mask element, deliberately FIRST in the DOM. Electron's app-region
-			    mask resolves by DOM order — a no-drag element subtracts only drag
-			    regions that came EARLIER in the tree — not by z-index, so the
-			    header's old inline drag region (after <main>) re-added itself over
-			    the graph chrome row's carve-out and the buttons dragged the window.
-			    Placed first, every carved control (chrome row, node detail card,
-			    the toggle) comes later and subtracts correctly. Pure mask: it
-			    never needs to receive events — the mask routes the pixels. */}
-			<div className="np-drag absolute inset-x-0 top-0 h-13" aria-hidden="true" />
-
-			{/* The main view — full-bleed (owner, graph-view round 1): no
-			    padding on any side; it runs from the sidebar to the right edge
-			    and from the bottom to the top, under everything else. With
-			    rendering OFF (graph.rendering, owner 2026-10-06) it is the
-			    MINIMAL HOME — a quiet knowledge-base summary + the graph
-			    chrome's survivors; data, extraction, and the pick flow are
-			    untouched, and the chain table stays behind its button. */}
-			<main className="absolute inset-0">
-				{rendering ? (
-					<GraphView
-						chainSelectOpen={chainSelectOpen}
-						practiceSelection={pickedIds}
-						onPracticeSelectionChange={setPracticeProps}
-						onChainSelectClose={() => setChainSelectOpen(false)}
-					/>
-				) : (
-					<MinimalHome
-						chainSelectOpen={chainSelectOpen}
-						practiceSelection={pickedIds}
-						onPracticeSelectionChange={setPracticeProps}
-						onChainSelectClose={() => setChainSelectOpen(false)}
-					/>
-				)}
-			</main>
-
-			{/* Header floats over the graph — pointer-events-none except the
-			    toggle, so the canvas stays draggable/hoverable around it. Carries
-			    no app-region of its own: the strip's drag comes from the mask
-			    div above, and the toggle's np-no-drag subtracts from it (it is
-			    later in the tree, so the subtraction sticks). */}
-			<header className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 px-3 py-2">
-				<div className="pointer-events-auto">
-					<SidebarToggle />
-				</div>
-			</header>
-
-			{/* New session — same floating blob as the chat composer, docked
-			    OVER the graph (no gradient: the graph runs clean under it to the
-			    bottom edge). Matches chat.tsx's DOCK geometry (max-w-[46rem]
-			    px-4) so nothing shifts when a session starts (owner). */}
-			<div className="pointer-events-none absolute inset-x-0 bottom-0 pb-5">
-				<div className="pointer-events-auto mx-auto w-full max-w-[46rem] px-4">
+		<div className="h-full overflow-y-auto" data-testid="start-page">
+			<div className="mx-auto flex w-full max-w-[46rem] flex-col gap-10 px-4 pb-16 pt-[12vh]">
+				<section className="flex flex-col gap-4">
+					<h1 className="px-1 text-[26px] font-semibold leading-[34px] tracking-tight">{t("graph.home.placeholderLearn")}</h1>
+					<div>
 					{/* The pick bar (owner vision, 2026-10-04): the chain
 					    table's selection is PERSISTENT — picked
 					    propositions show here as a count + Clear in EITHER
@@ -317,13 +316,33 @@ export function Home({
 							</div>
 						}
 					/>
-				</div>
+					</div>
+				</section>
+
+				{recent && recent.length > 0 && (
+					<section className="flex flex-col gap-3" data-testid="continue-with">
+						<div className="flex items-baseline justify-between px-1">
+							<h2 className="text-lg font-semibold">{t("sessions.continueWith")}</h2>
+							<Link href="/sessions" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
+								{t("sessions.seeAll")}
+							</Link>
+						</div>
+						<div className="overflow-hidden rounded-xl border">
+							{recent.map((c) => (
+								<SessionRow key={c.id} chat={c} active={false} onOpen={() => router.push(`/chat/${c.id}`)} />
+							))}
+						</div>
+					</section>
+				)}
 			</div>
 
-			{/* First-run setup (unconfigured): the CTA's target and the send
-			    interception's landing surface — stage 1 is the self-contained
-			    first-key screen (zero-keys wave); Save never sends — the
-			    draft stays for the learner to send (owner 2026-10-09). */}
+			<PracticePicker
+				open={chainSelectOpen}
+				selection={pickedIds}
+				onSelectionChange={setPracticeProps}
+				onClose={() => setChainSelectOpen(false)}
+			/>
+
 			<SetupDialog
 				open={setupOpen}
 				onClose={() => setSetupOpen(false)}

@@ -327,16 +327,24 @@ function AddProviderRow({
 	);
 }
 
+/** The Keys section's groups (Tu IA shows model keys + subscriptions;
+ *  Conexiones shows dictation + search). */
+export type KeysGroup = "modelKeys" | "subscriptions" | "dictation" | "search";
+
 export function KeysSection({
 	/** A deep-linked row to unfold on arrival (zero-keys wave): the
 	 *  dictation error's click lands here on DEEPGRAM_API_KEY. Followed
 	 *  while mounted too — the settings dialog's while-open retarget
 	 *  pattern. undefined = nothing seeded. */
 	initialRow,
+	groups,
 }: {
 	initialRow?: string;
+	/** Which groups to show (settings pages split them); all when absent. */
+	groups?: ReadonlyArray<KeysGroup>;
 }) {
 	const t = useT();
+	const show = (g: KeysGroup) => !groups || groups.includes(g);
 	const [statuses, setStatuses] = useState<AuthKeyStatus[] | null>(null);
 	const [providers, setProviders] = useState<ProviderKeyInfo[] | undefined>(undefined);
 	const [loading, setLoading] = useState(true);
@@ -429,7 +437,7 @@ export function KeysSection({
 
 	return (
 		<>
-			<SettingsGroup label={t("settings.providers.groupModelKeys")} testid="group-provider-keys">
+			{show("modelKeys") && <SettingsGroup label={t("settings.providers.groupModelKeys")} testid="group-provider-keys">
 				{providerRows.map((status) => (
 					<KeyTableRow
 						key={status.id}
@@ -469,13 +477,13 @@ export function KeysSection({
 						<span className="font-mono text-[11px] text-muted-foreground">{status.masked}</span>
 					</div>)}
 				</div>}
-			</SettingsGroup>
+			</SettingsGroup>}
 
-			<SettingsGroup label={t("settings.providers.groupSubscriptions")} testid="group-subscriptions">
+			{show("subscriptions") && <SettingsGroup label={t("settings.providers.groupSubscriptions")} testid="group-subscriptions">
 				<SubscriptionConnections />
-			</SettingsGroup>
+			</SettingsGroup>}
 
-			{(["Dictation", "Search"] as const).map((label) => <SettingsGroup key={label} label={label === "Dictation" ? t("settings.providers.groupDictation") : t("settings.providers.groupSearch")} testid={label === "Dictation" ? "group-dictation" : "group-search"}>
+			{(["Dictation", "Search"] as const).filter((label) => show(label === "Dictation" ? "dictation" : "search")).map((label) => <SettingsGroup key={label} label={label === "Dictation" ? t("settings.providers.groupDictation") : t("settings.providers.groupSearch")} testid={label === "Dictation" ? "group-dictation" : "group-search"}>
 				{toolRows.filter((status) => label === "Dictation" ? status.id === "DEEPGRAM_API_KEY" : status.id !== "DEEPGRAM_API_KEY").map((status) => (
 					<KeyTableRow
 						key={status.id}

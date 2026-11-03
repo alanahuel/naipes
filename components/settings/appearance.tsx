@@ -9,8 +9,8 @@
  * so application is setProperty and nothing re-renders. The ONE thing the
  * variables can't reach — the mode — toggles the `dark` class on <html>:
  * "system" follows prefers-color-scheme live, "light"/"dark" force one.
- * The chosen mode is cached in localStorage (THEME_STORAGE_KEY) so the
- * inline script in app/layout.tsx applies it before first paint.
+ * The root layout renders a forced mode's class server-side and passes
+ * the mode in (initialMode), so the first paint is right without a script.
  *
  * The provider is mounted at the ROOT LAYOUT level (like ActivityProvider):
  * every page picks appearance up on load. The settings page writes a
@@ -21,7 +21,7 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { FACTORY_SETTINGS, THEME_STORAGE_KEY, effectiveTheme, isThemeMode, type AppearanceSettings, type EffectiveTheme, type ThemeMode } from "@/src/core";
+import { FACTORY_SETTINGS, effectiveTheme, type AppearanceSettings, type EffectiveTheme, type ThemeMode } from "@/src/core";
 
 /** The resolved, fully-concrete appearance view (delta + factory merged). */
 export function resolveAppearance(delta: AppearanceSettings | undefined) {
@@ -127,16 +127,6 @@ export function useAppearance() {
 	return useContext(AppearanceContext);
 }
 
-/** Read the cached mode (what the pre-paint script applied). */
-function cachedMode(): ThemeMode {
-	try {
-		const stored = localStorage.getItem(THEME_STORAGE_KEY);
-		return isThemeMode(stored) ? stored : FACTORY_SETTINGS.appearance.mode;
-	} catch {
-		return FACTORY_SETTINGS.appearance.mode;
-	}
-}
-
 /** Live prefers-color-scheme (true = dark). SSR-safe. */
 function useSystemDark(): boolean {
 	const [dark, setDark] = useState(() => typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -150,30 +140,27 @@ function useSystemDark(): boolean {
 	return dark;
 }
 
-export function AppearanceProvider({ children }: { children: React.ReactNode }) {
+export function AppearanceProvider({ children, initialMode = FACTORY_SETTINGS.appearance.mode }: { children: React.ReactNode; initialMode?: ThemeMode }) {
 	const [delta, setDelta] = useState<AppearanceSettings | undefined>(undefined);
-	// Until the record arrives, the cached mode stands in (no flip on load).
+	// Until the record arrives, the server's mode (it rendered the <html>
+	// class from the same record) stands in — no flip on load.
 	const [loaded, setLoaded] = useState(false);
 	const appliedRef = useRef<string>("");
 	const systemDark = useSystemDark();
-	const mode: ThemeMode = loaded ? resolveAppearance(delta).mode : typeof window === "undefined" ? FACTORY_SETTINGS.appearance.mode : cachedMode();
+	const mode: ThemeMode = loaded ? resolveAppearance(delta).mode : initialMode;
 	const theme = effectiveTheme(mode, systemDark);
 
-	// Theme application: the class Tailwind's dark variant keys on, the
-	// native form-control scheme, the cache for the pre-paint script, and
-	// the desktop shell (title-bar overlay + window background).
+	// Theme application: the class pair Tailwind's dark variant and the
+	// token blocks key on, the native form-control scheme, and the desktop
+	// shell (title-bar overlay + window background).
 	useEffect(() => {
 		const root = document.documentElement;
 		root.classList.toggle("dark", theme === "dark");
+		root.classList.toggle("light", theme === "light");
 		root.style.colorScheme = theme;
 		root.dataset.theme = theme;
-		try {
-			localStorage.setItem(THEME_STORAGE_KEY, mode);
-		} catch {
-			// Storage blocked: the theme still applies for this session.
-		}
 		(window as { np?: { setTheme?: (t: EffectiveTheme) => void } }).np?.setTheme?.(theme);
-	}, [theme, mode]);
+	}, [theme]);
 
 	// The vars apply on every change — stringified as the change signal.
 	const vars = useMemo(() => appearanceVars(resolveAppearance(delta), theme), [delta, theme]);

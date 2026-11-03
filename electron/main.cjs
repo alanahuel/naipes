@@ -814,6 +814,13 @@ async function main() {
 			}
 		}
 	});
+	// Profile menu → «Abrir la carpeta de datos»: the userData folder in
+	// the system file manager (data, logs, keys file — never edited here).
+	ipcMain.on("np:open-data-folder", (event) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win || !trustedAppWindows.has(win)) return;
+		void shell.openPath(app.getPath("userData"));
+	});
 	ipcMain.on("np:expand-window", (event) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win) return;

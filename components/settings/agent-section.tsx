@@ -283,6 +283,10 @@ function MenuTrigger({
  * viewport cap and auto-flip. data-np-menu rides the shell — the
  * outside-click contract's exemption mark. */
 
+/** The Agent section's groups (Tu IA: models + tools; Avanzado:
+ *  context + prompts). */
+export type AgentGroup = "models" | "tools" | "context" | "prompts";
+
 export function AgentSection({
 	agent,
 	models,
@@ -291,6 +295,7 @@ export function AgentSection({
 	onSectionChange,
 	onModelsChange,
 	onCompactionChange,
+	groups,
 }: {
 	agent: AgentSettings | undefined;
 	/** The `models` section (slot pins — engine-level, PUT /api/settings/models). */
@@ -308,8 +313,11 @@ export function AgentSection({
 	onModelsChange: (next: ModelsSettings) => void;
 	/** Writes the whole compaction section (replace-PUT discipline). */
 	onCompactionChange: (next: CompactionSettings) => void;
+	/** Which groups to show (settings pages split them); all when absent. */
+	groups?: ReadonlyArray<AgentGroup>;
 }) {
 	const t = useT();
+	const show = (g: AgentGroup) => !groups || groups.includes(g);
 	const { catalog: body, failed: catalogFailed, refresh: refreshCatalog } = useModelCatalog();
 	const catalog = body?.models;
 	const slots = body?.slots;
@@ -599,7 +607,7 @@ export function AgentSection({
 
 	return (
 		<>
-			<SettingsGroup label={t("settings.agent.groupModels")} testid="group-models">
+			{show("models") && <SettingsGroup label={t("settings.agent.groupModels")} testid="group-models">
 				{catalogFailed && <p role="alert" className="text-xs text-warn">{t("settings.agent.catalogError")} <button type="button" className="underline" onClick={refreshCatalog}>{t("settings.retry")}</button></p>}
 				{MODEL_SLOTS.map((slot) => {
 					const override = models?.[slot];
@@ -708,9 +716,9 @@ export function AgentSection({
 						</SettingsRow>
 					);
 				})}
-			</SettingsGroup>
+			</SettingsGroup>}
 
-			<SettingsGroup label={t("settings.agent.groupTools")} testid="group-tools">
+			{show("tools") && <SettingsGroup label={t("settings.agent.groupTools")} testid="group-tools">
 				{/* The prober's graph tools (wave 7, owner ruling 2026-09-23):
 				    FIRST row of the group — its subject is the map, its
 				    mechanism is agent capability, so it lives in Tools but
@@ -836,9 +844,9 @@ export function AgentSection({
 						</SettingsRow>
 					);
 				})()}
-			</SettingsGroup>
+			</SettingsGroup>}
 
-			<SettingsGroup label={t("settings.agent.groupContext")} testid="group-context">
+			{show("context") && <SettingsGroup label={t("settings.agent.groupContext")} testid="group-context">
 				<SettingsRow
 					label={t("settings.agent.compaction")}
 					hint={t("settings.tokens", { n: resolvedCompaction.thresholdTokens })}
@@ -869,9 +877,9 @@ export function AgentSection({
 						}}
 					/>
 				</SettingsRow>
-			</SettingsGroup>
+			</SettingsGroup>}
 
-			<SettingsGroup label={t("settings.agent.groupPrompts")} testid="group-prompts">
+			{show("prompts") && <SettingsGroup label={t("settings.agent.groupPrompts")} testid="group-prompts">
 				{prompts === null ? (
 					<p className="text-xs text-muted-foreground/70">{t("settings.agent.loadingPrompts")}</p>
 				) : (
@@ -895,7 +903,7 @@ export function AgentSection({
 						))}
 					</div>
 				)}
-			</SettingsGroup>
+			</SettingsGroup>}
 		</>
 	);
 }

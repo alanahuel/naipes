@@ -122,12 +122,24 @@ export function KeyboardShortcuts() {
 					handlersRef.current.router.push("/chat/new");
 					break;
 				case "open-settings":
-					// Settings-app wave: the dialog is the surface, the URL is
-					// gone — /settings redirects to the draft shell.
+					// Settings are pages (stage 3): open() navigates to «Tu IA».
 					handlersRef.current.openSettings();
 					break;
-				case "jump-graph":
+				case "go-home":
 					handlersRef.current.router.push("/");
+					break;
+				case "go-sessions":
+					handlersRef.current.router.push("/sessions");
+					break;
+				case "go-knowledge":
+				case "jump-graph":
+					handlersRef.current.router.push("/knowledge");
+					break;
+				case "sessions-search":
+					// The search lives on «Mis sesiones»: go there and focus it
+					// (the page reads ?search=1 on arrival; already there → the event).
+					if (window.location.pathname === "/sessions") window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
+					else handlersRef.current.router.push("/sessions?search=1");
 					break;
 				case "cheat-sheet":
 					handlersRef.current.setCheatOpen(true);

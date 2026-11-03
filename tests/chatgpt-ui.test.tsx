@@ -7,7 +7,7 @@ import { parseHTML } from "linkedom";
 import { useModelCatalog, catalogLimits } from "../components/model-picker.tsx";
 import { useZeroKeys, useStrongKeyless } from "../components/setup-cta.tsx";
 import { notifySettingsSaved } from "../components/settings-signal.ts";
-import { SidebarProvider } from "../components/sidebar.tsx";
+import { ShellProvider as SidebarProvider } from "../components/app-shell.tsx";
 import { ChatGPTConnection, ChatGPTUIProvider } from "../components/settings/chatgpt-connection.tsx";
 import { GraphCostControl } from "../components/graph-view.tsx";
 import { graphCostSummary as foldGraphCostSummary, type CostSummaryInput } from "../src/core/cost-summary.ts";

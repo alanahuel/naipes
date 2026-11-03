@@ -17,7 +17,9 @@ import { AppearanceSection, GraphSection } from "../components/settings/appearan
 import { KeysSection } from "../components/settings/keys-section.tsx";
 import { KeyboardSection } from "../components/settings/keyboard-section.tsx";
 import type { GraphSettings } from "../src/core/index.ts";
-import { SettingsDialogBody, SettingsDialogProvider } from "../components/settings/settings-dialog.tsx";
+import { settingsHref } from "../components/settings/settings-dialog.tsx";
+import { SettingsPage, isSettingsPage } from "../components/settings/settings-page.tsx";
+import { SETTINGS_PAGES } from "../components/app-shell.tsx";
 import { KEYBOARD_ACTIONS } from "../src/core/index.ts";
 import { DictationLanguageSetting } from "../components/dictation-language.tsx";
 import { SettingsMenuTrigger } from "../components/settings/controls.tsx";
@@ -32,34 +34,36 @@ function tagOf(html: string, testid: string): string {
 	return html.slice(html.lastIndexOf("<", i), html.indexOf(">", i) + 1);
 }
 
-describe("SettingsDialog (the designed surface, SSR)", () => {
-	it("provider CLOSED: children only — no dialog, no portal content", () => {
-		const html = renderToStaticMarkup(
-			<SettingsDialogProvider>
-				<p>the app</p>
-			</SettingsDialogProvider>,
-		);
-		assert.ok(html.includes("the app"));
-		assert.ok(!html.includes("settings-backdrop"));
-		assert.ok(!html.includes("settings-dialog"));
+describe("settings pages (stage 3: the dialog became pages)", () => {
+	it("every old dialog section lands on its page; Keys rows for dictation/search land on Conexiones", () => {
+		assert.equal(settingsHref(), "/settings/ai");
+		assert.equal(settingsHref("keys"), "/settings/ai");
+		assert.equal(settingsHref("agent"), "/settings/ai");
+		assert.equal(settingsHref("obsidian"), "/settings/connections");
+		assert.equal(settingsHref("appearance"), "/settings/appearance");
+		assert.equal(settingsHref("keyboard"), "/settings/shortcuts");
+		assert.equal(settingsHref("graph"), "/settings/advanced");
+		assert.equal(settingsHref("general"), "/settings/advanced");
+		assert.equal(settingsHref("keys", "DEEPGRAM_API_KEY"), "/settings/connections?row=DEEPGRAM_API_KEY");
+		assert.equal(settingsHref("keys", "OPENAI_API_KEY"), "/settings/ai?row=OPENAI_API_KEY");
 	});
 
-	it("the dialog frame: role=dialog + the ✕ + the seven-section nav, Providers first and General last", () => {
-		const html = renderToStaticMarkup(<SettingsDialogBody onClose={() => {}} />);
-		assert.ok(html.includes('role="dialog"'));
-		assert.ok(html.includes('aria-modal="true"'));
-		assert.ok(html.includes('aria-label="Close settings"'));
-		for (const id of ["general", "keys", "agent", "appearance", "graph", "obsidian", "keyboard"]) {
-			assert.ok(html.includes(`data-testid="settings-nav-${id}"`), id);
-		}
-		// Providers is the first landing section; internal keys deep links survive.
-		assert.ok(tagOf(html, "settings-nav-keys").includes('aria-current="true"'));
-		assert.ok(html.indexOf('data-testid="settings-nav-keys"') < html.indexOf('data-testid="settings-nav-general"'));
-		assert.ok(tagOf(html, "settings-nav-keyboard").includes('aria-current="false"'));
-		// Fetches don't run under SSR — the loading state IS the SSR state.
+	it("the profile menu lists the pages in order: Tu IA, Conexiones, Apariencia, Atajos, Avanzado", () => {
+		assert.deepEqual(SETTINGS_PAGES.map((p) => p.id), ["ai", "connections", "appearance", "shortcuts", "advanced"]);
+		for (const p of SETTINGS_PAGES) assert.ok(isSettingsPage(p.id), p.id);
+		assert.ok(isSettingsPage("language") && !isSettingsPage("general"));
+	});
+
+	it("a page renders its title and the loading state under SSR", () => {
+		const html = renderToStaticMarkup(<SettingsPage page="ai" />);
+		assert.ok(html.includes('data-testid="settings-page-ai"'));
+		assert.ok(html.includes("Your AI"));
 		assert.ok(html.includes("Loading settings…"));
-		// Modal-only doctrine: no link back to /settings anywhere in it.
-		assert.ok(!html.includes('href="/settings"'));
+	});
+
+	it("shortcuts and language need no record (device storage / live locale)", () => {
+		assert.ok(renderToStaticMarkup(<SettingsPage page="shortcuts" />).includes("Shortcuts"));
+		assert.ok(renderToStaticMarkup(<SettingsPage page="language" />).includes('data-testid="select-language"'));
 	});
 });
 
