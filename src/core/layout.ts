@@ -531,6 +531,31 @@ export interface IncrementalLayoutOptions {
 	logicalEdges?: ReadonlyArray<LayoutEdge>;
 	/** The imp chain linkage for the midpoint anchor (see SimOptions). */
 	impLinks?: ReadonlyArray<ImpLink>;
+	/** COLD-START GROUP SEEDING (the «Reorganizar» action, owner
+	 *  2026-11-03): with no anchors at all, seed each `clusters` group in
+	 *  its own disc, the discs laid on a golden-angle spiral (area-
+	 *  proportional), so the centroid pull separates the groups into
+	 *  islands instead of untangling one random blob. Ignored when any
+	 *  node has a previous position. */
+	seedGroups?: boolean;
+}
+
+/** World units per sqrt(member) of a seeded group's disc radius. */
+const SEED_GROUP_SCALE = 14;
+
+/** Seed centers + radii for the cold-start group seeding: a golden-angle
+ *  spiral whose radial step follows the cumulative group AREA, so big
+ *  groups get room and nothing overlaps at seed time. Pure, exported for
+ *  the test pin. */
+export function seedGroupDiscs(sizes: ReadonlyArray<number>): Array<{ x: number; y: number; r: number }> {
+	const golden = Math.PI * (3 - Math.sqrt(5));
+	let cumulative = 0;
+	return sizes.map((size, i) => {
+		const r = Math.sqrt(Math.max(size, 1)) * SEED_GROUP_SCALE;
+		const dist = i === 0 ? 0 : Math.sqrt(cumulative + size / 2) * SEED_GROUP_SCALE * 2;
+		cumulative += size;
+		return { x: Math.cos(i * golden) * dist, y: Math.sin(i * golden) * dist, r };
+	});
 }
 
 /**
@@ -607,9 +632,32 @@ export function incrementalLayout(
 	rimRadius += 4;
 
 	// Seed every node.
+	// Cold-start group seeding (see IncrementalLayoutOptions.seedGroups).
+	const seedDisc = new Map<string, { x: number; y: number; r: number }>();
+	if (!hasCore && options.seedGroups && options.clusters && options.clusters.length > 0) {
+		const discs = seedGroupDiscs(options.clusters.map((c) => c.members.length));
+		options.clusters.forEach((c, i) => {
+			for (const id of c.members) if (!seedDisc.has(id)) seedDisc.set(id, discs[i]!);
+		});
+		// Ungrouped nodes: one more disc on the spiral's next slot.
+		const loose = nodes.filter((n) => !seedDisc.has(n.id)).length;
+		if (loose > 0) {
+			const extra = seedGroupDiscs([...options.clusters.map((c) => c.members.length), loose]).at(-1)!;
+			for (const n of nodes) if (!seedDisc.has(n.id)) seedDisc.set(n.id, extra);
+		}
+	}
+
 	const simNodes: LayoutNode[] = nodes.map((node) => {
 		const rand = seededRandom(node.id);
 		const anchor = anchors.get(node.id);
+		const disc = seedDisc.get(node.id);
+		if (disc) {
+			const angle = rand() * Math.PI * 2;
+			const radius = Math.sqrt(rand()) * disc.r;
+			const x = disc.x + Math.cos(angle) * radius;
+			const y = disc.y + Math.sin(angle) * radius;
+			return { id: node.id, x: x === 0 && y === 0 ? 0.5 : x, y };
+		}
 		let x: number;
 		let y: number;
 		if (anchor) {

@@ -70,3 +70,14 @@ export function commitPositions(input: unknown): Record<string, Position> {
 	}
 	return positions;
 }
+/**
+ * The «Reorganizar» action (POST /api/graph/positions/relayout, owner
+ * 2026-11-03): recompute the WHOLE resting layout from scratch — no
+ * anchors, each folder area seeded in its own disc and pulled into an
+ * island — and replace the ledger. Synchronous like every settle; the
+ * client refetches the snapshot afterwards.
+ */
+export function relayoutGraph(): { nodes: number } {
+	settleGraphLayout(stores.graphStore, { fresh: true });
+	return { nodes: Object.keys(stores.graphStore.readPositions()).length };
+}

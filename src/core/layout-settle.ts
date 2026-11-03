@@ -2,6 +2,7 @@ import type { GraphChain, GraphNode, Position } from "./contracts.ts";
 import { incrementalLayout } from "./layout.ts";
 import { attachImpToCommunities, birthSessionPartition } from "./session-clusters.ts";
 import { deriveView, getGraph } from "./graph.ts";
+import { buildAreas } from "./areas.ts";
 
 /**
  * The merge-time settle: recompute the resting layout from the CURRENT
@@ -23,16 +24,30 @@ import { deriveView, getGraph } from "./graph.ts";
  * Server code imports it DIRECTLY; it is never re-exported through
  * src/core/index.ts.
  */
-export function settleGraphLayout(graphStore: {
-	readNodes(): GraphNode[];
-	readChains(): GraphChain[];
-	readPositions(): Record<string, Position>;
-	writePositions(positions: Record<string, Position>): void;
-}): void {
+/** Ticks for a from-scratch relayout. The area-seeded start is already
+ *  close to its islands, so d3's default anneal (300) is enough — and
+ *  each tick costs ~35ms of Barnes-Hut on a 4k-node graph (measured
+ *  2026-11-03), so 600 would block the server for ~20s. */
+const FRESH_TICKS = 300;
+
+export function settleGraphLayout(
+	graphStore: {
+		readNodes(): GraphNode[];
+		readChains(): GraphChain[];
+		readSources(): ReadonlyArray<{ id: string; filePath: string }>;
+		readPositions(): Record<string, Position>;
+		writePositions(positions: Record<string, Position>): void;
+	},
+	options: { fresh?: boolean } = {},
+): void {
 	const graph = getGraph(graphStore);
 	if (graph.nodes.length === 0) return;
 	const view = deriveView(graph);
-	const previous = new Map(Object.entries(graphStore.readPositions()));
+	// FRESH (the «Reorganizar» action, owner 2026-11-03): no anchors at
+	// all — the layout is recomputed from scratch, seeded per area.
+	const previous = options.fresh
+		? new Map<string, Position>()
+		: new Map(Object.entries(graphStore.readPositions()));
 	// The cluster partition for the centroid pull: the SAME birth-session
 	// partition the snapshot renders (derived from provenance on read —
 	// core/session-clusters.ts, wave 7) — one cluster concept everywhere.
@@ -45,8 +60,14 @@ export function settleGraphLayout(graphStore: {
 	// tick would fight the settle. Unfiltered here (settle pulls every
 	// community, hulls are a canvas-only concern).
 	attachImpToCommunities(communities, graph.nodes, graph.chains);
+	// The pull follows the AREA (owner, 2026-11-03): the same partition
+	// the snapshot serves (core/areas.ts), so the live sim agrees.
+	const fileSources: Record<string, string> = {};
+	for (const s of graphStore.readSources()) fileSources[s.id] = s.filePath;
+	const { areas } = buildAreas(communities, fileSources);
 	const next = incrementalLayout(view.nodes, view.edges, previous, {
-		clusters: communities,
+		clusters: areas,
+		...(options.fresh ? { seedGroups: true, ticks: FRESH_TICKS } : {}),
 		logicalEdges: view.logicalEdges,
 		impLinks: view.impLinks,
 	});
