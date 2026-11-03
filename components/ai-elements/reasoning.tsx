@@ -8,6 +8,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { translator, useT, type Translate } from "@/components/i18n";
 import { ChevronDownIcon } from "lucide-react";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import type { ComponentProps, ReactNode } from "react";
@@ -134,20 +135,21 @@ export type ReasoningTriggerProps = ComponentProps<
    for a few seconds"), bookkeeping for information we knowingly lose. The
    label pairs with the user's collapsed "Your thinking" rows — one
    language; motion (spinner + shimmer) stays the working signal. */
-const defaultGetThinkingMessage = (isStreaming: boolean) => {
+const defaultGetThinkingMessage = (isStreaming: boolean, t: Translate = translator("en")) => {
   if (isStreaming) {
-    return <Shimmer duration={1}>Thinking...</Shimmer>;
+    return <Shimmer duration={1}>{t("session.reasoning.streaming")}</Shimmer>;
   }
-  return <p>AGENT’S THINKING</p>;
+  return <p>{t("session.agentThinking")}</p>;
 };
 
 export const ReasoningTrigger = memo(
   ({
     className,
     children,
-    getThinkingMessage = defaultGetThinkingMessage,
+    getThinkingMessage,
     ...props
   }: ReasoningTriggerProps) => {
+    const t = useT();
     const { isStreaming, isOpen } = useReasoning();
 
     return (
@@ -175,8 +177,8 @@ export const ReasoningTrigger = memo(
                 the component default (h-3) — IDENTICAL to the placeholder
                 spinner (owner, 2026-10-02): the handoff between the two
                 states must be visually seamless, one size everywhere. */}
-            {isStreaming && <BrailleSpinner label="Thinking" />}
-            {getThinkingMessage(isStreaming)}
+            {isStreaming && <BrailleSpinner label={t("session.thinkingLabel")} />}
+            {getThinkingMessage ? getThinkingMessage(isStreaming) : defaultGetThinkingMessage(isStreaming, t)}
             <ChevronDownIcon
               className={cn(
                 "size-4 transition-transform",
