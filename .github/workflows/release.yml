@@ -112,15 +112,6 @@ jobs:
         with:
           node-version: "26"
           cache: npm
-      # The mac icon is the Icon Composer document (build/icon.icon);
-      # compiling it needs both macOS 26+ and actool ≥ 26 (Xcode 26+).
-      # Xcode 26's asset compiler crashes on macOS 15's older frameworks.
-      # Select the latest stable Xcode; no-op for Windows/Linux.
-      - name: Select Xcode 26+ for actool (mac icon compile)
-        if: runner.os == 'macOS'
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
       - run: npm ci
       - name: Native renderer tests on this OS
         run: npx electron --import tsx --test tests/pdf-native-render.test.ts tests/pdf-ops.test.ts tests/svg-native-render.test.ts tests/browser-service.test.ts

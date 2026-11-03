@@ -14,13 +14,7 @@ productName: Naipes
 directories:
   output: dist
 # Icons (owner ruling, 2026-10-13) — per-platform sources in build/:
-#   mac   build/icon.icon  — the Icon Composer document (layered Liquid
-#         Glass); actool (Xcode 26+) compiles Assets.car (CFBundleIconName,
-#         macOS 26+ renders the true layered icon) + an actool fallback icns
-#         capped at 256px, which scripts/after-pack.cjs swaps for the
-#         hand-packed full-res build/icon.icns (pre-Tahoe keeps 16→1024).
-#         Requires actool ≥ 26: desktop:dist injects DEVELOPER_DIR locally;
-#         the release workflow's mac job runs setup-xcode.
+#   mac   build/icon.icns — generated (16→1024) by scripts/make-icons.mjs.
 #   win   build/icon.ico  — generated (16→256) from the flat design by
 #         scripts/make-icons.mjs.
 #   linux build/icon.png  — 512×512, same script. Rounded squircle with
@@ -105,7 +99,7 @@ mac:
   extraResources:
     - from: electron/server-title-guard.cjs
       to: server-title-guard.cjs
-  icon: build/icon.icon
+  icon: build/icon.icns
   # zip rides next to dmg (flipped 2026-10-08): Squirrel.Mac — Electron's
   # macOS auto-updater — installs from ZIP and cannot read DMGs. DMG is
   # for humans; ZIP + blockmap are the updater's payload.
@@ -147,7 +141,6 @@ dmg:
       y: 190
       type: link
       path: /Applications
-afterPack: scripts/after-pack.cjs
 win:
   icon: build/icon.ico
   target:
