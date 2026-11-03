@@ -6,7 +6,9 @@ import { AppShell, SidebarProvider } from "@/components/sidebar";
 import { ActivityProvider } from "@/components/activity-dock";
 import { ServerEventsProvider } from "@/components/server-events";
 import { AppearanceProvider } from "@/components/settings/appearance";
-import { THEME_BOOT_SCRIPT } from "@/src/core";
+import { I18nProvider } from "@/components/i18n";
+import { THEME_BOOT_SCRIPT, resolveSettings } from "@/src/core";
+import { readSettingsRecord } from "@/src/server";
 import UpdateBanner from "@/components/update-banner";
 
 // Interface = Geist, teaching prose = Source Sans 3, code = JetBrains Mono,
@@ -21,12 +23,17 @@ export const metadata: Metadata = {
 	description: "Un tutor con agentes de IA que aprende cómo piensas: lecciones, práctica y un grafo de lo que sabes.",
 };
 
+// The interface language is read per request (it lives in the settings
+// record), so the first paint is already in the chosen language.
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+	const locale = resolveSettings(readSettingsRecord() ?? null).general.language;
 	return (
 		// The `dark` class is NOT server-rendered: the theme depends on the
 		// cached mode + the OS, so THEME_BOOT_SCRIPT sets it before paint
 		// (hence suppressHydrationWarning on <html>).
-		<html lang="es" className={`${ui.variable} ${code.variable} ${prose.variable}`} suppressHydrationWarning>
+		<html lang={locale} className={`${ui.variable} ${code.variable} ${prose.variable}`} suppressHydrationWarning>
 			<head>
 				<script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
 			</head>
@@ -34,6 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 			{/* The notification channel rides OUTSIDE everything: sidebar, dock,
 				 and pages all subscribe as the polls retire (push S3, 2026-10-02). */}
 			<ServerEventsProvider>
+				<I18nProvider initialLocale={locale}>
 				<AppearanceProvider>
 					<SidebarProvider>
 						<ActivityProvider>
@@ -41,6 +49,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 						</ActivityProvider>
 					</SidebarProvider>
 				</AppearanceProvider>
+				</I18nProvider>
 			</ServerEventsProvider>
 			{/* Auto-update banner (Wave C): fixed card, Electron-only pushes. */}
 			<UpdateBanner />

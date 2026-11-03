@@ -24,6 +24,7 @@ import type {
 	ModelsSettings,
 	RoleModelOverride,
 } from "../core/settings.ts";
+import { isLocale } from "../core/i18n.ts";
 import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, normalizeVaultFolder, isThemeMode, type ObsidianSettings } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
@@ -87,6 +88,10 @@ export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<Gene
 			return { ok: false, error: "autoUpdate must be a boolean" };
 		}
 		settings.autoUpdate = raw.autoUpdate;
+	}
+	if (raw.language !== undefined) {
+		if (!isLocale(raw.language)) return { ok: false, error: "language must be \"es\" or \"en\"" };
+		settings.language = raw.language;
 	}
 	return { ok: true, settings };
 }

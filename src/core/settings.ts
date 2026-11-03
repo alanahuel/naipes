@@ -34,6 +34,7 @@ import type { ChatSettings } from "./contracts/chat.ts";
 import type { SearchEngineId } from "./search.ts";
 import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
 import { DEFAULT_VAULT_OUTPUT_FOLDER } from "./vault-notes.ts";
+import { DEFAULT_LOCALE, isLocale, type Locale } from "./i18n.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
  *  changes (a field renamed/meaning changed); pure additions never bump. */
@@ -235,6 +236,8 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 export interface GeneralSettings {
 	/** Automatic startup/24h update checks (default ON). Manual checks bypass this. */
 	autoUpdate?: boolean;
+	/** The interface language (default Spanish). Sessions keep their own. */
+	language?: Locale;
 }
 
 /** The Obsidian vault connection (owner, 2026-11-01). Both directions ride
@@ -431,7 +434,7 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: true },
+	general: { autoUpdate: true, language: DEFAULT_LOCALE },
 	dictation: { language: "en" },
 	appearance: {
 		mode: "system",
@@ -478,6 +481,7 @@ function sanitizeGeneral(raw: Record<string, unknown>): GeneralSettings {
 	const out: GeneralSettings = {};
 	const autoUpdate = boolOrDrop(raw.autoUpdate);
 	if (autoUpdate !== undefined) out.autoUpdate = autoUpdate;
+	if (isLocale(raw.language)) out.language = raw.language;
 	return out;
 }
 
