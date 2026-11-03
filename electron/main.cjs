@@ -503,7 +503,24 @@ function installUpdateNow() {
 	autoUpdater?.quitAndInstall();
 }
 
+/** LOCAL BUILD (owner, 2026-11-01): scripts/install-linux.sh bakes
+ *  `lhLocalBuild: true` into the packaged package.json (electron-builder
+ *  extraMetadata). A locally built copy carries the owner's own changes, so
+ *  the upstream GitHub feed must never replace it: no updater, no menu item. */
+function isLocalBuild() {
+	try {
+		return require("../package.json").lhLocalBuild === true;
+	} catch {
+		return false;
+	}
+}
+
 function setupAutoUpdater() {
+	if (isLocalBuild()) {
+		log("auto-update: local build — updater disabled");
+		reportUpdateStatus("disabled");
+		return;
+	}
 	if (!app.isPackaged) {
 		log("auto-update: dev build — updater disabled");
 		reportUpdateStatus("disabled");
@@ -588,8 +605,9 @@ function installMenu() {
 			submenu: [
 				{ role: "about" },
 				// Manual checks report their result in Settings → General.
-				{ label: "Check for Updates…", click: () => checkForUpdatesFromMenu() },
-				{ type: "separator" },
+				...(isLocalBuild()
+					? []
+					: [{ label: "Check for Updates…", click: () => checkForUpdatesFromMenu() }, { type: "separator" }]),
 				{ role: "hide" },
 				{ role: "hideOthers" },
 				{ type: "separator" },

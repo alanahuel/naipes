@@ -37,6 +37,8 @@ npx electron-builder --win --x64 --publish never
 npx electron-builder --linux --x64 --publish never
 ```
 
+For a personal Linux install of this checkout (AppImage, launcher, icon, auto-update off), use `bash scripts/install-linux.sh` — see [obsidian.md](obsidian.md).
+
 ## CI vs release
 
 `.github/workflows/ci.yml` runs on main pushes and pull requests:
