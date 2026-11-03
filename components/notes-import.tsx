@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { translator, useT, type Translate } from "@/components/i18n";
 
 // Transport-only types: never import the server's extraction/agent module here.
 export interface NotesImportResult {
@@ -18,8 +19,8 @@ export interface NotesImportResult {
 
 /** Validate the entire response before applying any row: a malformed index
  * must never attribute another file's success to this file (same names included). */
-export function parseNotesImportResults(body: unknown, files: readonly File[]): NotesImportResult[] {
-	const invalid = () => new Error("Invalid import response. Please retry the file.");
+export function parseNotesImportResults(body: unknown, files: readonly File[], t: Translate = translator("en")): NotesImportResult[] {
+	const invalid = () => new Error(t("graph.import.invalidResponse"));
 	if (!body || typeof body !== "object" || !("results" in body) || !Array.isArray(body.results) || body.results.length !== files.length) throw invalid();
 	const seen = new Set<number>();
 	for (const raw of body.results) {
@@ -37,22 +38,23 @@ export function parseNotesImportResults(body: unknown, files: readonly File[]): 
 	return body.results as NotesImportResult[];
 }
 
-export async function postNotesImport(files: readonly File[]): Promise<NotesImportResult[]> {
+export async function postNotesImport(files: readonly File[], t: Translate = translator("en")): Promise<NotesImportResult[]> {
 	const form = new FormData();
 	for (const file of files) form.append("files", file);
 	const response = await fetch("/api/graph/import", { method: "POST", body: form });
 	let body: unknown;
 	try { body = await response.json(); }
-	catch { throw new Error("Invalid import response. Please retry the file."); }
+	catch { throw new Error(t("graph.import.invalidResponse")); }
 	if (!response.ok) {
 		const detail = body && typeof body === "object" && "error" in body && typeof body.error === "string" ? `: ${body.error}` : "";
-		throw new Error(`Import request failed (HTTP ${response.status})${detail}. Please retry the file.`);
+		throw new Error(t("graph.import.requestFailed", { status: response.status, detail }));
 	}
-	return parseNotesImportResults(body, files);
+	return parseNotesImportResults(body, files, t);
 }
 
 /** Only error text survives a request; selected Files stay request-local. */
 export function useNotesImport(callbacks: { onStart?: () => void; onFinish?: () => void } = {}) {
+	const t = useT();
 	const [errors, setErrors] = useState<string[]>([]);
 	const [importing, setImporting] = useState(false);
 	const pending = useRef(false);
@@ -63,7 +65,7 @@ export function useNotesImport(callbacks: { onStart?: () => void; onFinish?: () 
 		setErrors([]);
 		try {
 			callbacks.onStart?.();
-			const results = await postNotesImport(files);
+			const results = await postNotesImport(files, t);
 			setErrors(results
 				.filter((result) => !result.ok)
 				.sort((a, b) => a.requestIndex - b.requestIndex)

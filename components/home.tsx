@@ -15,6 +15,7 @@ import { StatsBar } from "@/components/stats-bar";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
 import type { TurnUsage } from "@/src/core";
+import { useT } from "@/components/i18n";
 
 /**
  * Home — the knowledge graph is the main view, full-bleed edge to edge
@@ -32,6 +33,7 @@ export function Home({
 	 * changing the setting applies on the next visit home. */
 	rendering?: boolean;
 }) {
+	const t = useT();
 	const router = useRouter();
 	const [topic, setTopic] = useState("");
 	/* The topic MIRROR ("nothing gets lost" round, 2026-10-01 — same
@@ -51,8 +53,8 @@ export function Home({
 	const dictation = useDictation({
 		// Ref-first: the join reads the mirror so the send resuming after
 		// `await finish()` sees the dictated tail.
-		append: (t) => {
-			const v = joinDictation(topicRef.current, t);
+		append: (text) => {
+			const v = joinDictation(topicRef.current, text);
 			topicRef.current = v;
 			setTopic(v);
 		},
@@ -109,8 +111,8 @@ export function Home({
 		void dictation.finish().then(() => begin());
 	};
 	const begin = async () => {
-		const t = topicRef.current.trim();
-		if (!t || startingRef.current) return;
+		const title = topicRef.current.trim();
+		if (!title || startingRef.current) return;
 		// Unconfigured: the send INTERCEPTS into the setup flow (the draft
 		// stays in the textarea; the learner sends it after Save).
 		if (!configured) {
@@ -143,7 +145,7 @@ export function Home({
 			// before the learner's first user message, propositions + the
 			// chains among them); the prompt stays the learner's own words.
 			const target = await starterRef.current.start({
-				title: t,
+				title,
 				...(mode === "practice" ? { kind: "practice" } : {}),
 				...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
 			}, fetch, JSON.stringify(catalog?.slots.strong));
@@ -235,7 +237,7 @@ export function Home({
 									onClick={() => setSetupOpen(true)}
 									className="rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent cursor-pointer"
 								>
-									Set up your models
+									{t("graph.setup.title")}
 								</button>
 							)
 						)}
@@ -270,7 +272,7 @@ export function Home({
 								void start();
 							}
 						}}
-						placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+						placeholder={mode === "practice" ? t("graph.home.placeholderPractice") : t("graph.home.placeholderLearn")}
 						autoFocus
 						rows={1}
 						className="field-sizing-content np-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
@@ -279,7 +281,7 @@ export function Home({
 					    affordance (owner, subtlety round 2026-09-25). */}
 					<button
 						type="submit"
-						aria-label="Start session"
+						aria-label={t("graph.home.start")}
 						disabled={(!topic.trim() && !dictation.active) || busy}
 						className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
 					>
@@ -309,7 +311,7 @@ export function Home({
 										}
 									>
 										{m === "practice" ? <DumbbellIcon aria-hidden="true" className="size-3" /> : null}
-										{m === "teach" ? "Teach" : "Practice"}
+										{m === "teach" ? t("graph.home.teach") : t("graph.home.practice")}
 									</button>
 								))}
 							</div>
