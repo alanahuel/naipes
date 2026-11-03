@@ -5,6 +5,9 @@
  * toolCallId. The server-side record scans (danglingQuestionOf over native
  * NpMessage[]) live in native-messages.ts.
  */
+import { formatMessage, type Locale } from "./i18n.ts";
+import { MESSAGES, type MessageKey } from "./messages/index.ts";
+
 interface UIMessage {
 	role?: string;
 	parts: Array<Record<string, unknown> & { type: string }>;
@@ -137,17 +140,17 @@ export function findPendingToolCall(messages: UIMessage[]): PendingToolCall | nu
  * now names the actual activity; chat.tsx gates it on `!pending` and
  * renders it as the quiet transcript shimmer.
  */
-const ACTIVITY_LABELS: Record<string, string> = {
-	read: "Reading a file…",
-	ls: "Listing a directory…",
-	find: "Finding files…",
-	grep: "Searching file contents…",
-	research: "Dispatching research…",
-	demo: "Building a demo…",
-	visual: "Making a visual…",
-	pdf: "Reading a PDF…",
-	plan_init: "Drawing up the plan…",
-	probe_done: "Concluding the assessment…",
+const ACTIVITY_LABELS: Record<string, MessageKey> = {
+	read: "session.activity.read",
+	ls: "session.activity.ls",
+	find: "session.activity.find",
+	grep: "session.activity.grep",
+	research: "session.activity.research",
+	demo: "session.activity.demo",
+	visual: "session.activity.visual",
+	pdf: "session.activity.pdf",
+	plan_init: "session.activity.planInit",
+	probe_done: "session.activity.probeDone",
 };
 
 /** The activity label for ONE running tool (owner, streaming round
@@ -155,9 +158,11 @@ const ACTIVITY_LABELS: Record<string, string> = {
  *  shimmered label on the card itself, replacing the retired transcript
  *  bottom line. Question tools are excluded here: their input-streaming
  *  part renders in the dock, never a live card. */
-export function toolActivityLabel(tool: string): string {
-	if ((QUESTION_TOOLS as readonly string[]).includes(tool)) return "Writing a question…";
-	return ACTIVITY_LABELS[tool] ?? "Working…";
+export function toolActivityLabel(tool: string, locale: Locale = "en"): string {
+	const key: MessageKey = (QUESTION_TOOLS as readonly string[]).includes(tool)
+		? "session.activity.question"
+		: ACTIVITY_LABELS[tool] ?? "session.activity.working";
+	return formatMessage(MESSAGES[locale][key], {}, locale);
 }
 
 export function streamingToolActivity(messages: UIMessage[]): string | null {

@@ -5,7 +5,7 @@ import { BrailleSpinner } from "@/components/braille-spinner";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { toolActivityLabel } from "@/src/core";
 import type { ArtifactPartProps } from "@/src/core";
-import { useT } from "@/components/i18n";
+import { useLocale, useT } from "@/components/i18n";
 
 /**
  * The LIVE tool-input card (owner, streaming round 2026-10-01): what a
@@ -30,6 +30,7 @@ interface StreamingToolPart {
 
 export function LiveToolCard({ part }: ArtifactPartProps) {
 	const t = useT();
+	const { locale } = useLocale();
 	const p = part as StreamingToolPart;
 	const tool = p.type.replace(/^tool-/, "");
 	const inp = (p.input ?? {}) as Record<string, unknown>;
@@ -49,9 +50,9 @@ export function LiveToolCard({ part }: ArtifactPartProps) {
 			className="group my-1 w-full max-w-2xl select-none"
 		>
 			<summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-muted-foreground [&::-webkit-details-marker]:hidden">
-				<BrailleSpinner label={t("artifacts.tool.live", { label: toolActivityLabel(tool) })} />
+				<BrailleSpinner label={t("artifacts.tool.live", { label: toolActivityLabel(tool, locale) })} />
 				<Shimmer duration={1} className="text-xs">
-					{toolActivityLabel(tool)}
+					{toolActivityLabel(tool, locale)}
 				</Shimmer>
 				{arg && <span className="truncate">{arg}</span>}
 				<ChevronRight className="size-3 shrink-0 opacity-50 transition-transform group-open:rotate-90" />
