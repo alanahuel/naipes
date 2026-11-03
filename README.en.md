@@ -23,11 +23,24 @@ Instead of just giving you an explanation, it uses your answers and thinking to 
 
 > Naipes is a derivative of **[LearnHarness](https://github.com/amosblomqvist/learnharness)** by Amos Blomqvist, released under the same AGPL-3.0 license. See [Credits](#credits-and-license).
 
+<p align="center">
+  <img src="docs/assets/naipes-home-light.png" alt="Naipes home in the light theme" width="49%">
+  <img src="docs/assets/naipes-sessions-dark.png" alt="Naipes sessions list in the dark theme" width="49%">
+</p>
+
 ## What Naipes adds
 
 - **Claude Code subscription as a provider.** Use the models in your Claude Code subscription through the local `claude` CLI, with no API key.
 - **Two-way Obsidian connection.** The vault folders you choose feed the knowledge graph. Transcripts, practice results, concepts and session summaries are written back to a configurable output folder. Details in [docs/obsidian.md](docs/obsidian.md).
 - **Local Linux install.** `scripts/install-linux.sh` builds your checkout into an AppImage and installs it with a launcher and icon.
+- **A redesigned interface:**
+  - Home · My sessions · Knowledge tabs on a single sheet;
+  - light and dark themes, or the system's;
+  - the interface in Spanish and English;
+  - each session's state at a glance ("Your turn", "Step 3 of 7");
+  - session archiving;
+  - a notifications bell for work that finishes in the background;
+  - settings split into simple pages.
 - **Its own identity:** name, card-graph icon, and releases from this repository.
 
 ## How it works
@@ -86,6 +99,6 @@ Questions, bug reports, and feature requests: [GitHub Issues](https://github.com
 
 ## Credits and license
 
-Naipes builds on [LearnHarness](https://github.com/amosblomqvist/learnharness), created by **Amos Blomqvist** and contributors. The git history preserves their work. Naipes's changes (rename, Claude Code connection, Obsidian integration, Linux installer, and visual identity) are in the later commits.
+Naipes builds on [LearnHarness](https://github.com/amosblomqvist/learnharness), created by **Amos Blomqvist** and contributors. The git history preserves their work. Naipes's changes (rename, Claude Code connection, Obsidian integration, Linux installer, visual identity, and the new interface) are in the later commits.
 
 Licensed under the [GNU Affero General Public License v3.0](LICENSE), the same as the original.

@@ -23,11 +23,24 @@ En lugar de limitarse a explicarte algo, usa tus respuestas y tu forma de pensar
 
 > Naipes es un derivado de **[LearnHarness](https://github.com/amosblomqvist/learnharness)**, de Amos Blomqvist, publicado bajo la misma licencia AGPL-3.0. Ver [Créditos](#créditos-y-licencia).
 
+<p align="center">
+  <img src="docs/assets/naipes-home-light.png" alt="Inicio de Naipes en tema claro" width="49%">
+  <img src="docs/assets/naipes-sessions-dark.png" alt="Mis sesiones de Naipes en tema oscuro" width="49%">
+</p>
+
 ## Qué añade Naipes
 
 - **Suscripción de Claude Code como proveedor.** Usa los modelos de tu suscripción de Claude Code a través del CLI `claude` instalado en tu equipo, sin API key.
 - **Conexión bidireccional con Obsidian.** Las carpetas que elijas de tu vault alimentan el grafo de conocimiento. Las transcripciones, las prácticas, los conceptos y los resúmenes de sesión se escriben de vuelta en una carpeta de salida configurable. Más detalles en [docs/obsidian.md](docs/obsidian.md).
 - **Instalación local en Linux.** `scripts/install-linux.sh` compila tu copia del repositorio como AppImage y la instala con lanzador e icono.
+- **Una interfaz rediseñada:**
+  - pestañas Inicio · Mis sesiones · Conocimiento sobre una sola hoja;
+  - tema claro y oscuro, o el del sistema;
+  - la interfaz en español y en inglés;
+  - el estado de cada sesión a la vista ("Te toca responder", "Paso 3 de 7");
+  - archivar sesiones;
+  - una campana de avisos para lo que termina en segundo plano;
+  - los ajustes repartidos en páginas sencillas.
 - **Identidad propia:** nombre, icono naipe-grafo y releases en este repositorio.
 
 ## Cómo funciona
@@ -86,6 +99,6 @@ Preguntas, errores y propuestas: [GitHub Issues](https://github.com/alanahuel/na
 
 ## Créditos y licencia
 
-Naipes parte de [LearnHarness](https://github.com/amosblomqvist/learnharness), creado por **Amos Blomqvist** y sus colaboradores. El historial de git conserva su trabajo. Los cambios de Naipes (renombre, conexión con Claude Code, integración con Obsidian, instalador de Linux e identidad visual) están en los commits posteriores.
+Naipes parte de [LearnHarness](https://github.com/amosblomqvist/learnharness), creado por **Amos Blomqvist** y sus colaboradores. El historial de git conserva su trabajo. Los cambios de Naipes (renombre, conexión con Claude Code, integración con Obsidian, instalador de Linux, identidad visual y nueva interfaz) están en los commits posteriores.
 
 Se distribuye bajo la [GNU Affero General Public License v3.0](LICENSE), igual que el original.
