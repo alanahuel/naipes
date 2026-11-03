@@ -1,6 +1,6 @@
 # Obsidian connection and local Linux install
 
-Local modification (owner, 2026-11-01). Not part of the upstream release.
+Naipes additions (2026-11-01; generalized for publication 2026-11-03). Not part of upstream LearnHarness.
 
 ## Desktop app on Linux
 
@@ -11,11 +11,11 @@ Local modification (owner, 2026-11-01). Not part of the upstream release.
 | AppImage | `~/.local/opt/Naipes/Naipes.AppImage` |
 | Launcher | `~/.local/share/applications/naipes.desktop` (`StartupWMClass=naipes`) |
 | Icon | `~/.local/share/icons/hicolor/512x512/apps/naipes.png` |
-| Data | `~/.config/Naipes/data/` (Electron `userData`) |
+| Data | `~/.config/Naipes/data/` (Electron `userData`; copied once from `~/.config/LearnHarness` on first launch) |
 | Keys | `~/.config/Naipes/auth.json` (0600) |
 | Shell log | `~/.config/Naipes/logs/main.log` |
 
-The build passes `-c.extraMetadata.npLocalBuild=true`. `electron/main.cjs` reads that flag from the packaged `package.json`: a local build never starts the GitHub updater and hides **Check for Updates…**, so an upstream release can never replace a build that carries local changes. To update, commit or pull, then run the script again. `--no-build` reinstalls the last `dist/` AppImage.
+The build passes `-c.extraMetadata.npLocalBuild=true`. `electron/main.cjs` reads that flag from the packaged `package.json`: a local build never starts the GitHub updater and hides **Check for Updates…**, so a published release can never replace a build that carries uncommitted or unreleased changes. To update, commit or pull, then run the script again. `--no-build` reinstalls the last `dist/` AppImage.
 
 ## Settings → Obsidian
 
