@@ -2,9 +2,10 @@
 
 import { createContext, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useChatSession } from "@/components/session";
-import { visibleQueuedSteers } from "@/components/session-core";
+import { localizeSessionError, visibleQueuedSteers } from "@/components/session-core";
 import { SetupDialog } from "@/components/setup-dialog";
 import { Hint } from "@/components/ui/hint";
+import { useT } from "@/components/i18n";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { useStickToBottomContext, type StickToBottomContext } from "use-stick-to-bottom";
 import {
@@ -26,7 +27,7 @@ import { Composer } from "@/components/composer";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
-import { clearOpeningPrompt, readOpeningPromptEntry, stashOpeningPrompt, OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
+import { clearOpeningPrompt, readOpeningPromptEntry, stashOpeningPrompt } from "@/components/opening-prompt";
 import { forwardDockWheel, useDockHeight } from "@/components/dock-height";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
 import { DictationBar, finishDictation, joinDictation, useDictation } from "@/components/dictation";
@@ -241,6 +242,7 @@ export function Chat({
 	 *  only decides whether the pill rides the composer. */
 	initialConfigured?: boolean;
 }) {
+	const t = useT();
 	// Reattach plumbing (background-turn runner wave): the hook holds the
 	// settled terminal's callback — a stable ref assigned below, once
 	// syncFromServer exists (refs, not closures: no stale capture).
@@ -1309,8 +1311,8 @@ export function Chat({
 								}}
 								onBlur={() => void commitRename(titleDraft)}
 								spellCheck={false}
-								aria-label="Session title"
-								title="Rename this session"
+								aria-label={t("session.titleInput")}
+								title={t("session.renameHint")}
 								className="np-no-drag min-w-[8ch] max-w-[70%] shrink-0 bg-transparent font-title text-3xl tracking-tight caret-current outline-none [field-sizing:content]"
 							/>
 							{/* flex-1 spacer during rename too, so the chips stay at
@@ -1322,7 +1324,7 @@ export function Chat({
 					<>
 						<Hint
 							// F2 renames (registry) — surfaced on the hover.
-							label="Rename session"
+							label={t("session.rename")}
 							action="rename-session"
 							side="bottom"
 						>
@@ -1346,7 +1348,7 @@ export function Chat({
 					    structure beside the phase chip — access to the full-DAG popup
 					    at every width; the marginalia is the wide-screen glance view. */}
 					{planTree && (
-						<Hint label="Open the full plan" side="bottom">
+						<Hint label={t("session.plan.open")} side="bottom">
 <button
 							type="button"
 							data-testid="plan-chip"
@@ -1357,7 +1359,7 @@ export function Chat({
 							className="np-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:border-border hover:text-foreground"
 						>
 							<WaypointsIcon className="size-3.5 text-primary" aria-hidden />
-							Plan
+							{t("session.plan.chip")}
 						</button>
 </Hint>
 					)}
@@ -1379,7 +1381,7 @@ export function Chat({
 							className="pointer-events-none flex shrink-0 select-none items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground"
 						>
 							<DumbbellIcon className="size-3" />
-							Practice
+							{t("session.practiceTag")}
 						</span>
 					) : (
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
@@ -1394,8 +1396,8 @@ export function Chat({
 						<div data-session-find-root="" className={`${COLUMN} flex flex-1 flex-col gap-4 pt-4`}>
 							{messages.length === 0 && !busy && (
 								<ConversationEmptyState
-									title="New session"
-									description="The teacher will open by probing what you already know."
+									title={t("session.emptyTitle")}
+									description={t("session.emptyDescription")}
 								/>
 							)}
 
@@ -1446,7 +1448,7 @@ export function Chat({
 														className="my-4 flex items-center justify-center gap-1.5 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground"
 													>
 														<ArrowRightIcon className="size-3" />
-														Next problem
+														{t("session.nextProblem")}
 													</div>
 												);
 											default:
@@ -1505,7 +1507,7 @@ export function Chat({
 												{/* The rail GROUPS (owner round 4, 2026-10-05): the YOU heading
 												    sits INSIDE the rail, same mono-xs register and same 1ch
 												    rail as the thinking rows — one quote geometry. */}
-												<div className="font-medium uppercase tracking-wide text-muted-foreground">You</div>
+												<div className="font-medium uppercase tracking-wide text-muted-foreground">{t("session.you")}</div>
 												<div className="np-prose whitespace-pre-wrap text-foreground">
 													{m.parts.filter((p) => p.type === "text").map((p) => p.text).join("\n")}
 												</div>
@@ -1538,7 +1540,7 @@ export function Chat({
 												) {
 													return (
 														<SystemLine key={`retry-${pi}`} testId="tool-retry">
-															Retrying…
+															{t("session.toolRetrying")}
 														</SystemLine>
 													);
 												}
@@ -1635,25 +1637,25 @@ export function Chat({
 						    BEFORE beginTurn; the settle kick runs after endTurn). */}
 							{compacting && (
 								<span className="flex items-center gap-2 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground">
-									<BrailleSpinner label="Compacting context" />
-									<Shimmer duration={1}>COMPACTING CONTEXT…</Shimmer>
+									<BrailleSpinner label={t("session.compactingLabel")} />
+									<Shimmer duration={1}>{t("session.compactingShimmer")}</Shimmer>
 								</span>
 							)}
 							{(status === "submitted" || turnInFlight) && (
 								<span className="flex items-center gap-2 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground">
-									<BrailleSpinner label="Thinking" />
+									<BrailleSpinner label={t("session.thinkingLabel")} />
 									<Shimmer duration={1}>
-										THINKING…
+										{t("session.thinkingShimmer")}
 									</Shimmer>
 								</span>
 							)}
-							{openingError && <p role="alert" className="text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
+							{openingError && <p role="alert" className="text-sm text-destructive">{t("session.openingFailed")}</p>}
 							{error && (
 								<div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
-									<span>Something went wrong: {error.message}</span>
+									<span>{t("session.somethingWrong", { message: localizeSessionError(error.message, t) })}</span>
 									{retryable && (
 										<Button variant="outline" size="xs" data-testid="retry-failed-turn" onClick={retryFailedTurn}>
-											Retry
+											{t("session.retry")}
 										</Button>
 									)}
 								</div>
@@ -1707,7 +1709,7 @@ export function Chat({
 										onClick={() => setSetupOpen(true)}
 										className="rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent cursor-pointer"
 									>
-										Set up your models
+										{t("session.setupModels")}
 									</button>
 								</div>
 							)
@@ -1732,7 +1734,7 @@ export function Chat({
 							// applies.
 							nextProblem={nextReady}
 							onNext={sendNext}
-							placeholder={nextReady ? "Ask anything, or press Enter for the next one." : undefined}
+							placeholder={nextReady ? t("session.composer.nextPlaceholder") : undefined}
 						/>
 					}
 					onSubmitAnswer={(output) => {
@@ -1979,6 +1981,7 @@ function DockOverlay({
 	 *  home and /chat/new carry, above the composer while slots are unset. */
 	setupCta?: React.ReactNode;
 }) {
+	const t = useT();
 	const { isAtBottom, scrollToBottom, scrollRef } = useStickToBottomContext();
 	// Render-fresh bottom state (flicker round): the arrival block below reads
 	// it DURING RENDER — the same value the after-paint effect used to read a
@@ -2436,7 +2439,7 @@ function DockOverlay({
 				    mid-question unmount), and widening past the floor fades it
 				    back in. */}
 				{pending && plan && (
-					<Hint label="Open the full plan" side="bottom">
+					<Hint label={t("session.plan.open")} side="bottom">
 <button
 						type="button"
 						data-testid="plan-marginalia"

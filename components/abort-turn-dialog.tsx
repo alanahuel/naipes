@@ -3,6 +3,8 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useT } from "@/components/i18n";
+import type { MessageKey } from "@/src/core";
 
 /**
  * The ESC-abort guard (owner, 2026-10-02): the global Esc → abort chain
@@ -27,21 +29,21 @@ import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 /** What Esc is aborting — drives copy and the confirm action. */
 export type AbortMode = "turn" | "question" | "problem";
 
-const COPY: Record<AbortMode, { title: string; line: string; action: string }> = {
+const COPY: Record<AbortMode, { title: MessageKey; line: MessageKey; action: MessageKey }> = {
 	turn: {
-		title: "Abort this turn?",
-		line: "The partial answer stays in the transcript.",
-		action: "Abort",
+		title: "session.abort.turn.title",
+		line: "session.abort.turn.line",
+		action: "session.abort.turn.action",
 	},
 	question: {
-		title: "Dismiss this question?",
-		line: "Skipped — the teacher moves on without it.",
-		action: "Dismiss",
+		title: "session.abort.question.title",
+		line: "session.abort.question.line",
+		action: "session.abort.question.action",
 	},
 	problem: {
-		title: "Discard this problem?",
-		line: "The problem is dropped — no solution is revealed.",
-		action: "Discard",
+		title: "session.abort.problem.title",
+		line: "session.abort.problem.line",
+		action: "session.abort.problem.action",
 	},
 };
 
@@ -60,13 +62,14 @@ export function AbortTurnBody({
 	 * (owner, 2026-10-04): the line says so. */
 	busy?: boolean;
 }) {
+	const t = useT();
 	const backdropDismiss = useBackdropDismiss(onClose);
 	const copy = COPY[mode];
 	return (
 		<div
 			role="dialog"
 			aria-modal="true"
-			aria-label={copy.title}
+			aria-label={t(copy.title)}
 			data-testid="abort-turn-dialog"
 			className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
 			// A genuine click on the scrim cancels — the cautious default, like Esc.
@@ -77,11 +80,11 @@ export function AbortTurnBody({
 				onClick={(e) => e.stopPropagation()}
 			>
 				<h2 className="text-sm font-semibold text-card-foreground" data-testid="abort-turn-title">
-					{copy.title}
+					{t(copy.title)}
 				</h2>
 				<p className="mt-1.5 text-xs text-muted-foreground" data-testid="abort-turn-line">
-					{copy.line}
-					{busy && mode !== "turn" ? " The working turn stops too." : ""}
+					{t(copy.line)}
+					{busy && mode !== "turn" ? t("session.abort.alsoStops") : ""}
 				</p>
 				<div className="mt-4 flex justify-end gap-2">
 					<button
@@ -90,7 +93,7 @@ export function AbortTurnBody({
 						onClick={onClose}
 						className="rounded-sm px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
 					>
-						Cancel
+						{t("common.cancel")}
 					</button>
 					<button
 						type="button"
@@ -99,7 +102,7 @@ export function AbortTurnBody({
 						// Destructive red — the app's established destructive pair.
 						className="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20"
 					>
-						{copy.action}
+						{t(copy.action)}
 					</button>
 				</div>
 			</div>

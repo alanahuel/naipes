@@ -34,6 +34,10 @@ import {
 	type LiveExecution,
 	type QuestionAnswerData,
 	type QuestionDraft,
+	MESSAGES,
+	formatMessage,
+	type MessageKey,
+	type MessageVars,
 } from "../src/core";
 
 export type SessionStatus = "ready" | "submitted" | "streaming" | "error";
@@ -83,6 +87,32 @@ async function turnInFlight(model: SessionModel): Promise<boolean | null> {
 }
 
 const STREAM_DROPPED = "The connection dropped before the turn completed.";
+const GENERIC_ERROR = "An error occurred.";
+const STREAM_EMPTY = "The turn stream body is empty.";
+const ATTACH_FAILED = "Failed to attach to the running turn.";
+const TURN_RUNNING = "A turn is already running — try again in a moment.";
+
+type Translate = (key: MessageKey, vars?: MessageVars) => string;
+const english: Translate = (key, vars) => formatMessage(MESSAGES.en[key], vars, "en");
+
+/** The session's error line as the interface shows it: the messages this
+ *  model writes itself (English in state) in the interface language;
+ *  anything else — the server's own text — exactly as it arrived. */
+export function localizeSessionError(message: string, t: Translate = english): string {
+	switch (message) {
+		case STREAM_DROPPED: return t("session.error.streamDropped");
+		case GENERIC_ERROR: return t("session.error.generic");
+		case STREAM_EMPTY: return t("session.error.streamEmpty");
+		case ATTACH_FAILED: return t("session.error.attachFailed");
+		case TURN_RUNNING: return t("session.error.turnRunning");
+	}
+	const failed = /^The (send|steer|dismissal) failed \((\d+)\)\.$/.exec(message);
+	if (failed) {
+		const key = failed[1] === "send" ? "session.error.sendFailed" : failed[1] === "steer" ? "session.error.steerFailed" : "session.error.dismissFailed";
+		return t(key, { status: failed[2]! });
+	}
+	return message;
+}
 
 /** Mark transport failures without confusing JSON/application bugs with drops. */
 class StreamReadError extends Error {
@@ -299,7 +329,7 @@ export class SessionModel {
 		const providerError =
 			latest !== undefined &&
 			!this.incompleteUsageIds.has(latest.id) && (!live || latest.id === this.liveFailureId)
-				? { message: latest.errorMessage ?? "An error occurred." }
+				? { message: latest.errorMessage ?? GENERIC_ERROR }
 				: null;
 		return {
 			messages: projectView(messages, live),
@@ -373,7 +403,7 @@ export class SessionModel {
 		if (event.type === "error") {
 			// Loop-level failure (agent.continue threw outside the stream) —
 			// raw text (owner ruling, Wave D): the banner shows exactly this.
-			this.setError(String(event.errorText ?? "An error occurred."));
+			this.setError(String(event.errorText ?? GENERIC_ERROR));
 			return false;
 		}
 		const agent = event as unknown as AgentEvent;
@@ -484,7 +514,7 @@ export class SessionModel {
 	/** Consume one SSE body to its [DONE] terminal. The turn-settled
 	 *  terminal (stream-route only) fires the settle hook and ends. */
 	async consumeStream(res: Response, controller = this.consumeAbort, allowRecovery = true): Promise<void> {
-		if (!res.body) throw new Error("The turn stream body is empty.");
+		if (!res.body) throw new Error(STREAM_EMPTY);
 		const reader = res.body.getReader();
 		let sawEvent = false;
 		let sawDone = false;
@@ -623,7 +653,7 @@ export class SessionModel {
 			}
 			const res = await this.fetchView(`/api/chats/${encodeURIComponent(this.chatId)}/stream`, controller.signal, !allowRecovery);
 			if (this.consumeAbort !== controller) return;
-			if (!res.ok) throw new Error((await res.text()) || "Failed to attach to the running turn.");
+			if (!res.ok) throw new Error((await res.text()) || ATTACH_FAILED);
 			await this.consumeStream(res, controller, allowRecovery);
 		} catch (err) {
 			if (this.consumeAbort !== controller || controller.signal.aborted) return; // intentionally cancelled
@@ -657,12 +687,12 @@ export class SessionModel {
 			try {
 				const res = await this.fetch(`/api/chats/${encodeURIComponent(this.chatId)}`, { signal: controller.signal });
 				if (this.consumeAbort !== controller) return false;
-				if (!res.ok) throw new Error((await res.text()) || "An error occurred.");
+				if (!res.ok) throw new Error((await res.text()) || GENERIC_ERROR);
 				const record = await res.json() as { messages?: NpMessage[]; turnInFlight?: boolean; turnError?: string };
 				if (this.consumeAbort !== controller) return false;
 				// No verified record/liveness: retain the draft and never guess
 				// whether a lost acknowledgement meant the input was accepted.
-				if (!Array.isArray(record.messages) || typeof record.turnInFlight !== "boolean") throw new Error("An error occurred.");
+				if (!Array.isArray(record.messages) || typeof record.turnInFlight !== "boolean") throw new Error(GENERIC_ERROR);
 				this.setMessages(record.messages, record.turnError);
 				if (record.turnInFlight) {
 					await this.resumeStream(false);
@@ -721,7 +751,7 @@ export class SessionModel {
 			// connection is Diet A's whole job.
 			const res = await this.postInputEvent(input);
 			if (res.status === 409) {
-				throw new Error("A turn is already running — try again in a moment.");
+				throw new Error(TURN_RUNNING);
 			}
 			if (!res.ok) {
 				// Keep model/key refusal envelopes verbatim: the page's refusal
