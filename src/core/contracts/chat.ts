@@ -35,6 +35,10 @@ export interface ChatRecord {
 	messages: NpMessage[];
 	/** The session's kind — absent = teach (pre-practice records). */
 	kind?: ChatKind;
+	/** When the learner archived it (Mis sesiones' circle); absent = active.
+	 *  Archiving hides a session from «Activas» and «Seguir con» — nothing
+	 *  is deleted, and it never reorders the list (updatedAt stays). */
+	archivedAt?: string;
 	/** The session's plan tree (vision §2) — written by plan tools via saveTree. */
 	tree?: PlanTree;
 	/** Append-only usage log (observability, 2026-09): one entry per model
@@ -263,6 +267,8 @@ export interface ChatSummary {
 	updatedAt: string;
 	/** Normalized kind (absent record field reads as teach). */
 	kind: ChatKind;
+	/** Archived (see ChatRecord.archivedAt); absent = active. */
+	archivedAt?: string;
 	messageCount: number;
 	/** The session's current phase, derived from the stored plan tree. */
 	phase: Phase3;

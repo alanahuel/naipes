@@ -53,7 +53,7 @@ export function ReadingThinkingField({
 			data-testid="reading-thinking-field"
 			className="pointer-events-auto mb-2 rounded-2xl border bg-card/60 px-3 py-2 transition-colors focus-within:border-primary/50"
 		>
-			<div className="pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+			<div className="pb-1 text-xs font-medium text-muted-foreground">
 				{t("session.reading.label")}
 			</div>
 			<textarea

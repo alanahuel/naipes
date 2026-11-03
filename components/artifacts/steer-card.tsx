@@ -90,7 +90,7 @@ function AbortedBadge({ kind }: { kind: string }) {
 	return (
 		<div data-testid="job-aborted-badge" className="flex items-center gap-2 text-xs text-muted-foreground">
 			<CircleX className="size-3.5" />
-			<span className="font-medium uppercase tracking-wide">{abortedKindLabel(kind, t)}</span>
+			<span className="font-medium ">{abortedKindLabel(kind, t)}</span>
 			<span>{t("artifacts.steer.aborted")}</span>
 		</div>
 	);
@@ -109,7 +109,7 @@ function PdfCompleteBadge({ result }: { result: PdfResult }) {
 		<details data-testid="pdf-complete-badge" className="group w-full text-xs text-muted-foreground">
 			<summary className="flex cursor-pointer select-none list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
 				<CheckIcon className="size-3.5" />
-				<span className="font-medium uppercase tracking-wide">PDF</span>
+				<span className="font-medium ">PDF</span>
 				<span>{t("artifacts.pdf.complete")}</span>
 				{readPages.length > 0 && (
 					<span>
@@ -137,7 +137,7 @@ function ResearchCompleteBadge({ result }: { result: ResearchResult }) {
 		<details data-testid="research-complete-badge" className="group w-full text-xs text-muted-foreground">
 			<summary className="flex cursor-pointer select-none list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
 				<CheckIcon className="size-3.5" />
-				<span className="font-medium uppercase tracking-wide">{t("artifacts.research.label")}</span>
+				<span className="font-medium ">{t("artifacts.research.label")}</span>
 				<span>{t("artifacts.research.complete")}</span>
 				{result.sources.length > 0 && <span>{t("artifacts.research.sourceCount", { n: result.sources.length })}</span>}
 				<span className="ml-1 text-xs text-muted-foreground/70 group-open:hidden">{t("artifacts.steer.viewBrief")}</span>

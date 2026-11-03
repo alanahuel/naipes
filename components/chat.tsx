@@ -50,7 +50,9 @@ import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
-import { ArrowRightIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
+import Link from "next/link";
+import { ArrowRightIcon, ChevronRightIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
+import { StateLabel } from "@/components/sessions";
 import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
@@ -70,6 +72,8 @@ import {
 import { CoverageRing } from "@/components/extraction-coverage";
 import { Button } from "@/components/ui/button";
 import {
+	derivePlanStatuses,
+	planProgress,
 	activeProblemOf,
 	dismissedAnswer,
 	endsInFailedTurn,
@@ -907,6 +911,11 @@ export function Chat({
 	// The session's live plan (drives the top-bar chip; the marginalia
 	// derives its own from the same transcript).
 	const planTree = useMemo(() => latestTree(messages), [messages]);
+	// «Paso X de Y» (stage 4): ideas of the plan reached so far / plan size.
+	const progress = useMemo(
+		() => (planTree ? planProgress(planTree, derivePlanStatuses(planTree, messages as Parameters<typeof derivePlanStatuses>[1])) : null),
+		[planTree, messages],
+	);
 
 	// ── Session usage (wave-4 stats bar) ──
 	// The money channel: the record's turns log and read-time server Pi
@@ -1322,6 +1331,12 @@ export function Chat({
 						</>
 					) : (
 					<>
+						<nav aria-label={t("session.header.breadcrumb")} className="flex shrink-0 items-center gap-1 text-sm text-muted-foreground" data-testid="session-breadcrumb">
+							<Link href="/sessions" className="rounded-md px-1 transition-colors hover:text-foreground">
+								{t("sessions.title")}
+							</Link>
+							<ChevronRightIcon className="size-4" aria-hidden />
+						</nav>
 						<Hint
 							// F2 renames (registry) — surfaced on the hover.
 							label={t("session.rename")}
@@ -1339,8 +1354,18 @@ export function Chat({
 							{titleText}
 							</button>
 						</Hint>
-							{/* flex-1 spacer: keeps the chips at the right edge AND stays a
-							    drag surface (no carve-out) — the freed bar is grippable. */}
+							{/* The status line (stage 4): plan step + whose turn it is. */}
+							<div className="flex shrink-0 items-center gap-2" data-testid="session-status">
+								{progress && (
+									<span className="text-sm tabular-nums text-muted-foreground">{t("session.header.step", { step: progress.step, total: progress.total })}</span>
+								)}
+								{busy ? (
+									<StateLabel label={t("sessions.state.working")} tone="neutral" />
+								) : pendingQuestionId ? (
+									<StateLabel label={t("sessions.state.yourTurn")} tone="attention" />
+								) : null}
+							</div>
+							{/* flex-1 spacer: keeps the chips at the right edge. */}
 							<div className="min-w-4 flex-1" aria-hidden="true" />
 					</>
 					)}
@@ -1356,7 +1381,7 @@ export function Chat({
 								blurAfterPointerClick(e);
 								setPlanOpen(true);
 							}}
-							className="np-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+							className="np-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
 						>
 							<WaypointsIcon className="size-3.5 text-primary" aria-hidden />
 							{t("session.plan.chip")}
@@ -1378,7 +1403,7 @@ export function Chat({
 							data-testid="phase-chip"
 							data-phase="practice"
 							aria-hidden="true"
-							className="pointer-events-none flex shrink-0 select-none items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+							className="pointer-events-none flex shrink-0 select-none items-center gap-1 text-xs font-medium text-muted-foreground"
 						>
 							<DumbbellIcon className="size-3" />
 							{t("session.practiceTag")}
@@ -1445,7 +1470,7 @@ export function Chat({
 													<div
 														key={pi}
 														data-testid="practice-next-line"
-														className="my-4 flex items-center justify-center gap-1.5 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground"
+														className="my-4 flex items-center justify-center gap-1.5 font-ui text-xs font-medium text-muted-foreground"
 													>
 														<ArrowRightIcon className="size-3" />
 														{t("session.nextProblem")}
@@ -1507,7 +1532,7 @@ export function Chat({
 												{/* The rail GROUPS (owner round 4, 2026-10-05): the YOU heading
 												    sits INSIDE the rail, same mono-xs register and same 1ch
 												    rail as the thinking rows — one quote geometry. */}
-												<div className="font-medium uppercase tracking-wide text-muted-foreground">{t("session.you")}</div>
+												<div className="font-medium text-muted-foreground">{t("session.you")}</div>
 												<div className="np-prose whitespace-pre-wrap text-foreground">
 													{m.parts.filter((p) => p.type === "text").map((p) => p.text).join("\n")}
 												</div>
@@ -1636,13 +1661,13 @@ export function Chat({
 						    the THINKING placeholder by construction (the gate sits
 						    BEFORE beginTurn; the settle kick runs after endTurn). */}
 							{compacting && (
-								<span className="flex items-center gap-2 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground">
+								<span className="flex items-center gap-2 font-ui text-xs font-medium text-muted-foreground">
 									<BrailleSpinner label={t("session.compactingLabel")} />
 									<Shimmer duration={1}>{t("session.compactingShimmer")}</Shimmer>
 								</span>
 							)}
 							{(status === "submitted" || turnInFlight) && (
-								<span className="flex items-center gap-2 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground">
+								<span className="flex items-center gap-2 font-ui text-xs font-medium text-muted-foreground">
 									<BrailleSpinner label={t("session.thinkingLabel")} />
 									<Shimmer duration={1}>
 										{t("session.thinkingShimmer")}

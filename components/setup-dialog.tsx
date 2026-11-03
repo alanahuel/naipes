@@ -497,7 +497,7 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 										{!catalog?.slots?.[slot]?.model && !picked[slot] && (
 											<span
 												data-testid={`setup-needed-${slot}`}
-												className="rounded-sm border border-border px-1 py-0.5 text-[10px] font-normal tracking-wide text-muted-foreground"
+												className="rounded-sm border border-border px-1 py-0.5 text-[10px] font-normal text-muted-foreground"
 											>
 												{t("graph.setup.needed")}
 											</span>

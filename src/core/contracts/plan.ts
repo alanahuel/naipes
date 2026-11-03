@@ -127,6 +127,17 @@ export interface PlanToolResult {
 
 import type { NpMessage } from "../native-messages.ts";
 
+/** «Paso X de Y» for the session header (Naipes stage 4): the plan is a
+ *  DAG, so the step counts the distinct ideas reached so far (every earlier
+ *  stay plus the current one) over the plan's size — no invented order.
+ *  null before the first tagged step. Pure. */
+export function planProgress(tree: PlanTree, statuses: DerivedPlanStatuses): { step: number; total: number } | null {
+	if (statuses.current === null || tree.nodes.length === 0) return null;
+	const reached = new Set(statuses.visited);
+	reached.add(statuses.current);
+	return { step: Math.min(reached.size, tree.nodes.length), total: tree.nodes.length };
+}
+
 /** The same derivation over the NATIVE record: quiz CALLS only (any state —
  *  a dangling call still moves position; results feed nothing). */
 export function derivePlanStatusesLh(tree: PlanTree, messages: readonly NpMessage[]): DerivedPlanStatuses {

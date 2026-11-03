@@ -365,7 +365,7 @@ export function CoverageRingDetail({ coverage, chunkTokens }: { coverage: Sessio
 	const t = useT();
 	return (
 		<>
-			<div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+			<div className="mb-2 text-xs font-medium text-muted-foreground">
 				{t("graph.coverage.title")}
 			</div>
 			<div className="flex flex-col gap-1 text-muted-foreground">

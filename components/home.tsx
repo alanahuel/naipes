@@ -18,11 +18,13 @@ import type { ChatListItem, GraphSnapshot, TurnUsage } from "@/src/core";
 import { useT } from "@/components/i18n";
 
 /** «Seguir con»: what needs you first (your turn, a waiting problem, the
- *  tutor working), then the most recent — three at most. Pure — tested. */
+ *  tutor working), then the most recent — three at most; archived
+ *  sessions never show. Pure — tested. */
 export function continueWith(chats: readonly ChatListItem[], limit = 3): ChatListItem[] {
 	const attention = (c: ChatListItem) =>
 		c.pendingQuestion || ((c.kind ?? "teach") === "practice" && c.pendingProblem) || c.busy || c.compacting ? 0 : 1;
-	return [...chats]
+	return chats
+		.filter((c) => c.archivedAt === undefined)
 		.sort((a, b) => attention(a) - attention(b) || b.updatedAt.localeCompare(a.updatedAt))
 		.slice(0, limit);
 }
@@ -303,7 +305,7 @@ export function Home({ initialConfigured }: { initialConfigured: boolean }) {
 										data-testid={`home-mode-${m}`}
 										onClick={() => setMode(m)}
 										className={
-											"flex items-center gap-1 rounded-sm px-2 py-0.5 text-[11px] uppercase tracking-wider transition-colors " +
+											"flex items-center gap-1 rounded-sm px-2 py-0.5 text-[11px] transition-colors " +
 											(mode === m
 												? "bg-accent text-foreground"
 												: "text-muted-foreground hover:text-foreground")

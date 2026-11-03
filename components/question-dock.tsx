@@ -241,7 +241,7 @@ export function QuestionDockBar({
 			onClick={onExpand}
 			className="dock-variant flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors hover:bg-accent/40"
 		>
-			<span className="shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+			<span className="shrink-0 text-xs font-medium text-muted-foreground">
 				{label ??
 							toolLabel ??
 							(toolName === "quiz" ? t("session.question.check") : toolName === "explain" ? t("session.question.explain") : t("session.question.question"))}
@@ -569,7 +569,7 @@ function QuestionDockForm({
 			    Capped by the measured column (--dock-max-h; the old fixed 55dvh cut
 			    long questions short — owner round, 2026-10-05). */}
 			<div data-dock-scroll-area="" data-session-find-root="" className="max-h-[var(--dock-max-h,55dvh)] overflow-y-auto px-4 pt-3">
-				<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				<div className="mb-1 text-xs font-medium text-muted-foreground">
 					{toolName === "probe"
 						? t("session.question.probe")
 						: toolName === "recall"
@@ -762,7 +762,7 @@ function QuestionDockForm({
 					<div className="flex items-center gap-3">
 						<span
 							className={cn(
-								"shrink-0 text-xs font-medium uppercase tracking-wide",
+								"shrink-0 text-xs font-medium ",
 								sel.dontKnow ? "text-muted-foreground/50" : "text-muted-foreground",
 							)}
 						>
@@ -851,7 +851,7 @@ function QuestionDockForm({
 					data-testid={qd.mode === "text" ? "answer-field" : "thinking-field"}
 					className="rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
 				>
-					<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					<div className="px-2.5 pt-2 text-xs font-medium text-muted-foreground">
 						{qd.mode === "text" ? t("session.question.yourAnswer") : t("session.yourThinking")}
 					</div>
 					{qd.mode === "text" ? (

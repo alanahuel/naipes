@@ -139,7 +139,7 @@ export function Composer({
 						type="submit"
 						data-testid="next-problem-button"
 						aria-label={t("session.nextProblem")}
-						className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-ok px-4 font-ui text-xs font-medium uppercase tracking-wide text-background transition-colors hover:opacity-90"
+						className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-ok px-4 font-ui text-xs font-medium text-background transition-colors hover:opacity-90"
 					>
 						{t("session.nextProblem")}
 						<ArrowRightIcon className="size-4" />

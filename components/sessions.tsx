@@ -23,7 +23,7 @@ import { BrailleSpinner } from "@/components/braille-spinner";
 import { Hint } from "@/components/ui/hint";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { translator, useT, type Translate } from "@/components/i18n";
-import { fuzzyScore, getStoredItem, type ChatDeleteMode, type ChatListItem } from "@/src/core";
+import { fuzzyScore, getStoredItem, type ChatDeleteMode, type ChatListItem, type MessageKey } from "@/src/core";
 
 const english = translator("en");
 
@@ -47,15 +47,25 @@ export function timeAgo(iso: string, now = new Date(), t: Translate = english): 
 	return `${date.getFullYear()}-${mm}-${dd}`;
 }
 
-/** The row's second line: the state when one exists, else how long ago. */
+/** The row's second line: how long ago (the state is its own label). */
 export function sessionMeta(chat: ChatListItem, t: Translate = english, now = new Date()): string {
-	const ago = timeAgo(chat.updatedAt, now, t);
-	if (chat.compacting) return t("sessions.meta.compacting", { ago });
-	if (chat.pendingQuestion) return t("sessions.meta.waiting", { ago });
-	if ((chat.kind ?? "teach") === "practice" && chat.pendingProblem) return t("sessions.meta.problemWaiting", { ago });
-	if (chat.busy) return t("sessions.meta.working");
-	return ago;
+	return timeAgo(chat.updatedAt, now, t);
 }
+
+/** A session's state as a named, toned label (Clonify's etiquetas: a fixed
+ *  tone per state). null = at rest (no label — the absence is the state).
+ *  Priority: compacting > working > your turn > problem waiting. Pure. */
+export type SessionStateTone = "neutral" | "attention";
+export function sessionState(chat: ChatListItem): { label: MessageKey; tone: SessionStateTone } | null {
+	if (chat.compacting) return { label: "sessions.state.compacting", tone: "neutral" };
+	if (chat.busy) return { label: "sessions.state.working", tone: "neutral" };
+	if (chat.pendingQuestion) return { label: "sessions.state.yourTurn", tone: "attention" };
+	if ((chat.kind ?? "teach") === "practice" && chat.pendingProblem) return { label: "sessions.state.problemWaiting", tone: "attention" };
+	return null;
+}
+
+/** Activas / Archivadas. */
+export type SessionStatusFilter = "active" | "archived";
 
 /** Teach / practice / all — persisted client-side. */
 export type SessionKindFilter = "teach" | "all" | "practice";
@@ -63,8 +73,14 @@ const KIND_FILTER_KEY = "np:session-kind-filter";
 
 /** Fuzzy filter + kind filter over the live list (prefix > word-boundary >
  *  scattered; empty query keeps the natural order). Pure — tested. */
-export function filterSessions(chats: readonly ChatListItem[], query: string, kind: SessionKindFilter): ChatListItem[] {
-	let list = kind === "all" ? [...chats] : chats.filter((c) => (c.kind ?? "teach") === kind);
+export function filterSessions(
+	chats: readonly ChatListItem[],
+	query: string,
+	kind: SessionKindFilter,
+	status: SessionStatusFilter = "active",
+): ChatListItem[] {
+	let list = chats.filter((c) => (status === "archived") === (c.archivedAt !== undefined));
+	if (kind !== "all") list = list.filter((c) => (c.kind ?? "teach") === kind);
 	const q = query.trim();
 	if (!q) return list;
 	list = list
@@ -152,43 +168,99 @@ export function useChatList() {
 
 // ─── rows ───────────────────────────────────────────────────────────────────
 
-/** One session row: the spinner (only while working), title + state line,
- *  and the practice mark on the right. */
+/** A state label: 24px, small radius, soft fill + strong text of one tone. */
+export function StateLabel({ label, tone }: { label: string; tone: SessionStateTone }) {
+	return (
+		<span
+			data-testid="session-state"
+			data-tone={tone}
+			className={cn(
+				"inline-flex h-6 shrink-0 items-center rounded-sm px-2 text-[13px] font-medium",
+				tone === "attention" ? "bg-attention-soft text-attention" : "bg-muted text-muted-foreground",
+			)}
+		>
+			{label}
+		</span>
+	);
+}
+
+/** The archive circle (Clonify's: a checkbox-like ring, no menu). Empty
+ *  ring = active (click archives); filled = archived (click restores). */
+function ArchiveCircle({ archived, title, onToggle }: { archived: boolean; title: string; onToggle: () => void }) {
+	const t = useT();
+	return (
+		<button
+			type="button"
+			data-testid="session-archive"
+			aria-pressed={archived}
+			aria-label={archived ? t("sessions.restore", { title }) : t("sessions.archive", { title })}
+			onClick={onToggle}
+			className="group/circle flex size-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-accent"
+		>
+			<span
+				className={cn(
+					"flex size-[18px] items-center justify-center rounded-full border-[1.5px] transition-colors",
+					archived ? "border-muted-foreground bg-muted-foreground" : "border-input group-hover/circle:border-muted-foreground",
+				)}
+			>
+				<svg viewBox="0 0 12 12" className={cn("size-2.5", archived ? "text-background" : "text-transparent group-hover/circle:text-muted-foreground")} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+					<path d="M2.5 6.2 5 8.5l4.5-5" />
+				</svg>
+			</span>
+		</button>
+	);
+}
+
+/** One session row: the archive circle (when managed), title + how long
+ *  ago, the state label, the practice mark. The open button carries
+ *  data-session-open (the keyboard walk targets it). */
 export function SessionRow({
 	chat,
 	active,
 	onOpen,
 	kbdSelected = false,
 	onContextMenu,
+	onArchiveToggle,
 }: {
 	chat: ChatListItem;
 	active: boolean;
 	onOpen: () => void;
 	kbdSelected?: boolean;
 	onContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+	/** Shows the archive circle (Mis sesiones); absent on «Seguir con». */
+	onArchiveToggle?: () => void;
 }) {
 	const t = useT();
+	const state = sessionState(chat);
 	return (
-		<button
-			type="button"
-			onClick={onOpen}
-			onContextMenu={onContextMenu}
-			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
+		<div
 			className={cn(
-				"relative flex min-h-[72px] w-full items-center gap-3 border-t px-4 py-3 text-left transition-colors first:border-t-0 hover:bg-accent",
+				"relative flex min-h-[72px] w-full items-center gap-2 border-t pr-4 transition-colors first:border-t-0 hover:bg-accent",
+				onArchiveToggle ? "pl-2" : "pl-4",
 				active && "bg-accent",
 				kbdSelected && !active && "bg-accent/60 ring-1 ring-border",
 			)}
 		>
-			{(chat.busy || chat.compacting) && <BrailleSpinner />}
-			<span className="min-w-0 flex-1">
-				<span className="block truncate font-prose text-(length:--np-prose-size)">{chat.title}</span>
-				<span className="block text-sm text-muted-foreground">{sessionMeta(chat, t)}</span>
-			</span>
-			{(chat.kind ?? "teach") === "practice" && (
-				<DumbbellIcon className="size-4 shrink-0 text-muted-foreground/70" aria-label={t("sessions.practiceSession")} />
-			)}
-		</button>
+			{onArchiveToggle && <ArchiveCircle archived={chat.archivedAt !== undefined} title={chat.title} onToggle={onArchiveToggle} />}
+			<button
+				type="button"
+				onClick={onOpen}
+				onContextMenu={onContextMenu}
+				data-session-open
+				data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
+				className="flex min-w-0 flex-1 items-center gap-3 self-stretch py-3 text-left"
+			>
+				{(chat.busy || chat.compacting) && <BrailleSpinner />}
+				<span className="min-w-0 flex-1">
+					<span className="block truncate font-prose text-(length:--np-prose-size)">{chat.title}</span>
+					<span className="block text-sm text-muted-foreground">{sessionMeta(chat, t)}</span>
+				</span>
+				{state && <StateLabel label={t(state.label)} tone={state.tone} />}
+				{(chat.kind ?? "teach") === "practice" && (
+					<DumbbellIcon className="size-4 shrink-0 text-muted-foreground/70" aria-label={t("sessions.practiceSession")} />
+				)}
+			</button>
+		</div>
 	);
 }
 
@@ -246,7 +318,52 @@ export function SessionsPage() {
 		setKindFilter(f);
 		window.localStorage.setItem(KIND_FILTER_KEY, f);
 	}, []);
-	const shown = useMemo(() => (chats ? filterSessions(chats, query, kindFilter) : null), [chats, query, kindFilter]);
+	const [statusFilter, setStatusFilter] = useState<SessionStatusFilter>("active");
+	const shown = useMemo(() => (chats ? filterSessions(chats, query, kindFilter, statusFilter) : null), [chats, query, kindFilter, statusFilter]);
+	const hasArchived = useMemo(() => chats?.some((c) => c.archivedAt !== undefined) ?? false, [chats]);
+
+	// Archive / restore: optimistic patch, PUT, a short notice with Undo.
+	const [notice, setNotice] = useState<{ text: string; undo?: () => void; error?: boolean } | null>(null);
+	const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	const showNotice = useCallback((next: { text: string; undo?: () => void; error?: boolean }) => {
+		if (noticeTimer.current) clearTimeout(noticeTimer.current);
+		setNotice(next);
+		noticeTimer.current = setTimeout(() => setNotice(null), 5000);
+	}, []);
+	useEffect(() => () => {
+		if (noticeTimer.current) clearTimeout(noticeTimer.current);
+	}, []);
+	const setArchived = useCallback(
+		async (chat: ChatListItem, archived: boolean, withUndo = true) => {
+			const patch = (value: boolean) =>
+				setChats((prev) =>
+					prev
+						? prev.map((c) => {
+								if (c.id !== chat.id) return c;
+								const { archivedAt: _drop, ...rest } = c;
+								return value ? { ...rest, archivedAt: new Date().toISOString() } : rest;
+							})
+						: prev,
+				);
+			patch(archived);
+			try {
+				const res = await fetch(`/api/chats/${chat.id}`, {
+					method: "PUT",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ archived }),
+				});
+				if (!res.ok) throw new Error(String(res.status));
+				showNotice({
+					text: archived ? t("sessions.archivedNotice") : t("sessions.restoredNotice"),
+					undo: withUndo ? () => void setArchived(chat, !archived, false) : undefined,
+				});
+			} catch {
+				patch(!archived);
+				showNotice({ text: t("sessions.archiveFailed"), error: true });
+			}
+		},
+		[setChats, showNotice, t],
+	);
 
 	// The search owns the keyboard walk (⌘⇧F lands here and focuses it).
 	const [kbdIndex, setKbdIndex] = useState<number | null>(null);
@@ -260,7 +377,7 @@ export function SessionsPage() {
 	}, []);
 	useEffect(() => {
 		if (kbdIndex === null) return;
-		listRef.current?.querySelectorAll("button")[kbdIndex]?.scrollIntoView({ block: "nearest" });
+		listRef.current?.querySelectorAll("[data-session-open]")[kbdIndex]?.scrollIntoView({ block: "nearest" });
 	}, [kbdIndex]);
 
 	// Context menu, inline rename, delete, summarize-to-vault.
@@ -358,6 +475,26 @@ export function SessionsPage() {
 				</div>
 
 				<div className="flex flex-wrap items-center gap-3">
+					<div className="flex items-center gap-1 rounded-full border p-1" data-testid="session-status-filter">
+						{(["active", "archived"] as const).map((f) => (
+							<button
+								key={f}
+								type="button"
+								data-testid={`status-filter-${f}`}
+								aria-pressed={statusFilter === f}
+								onClick={() => {
+									setStatusFilter(f);
+									setKbdIndex(null);
+								}}
+								className={cn(
+									"h-8 rounded-full px-3 text-sm transition-colors",
+									statusFilter === f ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:text-foreground",
+								)}
+							>
+								{t(`sessions.status.${f}`)}
+							</button>
+						))}
+					</div>
 					<div className="flex items-center gap-1 rounded-full border p-1" data-testid="session-kind-filter">
 						{(["all", "teach", "practice"] as const).map((f) => (
 							<button
@@ -420,7 +557,15 @@ export function SessionsPage() {
 					{shown === null ? (
 						<p className="px-4 py-6 text-sm text-muted-foreground">{t("common.loading")}</p>
 					) : shown.length === 0 ? (
-						<p className="px-4 py-6 text-sm text-muted-foreground">{query.trim() ? t("sessions.noMatch") : t("sessions.empty")}</p>
+						<p className="px-4 py-6 text-sm text-muted-foreground" data-testid="sessions-empty">
+							{query.trim()
+								? t("sessions.noMatch")
+								: statusFilter === "archived"
+									? t("sessions.archivedEmpty")
+									: hasArchived
+										? t("sessions.allArchived")
+										: t("sessions.empty")}
+						</p>
 					) : (
 						shown.map((c, i) =>
 							renamingId === c.id ? (
@@ -432,6 +577,7 @@ export function SessionsPage() {
 									active={pathname === `/chat/${c.id}`}
 									kbdSelected={i === kbdIndex}
 									onOpen={() => router.push(`/chat/${c.id}`)}
+									onArchiveToggle={() => void setArchived(c, c.archivedAt === undefined)}
 									onContextMenu={(e) => {
 										e.preventDefault();
 										ctxAnchorRef.current = e.currentTarget;
@@ -443,6 +589,32 @@ export function SessionsPage() {
 					)}
 				</div>
 
+				{notice && (
+					<div
+						role="status"
+						data-testid="sessions-notice"
+						className={cn(
+							"fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl border bg-popover px-4 py-2.5 text-sm shadow-float",
+							notice.error && "border-warn/40 text-warn",
+						)}
+					>
+						<span>{notice.text}</span>
+						{notice.undo && (
+							<button
+								type="button"
+								data-testid="sessions-undo"
+								onClick={() => {
+									const undo = notice.undo;
+									setNotice(null);
+									undo?.();
+								}}
+								className="font-medium text-primary hover:underline"
+							>
+								{t("sessions.undo")}
+							</button>
+						)}
+					</div>
+				)}
 				{vaultNotice && (
 					<p
 						role="status"

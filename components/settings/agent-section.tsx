@@ -538,7 +538,7 @@ export function AgentSection({
 				{open && (
 					<div className="mt-1 flex flex-col gap-2">
 						<div>
-							<p className="mb-1 text-xs uppercase tracking-widest text-muted-foreground/70">{t("settings.agent.source")}</p>
+							<p className="mb-1 text-xs text-muted-foreground/70">{t("settings.agent.source")}</p>
 							<textarea
 								readOnly
 								value={info.sourceText}
@@ -547,7 +547,7 @@ export function AgentSection({
 							/>
 						</div>
 						<div>
-							<p className="mb-1 text-xs uppercase tracking-widest text-muted-foreground/70">{t("settings.agent.override")}</p>
+							<p className="mb-1 text-xs text-muted-foreground/70">{t("settings.agent.override")}</p>
 							<textarea
 								value={segmentDraft[info.path] ?? info.overrideText ?? ""}
 								onChange={(e) => setSegmentDraft({ ...segmentDraft, [info.path]: e.target.value })}
@@ -890,7 +890,7 @@ export function AgentSection({
 						    order. */}
 						{sectionedSegments(prompts).map((section) => (
 							<div key={section.id} data-testid={`prompt-section-${section.id}`}>
-								<p className="mb-1 text-xs uppercase tracking-widest text-muted-foreground/70">
+								<p className="mb-1 text-xs text-muted-foreground/70">
 									{t(PROMPT_SECTION_LABEL[section.id])}
 								</p>
 								{section.hint && (

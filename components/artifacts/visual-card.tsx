@@ -82,7 +82,7 @@ export function VisualOutputCard({
 	if (failed) {
 		return (
 			<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="visual-card-failed">
-				<div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				<div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
 					{t("artifacts.visual.figure")}
 					<span className="rounded bg-warn/15 px-1.5 py-0.5 text-warn">{t("artifacts.failed")}</span>
 				</div>
@@ -126,7 +126,7 @@ export function VisualOutputCard({
 				/>
 			</div>
 			<div className="mt-2 flex items-center justify-between gap-2">
-				<div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("artifacts.visual.figure")}</div>
+				<div className="text-xs font-medium text-muted-foreground">{t("artifacts.visual.figure")}</div>
 				<div className="flex items-center gap-1.5">
 					{/* The invert affordance (owner round, 2026-10-07): the disc IS
 					    the half-filled contrast circle; the tooltip names it. */}

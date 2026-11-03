@@ -74,4 +74,24 @@ describe("chat store events (S6: the silence law)", () => {
 		off();
 		chatStore.deleteChat(chat.id);
 	});
+
+	it("archiving is a list-shape write: announces, round-trips through the list, never reorders", () => {
+		const chat = chatStore.createChat("Archive fixture");
+		const before = chatStore.getChat(chat.id)!.updatedAt;
+		let announces = 0;
+		const off = subscribe((e) => {
+			if (e.type === "chats-changed") announces++;
+		});
+		const archived = chatStore.setArchived(chat.id, true);
+		assert.equal(announces, 1, "archive announces");
+		assert.ok(archived.archivedAt, "stamped");
+		assert.equal(chatStore.getChat(chat.id)!.updatedAt, before, "updatedAt untouched — no reorder");
+		assert.ok(chatStore.listChats().find((c) => c.id === chat.id)?.archivedAt, "the list carries it");
+		const firstStamp = archived.archivedAt;
+		assert.equal(chatStore.setArchived(chat.id, true).archivedAt, firstStamp, "re-archiving keeps the first stamp");
+		const restored = chatStore.setArchived(chat.id, false);
+		assert.equal(restored.archivedAt, undefined, "restore removes the field");
+		assert.equal(chatStore.listChats().find((c) => c.id === chat.id)?.archivedAt, undefined);
+		off();
+	});
 });

@@ -53,7 +53,7 @@ export function PdfBriefCard({ output }: { output: unknown }) {
 	const consultedList = result.pagesConsulted ?? [];
 	return (
 		<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="pdf-brief-card">
-			<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+			<div className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
 				{t("artifacts.pdf.brief")}
 				{failed && <span className="rounded bg-warn/15 px-1.5 py-0.5 text-warn">{t("artifacts.failed")}</span>}
 			</div>
@@ -91,7 +91,7 @@ export function ResearchBriefCard({ output }: { output: unknown }) {
 	const failed = result.brief.startsWith("Research failed");
 	return (
 		<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="research-brief-card">
-			<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+			<div className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
 				{t("artifacts.research.brief")}
 				{failed && <span className="rounded bg-warn/15 px-1.5 py-0.5 text-warn">{t("artifacts.failed")}</span>}
 			</div>
@@ -100,7 +100,7 @@ export function ResearchBriefCard({ output }: { output: unknown }) {
 			</div>
 			{result.sources.length > 0 && (
 				<div className="mt-3 border-t pt-2">
-					<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("artifacts.research.sources")}</div>
+					<div className="mb-1 text-xs font-medium text-muted-foreground">{t("artifacts.research.sources")}</div>
 					<ul className="flex flex-col gap-0.5 text-xs">
 						{result.sources.map((s) => (
 							<li key={s.url} className="truncate">
