@@ -33,6 +33,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
 	EXTRACTION_CHUNK_TOKENS_FLOOR,
+	isThemeMode,
 	resolveSettings,
 	type AppearanceSettings,
 	type GraphSettings,
@@ -97,7 +98,7 @@ export function AppearanceSection({
 	/** PUT the whole appearance section; the page re-applies on success. */
 	onSectionChange: (next: AppearanceSettings) => void;
 }) {
-	const { appearance: resolved } = useAppearance();
+	const { appearance: resolved, theme } = useAppearance();
 	const md = appearance?.mdRendering;
 
 	// The font dropdown's open state + its enumeration cache. undefined =
@@ -186,19 +187,26 @@ export function AppearanceSection({
 
 	return (
 		<>
-			<SettingsRow label="Mode" hint="Coming soon" testid="row-mode" dimmed>
-				<ThinSelect value="dark" ariaLabel="mode" onChange={() => {}} testid="select-mode" disabled>
+			<SettingsRow label="Mode" hint={resolved.mode === "system" ? `Follows the system · now ${theme}` : undefined} testid="row-mode">
+				<ThinSelect
+					value={resolved.mode}
+					ariaLabel="mode"
+					onChange={(v) => onSectionChange({ ...appearance, mode: isThemeMode(v) ? v : undefined })}
+					testid="select-mode"
+				>
+					<option value="system">System</option>
+					<option value="light">Light</option>
 					<option value="dark">Dark</option>
 				</ThinSelect>
 			</SettingsRow>
 			<SettingsRow
 				label="Background"
-				hint={`Empty = ${resolved.background ?? "#141414"}`}
+				hint={`Empty = ${resolved.background ?? (theme === "dark" ? "#171717" : "#ffffff")}`}
 				testid="row-background"
 			>
 				<CommitInput
 					value={appearance?.background ?? ""}
-					placeholder="#141414"
+					placeholder={theme === "dark" ? "#171717" : "#ffffff"}
 					ariaLabel="background hex"
 					testid="input-background"
 					onCommit={(v) => onSectionChange({ ...appearance, background: v === "" ? null : v })}

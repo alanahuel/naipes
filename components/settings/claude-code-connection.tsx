@@ -62,7 +62,7 @@ export function ClaudeCodeConnection({ labelClassName }: { labelClassName?: stri
 		<ConnectionRow label={CLAUDE_CODE_LABEL} labelClassName={labelClassName} action={connected ? "Manage…" : "Connect"} disabled={busy} onAction={() => { setError(null); setOpen(true); void request().then(accept).catch(() => undefined); }}>
 			<span className="font-ui text-xs text-muted-foreground" data-testid="claude-code-summary">{summary}</span>
 		</ConnectionRow>
-		{status?.error && <p role="alert" className="text-xs text-red-400">{status.error}</p>}
+		{status?.error && <p role="alert" className="text-xs text-warn">{status.error}</p>}
 		{open && <ConnectionDialog label={`${CLAUDE_CODE_LABEL} connection`} testid="claude-code-dialog" backdropTestid="claude-code-dialog-backdrop" busy={busy} onClose={() => { if (!busy) { stopPolling(); setOpen(false); } }}>
 			<h2 className="text-sm font-semibold text-foreground">{CLAUDE_CODE_LABEL} (Claude subscription)</h2>
 			<p className="mt-3 text-xs leading-relaxed text-muted-foreground">{CLAUDE_CODE_NOTICE}</p>
@@ -73,8 +73,8 @@ export function ClaudeCodeConnection({ labelClassName }: { labelClassName?: stri
 				<Toggle label="Allow background use" checked={status.allowBackgroundUse} disabled={busy} onChange={(enabled) => void run("consent", { enabled })} />
 				<span>Allow background use<span className="mt-1 block leading-relaxed text-muted-foreground">Allow Naipes helper agents and automatic follow-ups to use this connection.</span></span>
 			</div>}
-			{error && <p role="alert" className="mt-3 text-xs text-red-400">{error}</p>}
-			<ConnectionFooter testid="claude-code-dialog-footer" leading={connected && <Button variant="ghost" size="sm" className="cursor-pointer text-red-400 hover:bg-red-500/10 hover:text-red-300" disabled={busy} onClick={() => void run("logout")}>Sign out of Claude Code</Button>}>
+			{error && <p role="alert" className="mt-3 text-xs text-warn">{error}</p>}
+			<ConnectionFooter testid="claude-code-dialog-footer" leading={connected && <Button variant="ghost" size="sm" className="cursor-pointer text-warn hover:bg-warn/10 hover:text-warn" disabled={busy} onClick={() => void run("logout")}>Sign out of Claude Code</Button>}>
 				<Button variant="ghost" size="sm" disabled={busy} onClick={() => void run("refresh")}>Check again</Button>
 				{status?.installed && !connected && <Button variant="outline" size="sm" disabled={busy} onClick={() => void signIn()}>Sign in</Button>}
 				<Button variant="outline" size="sm" disabled={busy} onClick={() => { stopPolling(); setOpen(false); }}>Close</Button>

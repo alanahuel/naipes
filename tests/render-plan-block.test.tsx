@@ -174,7 +174,7 @@ describe("plan block render", () => {
 		// The in-chat block speaks the dock language (owner, 2026-10-07):
 		// lighter-background boxes like the composer shells — with WHITE
 		// outlines (owner follow-up: gray fill good, box edges stay white).
-		assert.match(html, /<rect[^>]*class="fill-card stroke-white"/);
+		assert.match(html, /<rect[^>]*class="fill-card stroke-foreground"/);
 		// Two stacked nodes: 2*NODE_H + GAP_Y = 136 extent + GRAPH_PAD on
 		// every side (strokes/glow never clip at the edges). The width
 		// rides the hug now: 96-min boxes, not the old 160 slabs.
@@ -229,7 +229,7 @@ describe("plan popup (live derivation)", () => {
 		assert.match(html, /data-testid="plan-node-c" data-status="upcoming"/);
 		// The current node is the glow target: a faint yellow fill, blurred
 		// so it bleeds over the edges — static, no pulse (owner, round 6).
-		assert.match(html, /fill-yellow-400\/25/);
+		assert.match(html, /fill-primary\/20/);
 		assert.match(html, /feGaussianBlur/);
 		assert.doesNotMatch(html, /animate-pulse/);
 		// Arrows into not-yet-visited nodes are grayed out (owner, round 6).
@@ -276,7 +276,7 @@ describe("plan popup (live derivation)", () => {
 		assert.equal(dimHeads, 1, "the gray-origin edge dims");
 		assert.equal(whiteHeads, 1, "the both-white edge stays white");
 		assert.match(html, /<path[^>]*class="fill-none stroke-border"/);
-		assert.match(html, /<path[^>]*class="fill-none stroke-white"/);
+		assert.match(html, /<path[^>]*class="fill-none stroke-foreground"/);
 	});
 
 	it("renders the empty state when the session has no plan", () => {

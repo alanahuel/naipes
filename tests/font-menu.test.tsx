@@ -138,10 +138,10 @@ describe("the emphasis-ink factory ruling (globals.css)", () => {
 		assert.ok(!css.includes("--np-ink-italic: #6fa9d6"), "italic factory is not the old blue");
 	});
 
-	it("both blocks default the inks to the regular text color", () => {
+	it("the inks default to the regular text color (declared once, resolved per theme)", () => {
 		const css = fs.readFileSync("app/globals.css", "utf-8");
-		assert.equal((css.match(/--np-ink-strong: var\(--foreground\)/g) ?? []).length, 2, "both theme blocks");
-		assert.equal((css.match(/--np-ink-italic: var\(--foreground\)/g) ?? []).length, 2, "both theme blocks");
+		assert.equal((css.match(/--np-ink-strong: var\(--foreground\)/g) ?? []).length, 1, "declared once in :root");
+		assert.equal((css.match(/--np-ink-italic: var\(--foreground\)/g) ?? []).length, 1, "declared once in :root");
 	});
 
 	it("the appearance rows' empty-state labels say 'same as text'", () => {

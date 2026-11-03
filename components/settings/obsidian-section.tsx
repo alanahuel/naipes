@@ -161,7 +161,7 @@ export function ObsidianSection({
 					{status.lastError ? ` · last error: ${status.lastError}` : ""}
 				</p>
 			)}
-			{loadError && <p className="text-xs text-red-500">Could not read the vault: {loadError}</p>}
+			{loadError && <p className="text-xs text-warn">Could not read the vault: {loadError}</p>}
 
 			<SettingsGroup label="Folders to read" testid="obsidian-folders">
 				<p className="text-xs text-muted-foreground">

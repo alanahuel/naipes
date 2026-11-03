@@ -967,7 +967,7 @@ function SessionsSidebar() {
 					<p
 						role="status"
 						data-testid="vault-notice"
-						className={`mx-3 mb-3 rounded-sm border px-2.5 py-1.5 text-xs ${vaultNotice.error ? "border-red-500/40 text-red-500" : "border-border text-muted-foreground"}`}
+						className={`mx-3 mb-3 rounded-sm border px-2.5 py-1.5 text-xs ${vaultNotice.error ? "border-warn/40 text-warn" : "border-border text-muted-foreground"}`}
 					>
 						{vaultNotice.text}
 					</p>

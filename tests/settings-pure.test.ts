@@ -26,7 +26,7 @@ import { setupStage } from "../components/setup-dialog.tsx";
 describe("resolveAppearance — delta over factory", () => {
 	it("absent everything = the factory view", () => {
 		const a = resolveAppearance(undefined);
-		assert.equal(a.mode, "dark");
+		assert.equal(a.mode, "system");
 		assert.equal(a.background, null);
 		assert.equal(a.fontFamily, null);
 		assert.equal(a.proseFontSize, 16);
@@ -42,26 +42,39 @@ describe("resolveAppearance — delta over factory", () => {
 	});
 });
 
-describe("derivedPalette — the dark curve keeps today's relationships", () => {
-	it("the factory background reproduces today's palette EXACTLY", () => {
-		assert.deepEqual(derivedPalette("#141414"), {
-			"--background": "#141414",
-			"--card": "#1c1c1c",
-			"--popover": "#1c1c1c",
-			"--secondary": "#1c1c1c",
-			"--muted": "#1c1c1c",
-			"--accent": "#2a2a2a",
-			"--border": "#434343",
-			"--input": "#434343",
-			"--primary-foreground": "#141414",
+describe("derivedPalette — each theme's curve keeps the factory relationships", () => {
+	it("dark: the factory sheet reproduces the dark palette in globals.css", () => {
+		assert.deepEqual(derivedPalette("#171717", "dark"), {
+			"--background": "#171717",
+			"--frame": "#0f0f0f",
+			"--card": "#1f1f1f",
+			"--popover": "#1f1f1f",
+			"--secondary": "#1f1f1f",
+			"--muted": "#1f1f1f",
+			"--accent": "#2b2b2b",
+			"--border": "#2f2f2f",
+			"--input": "#2f2f2f",
 		});
 	});
 
-	it("an off-factory background shifts every surface with it (clamped at 255)", () => {
-		const p = derivedPalette("#f0f0f0");
-		assert.equal(p["--background"], "#f0f0f0");
-		assert.equal(p["--card"], "#f8f8f8"); // 240 + 8 per channel
-		assert.equal(p["--border"], "#ffffff", "240 + 47 clamps to 255 on every channel");
+	it("light: the white sheet lowers surfaces and keeps the popover on the sheet", () => {
+		const p = derivedPalette("#ffffff", "light");
+		assert.equal(p["--frame"], "#f4f4f4");
+		assert.equal(p["--card"], "#fafafa");
+		assert.equal(p["--accent"], "#f0f0f0");
+		assert.equal(p["--border"], "#e4e4e4");
+		assert.equal(p["--popover"], "#ffffff");
+	});
+
+	it("shifts clamp at both ends", () => {
+		assert.equal(derivedPalette("#f0f0f0", "dark")["--border"], "#ffffff", "240 + 24 clamps to 255");
+		assert.equal(derivedPalette("#101010", "light")["--frame"], "#050505");
+		assert.equal(derivedPalette("#050505", "light")["--frame"], "#000000", "5 - 11 clamps to 0");
+	});
+
+	it("the action color never derives from the background", () => {
+		assert.equal(derivedPalette("#334455", "dark")["--primary"], undefined);
+		assert.equal(derivedPalette("#334455", "dark")["--primary-foreground"], undefined);
 	});
 
 	it("3-digit hex expands", () => {

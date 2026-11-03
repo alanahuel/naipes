@@ -138,9 +138,9 @@ export function Toggle({
 			onClick={() => onChange(!checked)}
 			className={cn(
 				"relative h-4.5 w-8 shrink-0 rounded-full border border-border transition-colors",
-				// Owner (2026-09-20): on is a gray track with a WHITE disc (a full-white
-				// track was too loud); off stays the muted track.
-				checked ? "bg-muted-foreground" : "bg-muted",
+				// On = the action color (the one color that means "active" app-wide)
+				// with a white disc; off stays the muted track.
+				checked ? "border-primary bg-primary" : "bg-muted",
 				disabled && "cursor-not-allowed",
 			)}
 		>
@@ -150,7 +150,7 @@ export function Toggle({
 				<span
 					className={cn(
 						"absolute left-0 top-0.5 flex size-3 items-center justify-center rounded-full transition-transform",
-						checked ? "translate-x-4 text-foreground" : "translate-x-0.5 text-muted-foreground",
+						checked ? "translate-x-4 text-primary-foreground" : "translate-x-0.5 text-muted-foreground",
 					)}
 				>
 					{discIcon}
@@ -161,7 +161,7 @@ export function Toggle({
 						"absolute left-0 top-0.5 size-3 rounded-full transition-transform",
 						// 2px inset from each inner edge, both states (owner round: the on
 						// disc used to touch the pill's right edge).
-						checked ? "translate-x-4 bg-foreground" : "translate-x-0.5 bg-muted-foreground",
+						checked ? "translate-x-4 bg-primary-foreground" : "translate-x-0.5 bg-muted-foreground",
 					)}
 				/>
 			)}

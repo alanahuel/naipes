@@ -2,7 +2,7 @@
  * The app's ONE mermaid renderer (the chrome-melt wave, 2026-09-19): both the
  * in-chat block (components/md-blocks.tsx) and the session-scoped focus
  * overlay (components/session-overlay.tsx) render charts through this module
- * — one dark-theme config, one plugin instance, unique render ids. This
+ * — one theme-aware config, one plugin instance, unique render ids. This
  * REPLACES streamdown's internal mermaid path entirely: its fullscreen portal
  * was hard-wired `fixed inset-0` (covering the window-drag bar, X landing in
  * drag territory) with no styling hook, which is what drove the custom
@@ -20,23 +20,25 @@ import type { MermaidConfig } from "mermaid";
  *  never render larger than the session's own text). */
 export const MERMAID_FONT_SIZE = 16;
 
-// The app is dark-only (html.dark in the root layout) — diagrams render in
-// mermaid's dark theme. (Moved from ai-elements/message.tsx when the
-// renderer became app-owned; the old `mermaid` prop wiring is retired.)
-export const mermaidTheme: MermaidConfig = {
-	fontFamily: "ui-sans-serif, system-ui, sans-serif",
-	fontSize: MERMAID_FONT_SIZE,
-	securityLevel: "strict",
-	theme: "dark",
-};
+// Diagrams follow the app theme: mermaid's "dark" theme on the dark
+// sheet, "neutral" (gray, no color noise) on the light one. Callers pass
+// the effective theme and re-render when it changes.
+export function mermaidConfig(theme: "light" | "dark"): MermaidConfig {
+	return {
+		fontFamily: "ui-sans-serif, system-ui, sans-serif",
+		fontSize: MERMAID_FONT_SIZE,
+		securityLevel: "strict",
+		theme: theme === "dark" ? "dark" : "neutral",
+	};
+}
 
 const plugin = createMermaidPlugin();
 
 /** Render one chart source to an svg string. The id is unique per call —
  *  mermaid caches rendered ids, and a repeated id across charts/renders
  *  returns the stale svg (the bug streamdown's own id minting avoids). */
-export async function renderMermaid(chart: string): Promise<string> {
+export async function renderMermaid(chart: string, theme: "light" | "dark" = "dark"): Promise<string> {
 	const id = `np-mermaid-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
-	const { svg } = await plugin.getMermaid(mermaidTheme).render(id, chart);
+	const { svg } = await plugin.getMermaid(mermaidConfig(theme)).render(id, chart);
 	return svg;
 }

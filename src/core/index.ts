@@ -71,6 +71,7 @@ export type { ChatDeleteMode, ChatDeletionStats } from "./graph-deletion.ts";
 export * from "./settings-resolution.ts";
 export * from "./vault-notes.ts";
 export * from "./stored-item.ts";
+export * from "./theme.ts";
 export * from "./search.ts"; // search port (search wave, 2026-09-20)
 export * from "./session-find.ts";
 export * from "./session-navigation.ts";

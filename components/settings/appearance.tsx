@@ -7,9 +7,10 @@
  * Why variables and not className swaps: every seam the settings touch was
  * built token-first (--font-prose, --np-prose-size, --np-ink-strong, …),
  * so application is setProperty and nothing re-renders. The ONE thing the
- * variables can't reach — the mode — is dark-only this wave (the light
- * palette is designed in the later design wave; <html class="dark"> is
- * static in app/layout.tsx).
+ * variables can't reach — the mode — toggles the `dark` class on <html>:
+ * "system" follows prefers-color-scheme live, "light"/"dark" force one.
+ * The chosen mode is cached in localStorage (THEME_STORAGE_KEY) so the
+ * inline script in app/layout.tsx applies it before first paint.
  *
  * The provider is mounted at the ROOT LAYOUT level (like ActivityProvider):
  * every page picks appearance up on load. The settings page writes a
@@ -20,7 +21,7 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { FACTORY_SETTINGS, type AppearanceSettings } from "@/src/core";
+import { FACTORY_SETTINGS, THEME_STORAGE_KEY, effectiveTheme, isThemeMode, type AppearanceSettings, type EffectiveTheme, type ThemeMode } from "@/src/core";
 
 /** The resolved, fully-concrete appearance view (delta + factory merged). */
 export function resolveAppearance(delta: AppearanceSettings | undefined) {
@@ -39,44 +40,44 @@ export function resolveAppearance(delta: AppearanceSettings | undefined) {
 	};
 }
 
-/** One channel clamped on the dark curve: additive offsets matching today's
- *  hand-picked palette (#141414 → card #1c1c1c (+8) → accent #2a2a2a (+22)
- *  → border #434343 (+47)) — the "per-mode derivation in code" the schema
- *  promises, as the thinnest curve that keeps the palette's relationships. */
-function raise(hex: string, add: number): string {
+/** One channel shifted and clamped: positive = lighter, negative = darker. */
+function shift(hex: string, add: number): string {
 	const n = hex.length === 4
 		? hex.slice(1).split("").map((c) => parseInt(c + c, 16))
 		: [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
-	return `#${n.map((c) => Math.min(255, c + add).toString(16).padStart(2, "0")).join("")}`;
+	return `#${n.map((c) => Math.max(0, Math.min(255, c + add)).toString(16).padStart(2, "0")).join("")}`;
 }
 
-/** The derived palette a chosen background implies (dark curve): background
- *  itself, the raised surfaces (card/popover/secondary/muted, +8), the
- *  accent (+22), the edges (border/input, +47), and primary-foreground
- *  (the inverted text on primary = the background's own color, as today). */
-export function derivedPalette(background: string): Record<string, string> {
-	const card = raise(background, 8);
-	const accent = raise(background, 22);
-	const border = raise(background, 47);
+/** The derived palette a chosen background (the sheet) implies, per theme.
+ *  Dark raises surfaces toward light (card +8, accent +20, border +24) and
+ *  sinks the frame (-8); light lowers them (card -5, accent -15, border -27)
+ *  and the frame sits a step below the sheet (-11) — the same relationships
+ *  as the factory palettes in globals.css. The action color (primary) is
+ *  the brand red in both themes and never derives from the background. */
+export function derivedPalette(background: string, theme: EffectiveTheme = "dark"): Record<string, string> {
+	const dark = theme === "dark";
+	const card = shift(background, dark ? 8 : -5);
+	const accent = shift(background, dark ? 20 : -15);
+	const border = shift(background, dark ? 24 : -27);
 	return {
 		"--background": background,
+		"--frame": shift(background, dark ? -8 : -11),
 		"--card": card,
-		"--popover": card,
+		"--popover": dark ? card : background,
 		"--secondary": card,
 		"--muted": card,
 		"--accent": accent,
 		"--border": border,
 		"--input": border,
-		"--primary-foreground": background,
 	};
 }
 
 /** THE mapping: resolved appearance → the CSS variables to set on <html>.
  *  Absent entries = leave the factory stylesheet value in place. Pure —
  *  exported for tests. */
-export function appearanceVars(a: ReturnType<typeof resolveAppearance>): Record<string, string> {
+export function appearanceVars(a: ReturnType<typeof resolveAppearance>, theme: EffectiveTheme = "dark"): Record<string, string> {
 	const vars: Record<string, string> = {};
-	if (a.background !== null) Object.assign(vars, derivedPalette(a.background));
+	if (a.background !== null) Object.assign(vars, derivedPalette(a.background, theme));
 	if (a.fontFamily !== null) {
 		vars["--font-prose"] = `"${a.fontFamily}", var(--font-sans3), ui-sans-serif, system-ui, sans-serif`;
 	}
@@ -110,12 +111,15 @@ export function staleVarNames(
 interface AppearanceContextValue {
 	/** Resolved appearance; factory until the record arrives. */
 	appearance: ReturnType<typeof resolveAppearance>;
+	/** The theme on screen right now (mode resolved against the OS). */
+	theme: EffectiveTheme;
 	/** Called by the settings page after a successful section PUT. */
 	onAppearanceChange: (delta: AppearanceSettings | undefined) => void;
 }
 
 const AppearanceContext = createContext<AppearanceContextValue>({
 	appearance: resolveAppearance(undefined),
+	theme: "dark",
 	onAppearanceChange: () => {},
 });
 
@@ -123,12 +127,56 @@ export function useAppearance() {
 	return useContext(AppearanceContext);
 }
 
+/** Read the cached mode (what the pre-paint script applied). */
+function cachedMode(): ThemeMode {
+	try {
+		const stored = localStorage.getItem(THEME_STORAGE_KEY);
+		return isThemeMode(stored) ? stored : FACTORY_SETTINGS.appearance.mode;
+	} catch {
+		return FACTORY_SETTINGS.appearance.mode;
+	}
+}
+
+/** Live prefers-color-scheme (true = dark). SSR-safe. */
+function useSystemDark(): boolean {
+	const [dark, setDark] = useState(() => typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+	useEffect(() => {
+		const query = window.matchMedia("(prefers-color-scheme: dark)");
+		const onChange = () => setDark(query.matches);
+		onChange();
+		query.addEventListener("change", onChange);
+		return () => query.removeEventListener("change", onChange);
+	}, []);
+	return dark;
+}
+
 export function AppearanceProvider({ children }: { children: React.ReactNode }) {
 	const [delta, setDelta] = useState<AppearanceSettings | undefined>(undefined);
+	// Until the record arrives, the cached mode stands in (no flip on load).
+	const [loaded, setLoaded] = useState(false);
 	const appliedRef = useRef<string>("");
+	const systemDark = useSystemDark();
+	const mode: ThemeMode = loaded ? resolveAppearance(delta).mode : typeof window === "undefined" ? FACTORY_SETTINGS.appearance.mode : cachedMode();
+	const theme = effectiveTheme(mode, systemDark);
+
+	// Theme application: the class Tailwind's dark variant keys on, the
+	// native form-control scheme, the cache for the pre-paint script, and
+	// the desktop shell (title-bar overlay + window background).
+	useEffect(() => {
+		const root = document.documentElement;
+		root.classList.toggle("dark", theme === "dark");
+		root.style.colorScheme = theme;
+		root.dataset.theme = theme;
+		try {
+			localStorage.setItem(THEME_STORAGE_KEY, mode);
+		} catch {
+			// Storage blocked: the theme still applies for this session.
+		}
+		(window as { np?: { setTheme?: (t: EffectiveTheme) => void } }).np?.setTheme?.(theme);
+	}, [theme, mode]);
 
 	// The vars apply on every change — stringified as the change signal.
-	const vars = useMemo(() => appearanceVars(resolveAppearance(delta)), [delta]);
+	const vars = useMemo(() => appearanceVars(resolveAppearance(delta), theme), [delta, theme]);
 	const key = useMemo(() => JSON.stringify(vars), [vars]);
 	// REMOVAL is half the job (owner repro, fix wave): a later write that
 	// OMITS a var (empty field = factory, serif toggle back on) must clear
@@ -166,6 +214,7 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
 				setDelta(
 					appearance && typeof appearance === "object" ? (appearance as AppearanceSettings) : undefined,
 				);
+				setLoaded(true);
 			})
 			.catch(() => {/* settings stay factory — not worth a crash */});
 		return () => {
@@ -175,11 +224,12 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
 
 	const onAppearanceChange = useCallback((next: AppearanceSettings | undefined) => {
 		setDelta(next);
+		setLoaded(true);
 	}, []);
 
 	const value = useMemo(
-		() => ({ appearance: resolveAppearance(delta), onAppearanceChange }),
-		[delta, onAppearanceChange],
+		() => ({ appearance: resolveAppearance(delta), theme, onAppearanceChange }),
+		[delta, theme, onAppearanceChange],
 	);
 	return <AppearanceContext.Provider value={value}>{children}</AppearanceContext.Provider>;
 }

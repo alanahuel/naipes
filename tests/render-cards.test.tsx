@@ -148,11 +148,11 @@ describe("DispatchCard — the BYOK refusal tone (owner, 2026-09-22)", () => {
 		assert.ok(!html.includes("failed"));
 	});
 
-	it("a real failure keeps the honest red failure", () => {
+	it("a real failure keeps the honest (amber) failure", () => {
 		const html = renderToStaticMarkup(inJobs([job({ error: "FAILED: headless crashed" })]));
 		assert.ok(html.includes('data-testid="dispatch-settled"'));
 		assert.ok(html.includes("failed"));
-		assert.ok(html.includes("text-red-500"));
+		assert.ok(html.includes("text-warn"));
 		assert.ok(!html.includes("dispatch-refused"));
 	});
 

@@ -1097,7 +1097,7 @@ describe("tool + renderer registry wiring", () => {
 		const errHtml = renderToStaticMarkup(<ToolCallCard part={errPart as never} />);
 		assert.match(errHtml, /Error/);
 		assert.match(errHtml, /ENOENT/);
-		assert.match(errHtml, /text-red-500/);
+		assert.match(errHtml, /text-warn/);
 	});
 
 	it("the tool-call card: find/grep headline the pattern, ls defaults to ~", () => {

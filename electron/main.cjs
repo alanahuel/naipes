@@ -24,7 +24,7 @@
  *     would shadow every settings-page key change until restart.
  */
 
-const { app, BrowserWindow, Menu, dialog, ipcMain, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, session, shell } = require("electron");
 const { createChatGPT, fileStore } = require("./chatgpt.cjs");
 const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt-ipc.cjs");
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
@@ -43,6 +43,15 @@ const path = require("node:path");
 const SIDEBAR_AUTOCLOSE = 928;
 
 const PRODUCT_NAME = "Naipes";
+
+/** Native chrome per theme (mirrors --frame + a readable symbol color in
+ *  app/globals.css). The renderer reports its effective theme over
+ *  "np:set-theme"; until then the OS preference decides. */
+const THEME_CHROME = {
+	light: { background: "#f4f4f4", symbol: "#3f3f3f" },
+	dark: { background: "#0f0f0f", symbol: "#d6d6d6" },
+};
+const initialChrome = () => THEME_CHROME[nativeTheme?.shouldUseDarkColors ? "dark" : "light"];
 
 // APP NAME → userData (owner, 2026-10-10): the Application Support dir is
 // exactly "Naipes" in dev AND packaged. Packaged Electron would
@@ -334,7 +343,7 @@ function createWindow(url) {
 				// height. Do not force the zoom-invariant native overlay to match
 				// the renderer's 60 CSS px bar: zooming out would cover its border.
 				// The renderer reserves the actual width via env(titlebar-area-*).
-				titleBarOverlay: { color: "#141414", symbolColor: "#e5e5e5" },
+				titleBarOverlay: { color: initialChrome().background, symbolColor: initialChrome().symbol },
 				// Keep the custom bar alone; Alt reveals the native menu.
 				autoHideMenuBar: true,
 			}),
@@ -349,10 +358,10 @@ function createWindow(url) {
 		// the native window surface changes size before Chromium's compositor
 		// has a frame at the new size, and the gap shows the window's NATIVE
 		// background — Electron's default is white, glaring on a dark app.
-		// The app background (#141414) fills the lag instead. `show: false` +
+		// The theme's frame color fills the lag instead. `show: false` +
 		// ready-to-show is the same treatment for first paint: the window
 		// appears only once the page has actually rendered.
-		backgroundColor: "#141414",
+		backgroundColor: initialChrome().background,
 		show: false,
 		// Narrow-window behavior (owner, 2026-09-17): 640px is the floor —
 		// below it even a wrapped chrome row gets cramped and the chat header
@@ -790,6 +799,21 @@ async function main() {
 		return result.canceled ? null : result.filePaths[0] ?? null;
 	});
 	ipcMain.handle("np:zoom:get", (event) => BrowserWindow.fromWebContents(event.sender)?.webContents.getZoomFactor() ?? 1);
+	// The renderer's effective theme (light/dark): repaint the native
+	// window background and, on Windows/Linux, the title-bar overlay.
+	ipcMain.on("np:set-theme", (event, theme) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win || !trustedAppWindows.has(win)) return;
+		const chrome = THEME_CHROME[theme === "light" ? "light" : "dark"];
+		win.setBackgroundColor(chrome.background);
+		if (process.platform !== "darwin") {
+			try {
+				win.setTitleBarOverlay({ color: chrome.background, symbolColor: chrome.symbol });
+			} catch {
+				// No overlay on this window (e.g. fullscreen): nothing to repaint.
+			}
+		}
+	});
 	ipcMain.on("np:expand-window", (event) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win) return;
