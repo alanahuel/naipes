@@ -136,10 +136,10 @@ export function browserServiceSpawnEnv(
 ): Record<string, string | undefined> {
 	const out: Record<string, string | undefined> = { ...env };
 	delete out.ELECTRON_RUN_AS_NODE;
-	delete out.LH_DEV_URL;
+	delete out.NP_DEV_URL;
 	// The artifact renderer is not an authorized app API client.
-	delete out.LH_DESKTOP_API_SECRET;
-	delete out.LH_DESKTOP_SERVER;
+	delete out.NP_DESKTOP_API_SECRET;
+	delete out.NP_DESKTOP_SERVER;
 	return out;
 }
 
@@ -282,7 +282,7 @@ function tempDir(prefix: string): string {
 
 async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRunResult> {
 	const settleMs = opts.settleMs ?? 2000;
-	const dir = tempDir("lh-demo-");
+	const dir = tempDir("np-demo-");
 	const file = path.join(dir, "demo.html");
 	fs.writeFileSync(file, html, "utf-8");
 
@@ -433,7 +433,7 @@ async function renderSvg(svg: string, opts: RenderSvgOptions = {}): Promise<Buff
 	} catch {
 		/* fall through to the browser path */
 	}
-	const dir = tempDir("lh-visual-");
+	const dir = tempDir("np-visual-");
 	const file = path.join(dir, "figure.html");
 	fs.writeFileSync(
 		file,

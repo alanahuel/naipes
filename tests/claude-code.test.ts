@@ -7,8 +7,8 @@ import { getSupportedThinkingLevels, normalizeContext, type AssistantMessageEven
 import { Type } from "typebox";
 
 // A scratch data dir and a fake `claude` CLI — no network, no real account.
-const dir = mkdtempSync(path.join(os.tmpdir(), "lh-claude-code-test-"));
-process.env.LH_DATA_DIR = path.join(dir, "data");
+const dir = mkdtempSync(path.join(os.tmpdir(), "np-claude-code-test-"));
+process.env.NP_DATA_DIR = path.join(dir, "data");
 const fake = path.join(dir, "claude");
 const control = path.join(dir, "control.json");
 const record = path.join(dir, "record.json");
@@ -26,7 +26,7 @@ process.stdin.on("data", (d) => input += d).on("end", () => {
 });
 `);
 chmodSync(fake, 0o755);
-process.env.LH_CLAUDE_BIN = fake;
+process.env.NP_CLAUDE_BIN = fake;
 
 type Bridge = typeof import("../src/agent/claude-code-bridge.ts");
 type Stream = typeof import("../src/agent/claude-code-stream.ts");
@@ -43,7 +43,7 @@ const TOOL_TURN = [
 	se({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "Let me " } }),
 	se({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "check." } }),
 	se({ type: "content_block_stop", index: 1 }),
-	se({ type: "content_block_start", index: 2, content_block: { type: "tool_use", id: "toolu_1", name: "mcp__lh__ask_question", input: {} } }),
+	se({ type: "content_block_start", index: 2, content_block: { type: "tool_use", id: "toolu_1", name: "mcp__np__ask_question", input: {} } }),
 	se({ type: "content_block_delta", index: 2, delta: { type: "input_json_delta", partial_json: '{"question":' } }),
 	se({ type: "content_block_delta", index: 2, delta: { type: "input_json_delta", partial_json: '"Why?"}' } }),
 	se({ type: "content_block_stop", index: 2 }),
@@ -123,7 +123,7 @@ test("args and env: no built-in tools or user settings, one turn, never an API k
 	assert.equal(after("--max-turns"), "1");
 	assert.equal(after("--model"), "claude-opus-5-5");
 	assert.equal(after("--effort"), "xhigh");
-	assert.equal(after("--allowedTools"), "mcp__lh__ask_question");
+	assert.equal(after("--allowedTools"), "mcp__np__ask_question");
 	for (const flag of ["--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands", "--include-partial-messages"]) assert.ok(args.includes(flag), flag);
 	const env = bridge.claudeCodeEnv({ ANTHROPIC_API_KEY: "x", ANTHROPIC_AUTH_TOKEN: "y", ANTHROPIC_BASE_URL: "z", PATH: "/bin" } as unknown as NodeJS.ProcessEnv);
 	assert.equal(env.ANTHROPIC_API_KEY, undefined);
@@ -132,7 +132,7 @@ test("args and env: no built-in tools or user settings, one turn, never an API k
 	assert.equal(env.PATH, "/bin");
 });
 
-test("stream: text and a tool call come back to the LearnHarness loop with usage, zero cost", async () => {
+test("stream: text and a tool call come back to the Naipes loop with usage, zero cost", async () => {
 	setControl({ lines: TOOL_TURN, keepAlive: true }); // must be killed at message_stop
 	const events = await collect();
 	const done = events.at(-1)!;
@@ -155,7 +155,7 @@ test("stream: text and a tool call come back to the LearnHarness loop with usage
 	assert.equal(seen.toolSearch, "false");
 	assert.ok(seen.args.includes("--effort") && seen.args[seen.args.indexOf("--effort") + 1] === "high");
 	const mcp = JSON.parse(seen.args[seen.args.indexOf("--mcp-config") + 1]);
-	assert.ok(mcp.mcpServers.lh, "tools are declared through the lh MCP server");
+	assert.ok(mcp.mcpServers.np, "tools are declared through the np MCP server");
 });
 
 test("background work is refused before spawning when background use is off", async () => {

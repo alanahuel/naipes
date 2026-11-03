@@ -21,14 +21,14 @@ import type { UpdateState } from "../components/settings/update-settings.tsx";
 
 // linkedom as the DOM for the interactive pass (first createRoot test in
 // the repo — the banner's push→render→click flow needs real effects).
-// The window.lh bridge type is declared globally by components/sidebar.tsx.
+// The window.np bridge type is declared globally by components/sidebar.tsx.
 const dom = parseHTML("<html><body></body></html>");
 (globalThis as Record<string, unknown>).window = dom.window;
 (globalThis as Record<string, unknown>).document = dom.document;
 
 describe("update banner (Wave C)", () => {
 	afterEach(() => {
-		delete (window as { lh?: unknown }).lh;
+		delete (window as { np?: unknown }).np;
 	});
 
 	it("renders nothing with no bridge (browser / SSR)", () => {
@@ -38,7 +38,7 @@ describe("update banner (Wave C)", () => {
 
 	it("renders nothing when the bridge exists but no status has arrived", () => {
 		const listeners: Array<(s: UpdateState) => void> = [];
-		(window as { lh?: unknown }).lh = {
+		(window as { np?: unknown }).np = {
 			onUpdateStatus: (cb: (s: UpdateState) => void) => {
 				listeners.push(cb);
 				return () => {};
@@ -53,7 +53,7 @@ describe("update banner (Wave C)", () => {
 	it("shows the version + Restart once the downloaded push arrives, and Restart installs", async () => {
 		let pushed: ((s: UpdateState) => void) | null = null;
 		let installed = 0;
-		(window as { lh?: unknown }).lh = {
+		(window as { np?: unknown }).np = {
 			onUpdateStatus: (cb: (s: UpdateState) => void) => {
 				pushed = cb;
 				return () => {};

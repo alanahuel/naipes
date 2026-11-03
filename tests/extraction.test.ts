@@ -27,7 +27,7 @@ import * as fs from "node:fs";
 import { after, describe, it } from "node:test";
 import { createFauxCore, fauxAssistantMessage, fauxToolCall, type FauxResponseStep, type ToolCall, type Usage } from "@earendil-works/pi-ai";
 import type { PiEngine } from "../src/agent/models.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
+import type { NpMessage } from "../src/core/native-messages.ts";
 import { newPlanBlockMessage } from "../src/core/native-messages.ts";
 import { projectView as projectNative } from "../src/core/view.ts";
 import type {
@@ -138,11 +138,11 @@ interface NativeCallDesc {
 	output: unknown;
 }
 
-function user(id: string, text: string): LhMessage {
+function user(id: string, text: string): NpMessage {
 	return { id, role: "user", content: text, timestamp: Date.now() } as never;
 }
 
-function assistant(id: string, items: unknown[]): LhMessage[] {
+function assistant(id: string, items: unknown[]): NpMessage[] {
 	const content: unknown[] = [];
 	const calls: NativeCallDesc[] = [];
 	for (const item of items) {
@@ -155,7 +155,7 @@ function assistant(id: string, items: unknown[]): LhMessage[] {
 			content.push({ type: "toolCall", id: call.toolCallId, name: call.name, arguments: call.input as never });
 		}
 	}
-	const out: LhMessage[] = [
+	const out: NpMessage[] = [
 		{
 			id,
 			role: "assistant",

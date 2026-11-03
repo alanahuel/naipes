@@ -15,17 +15,17 @@ import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages"
 import { Type } from "typebox";
 import type { AgentBuildOptions, TeachingAgent } from "../src/agent/teacher-agent.ts";
 import type { PiEngine } from "../src/agent/models.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
+import type { NpMessage } from "../src/core/native-messages.ts";
 import type { QuestionData } from "../src/core/question-core.ts";
 import type { SteerMessage } from "../src/core/contracts.ts";
 
 // Set the storage/auth seams BEFORE any app/config-loading imports.
 assert.equal(process.env.NODE_ENV, "test", "Run with NODE_ENV=test; these tests must not invoke real providers.");
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "lh-retry-failed-turn-"));
-process.env.LH_DATA_DIR = path.join(scratch, "data");
-process.env.LH_AUTH_FILE = path.join(scratch, "auth.json");
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "np-retry-failed-turn-"));
+process.env.NP_DATA_DIR = path.join(scratch, "data");
+process.env.NP_AUTH_FILE = path.join(scratch, "auth.json");
 process.env.OPENROUTER_API_KEY = "test-key-presence-gate";
-fs.writeFileSync(process.env.LH_AUTH_FILE, "{}");
+fs.writeFileSync(process.env.NP_AUTH_FILE, "{}");
 
 const { SessionModel } = await import("../components/session-core.ts");
 const { createPracticeAgent, createProberAgent, createTeacherAgent } = await import("../src/agent/teacher-agent.ts");
@@ -116,14 +116,14 @@ function gradedAnswer() {
 }
 
 const roles = (chatId: string) => chatStore.getChat(chatId)!.messages.map((m) => m.role);
-const failed = (id: string, text = ""): LhMessage => ({
+const failed = (id: string, text = ""): NpMessage => ({
 	...fauxAssistantMessage(text, { stopReason: "error", errorMessage: "fetch failed" }), id,
 });
 const compaction = (firstKeptMessageId: string) => newCompactionMarker("summary", {
 	firstKeptMessageId, tokensBefore: 100, model: "fixture", at: "2026-01-01T00:00:00Z",
 });
 
-function assertPreserved(before: LhMessage[], saved: LhMessage[]): void {
+function assertPreserved(before: NpMessage[], saved: NpMessage[]): void {
 	assert.deepEqual(saved.slice(0, before.length), before, "all previous messages, ids and partial content stay intact");
 }
 
@@ -334,7 +334,7 @@ describe("failed-response Retry (issue #110)", () => {
 		it(`uses the same retained-history retry boundary for the ${kind}`, async () => {
 			const { engine, contexts } = scripted([() => fauxAssistantMessage("Recovered response.")]);
 			const chat = createConfiguredChat(`Test: ${kind} retry`, kind === "practice" ? "practice" : undefined);
-			const before: LhMessage[] = [newUserMessage("hello")];
+			const before: NpMessage[] = [newUserMessage("hello")];
 			if (kind === "teacher") {
 				before.push({ ...fauxAssistantMessage([fauxToolCall("probe_done", {}, { id: "probe-1" })], { stopReason: "toolUse" }), id: "probe-response" });
 				before.push({ id: "probe-result", role: "toolResult", toolCallId: "probe-1", toolName: "probe_done", content: [], details: { ok: true }, isError: false, timestamp: 1 });
@@ -377,10 +377,10 @@ describe("retained generations and Pi's native provider filtering", () => {
 	for (const stopReason of ["error", "aborted"] as const) {
 		it(`does not fabricate results for ${stopReason} partial tool calls on later requests`, () => {
 			const faux = createFauxCore({});
-			const partial: LhMessage = {
+			const partial: NpMessage = {
 				...fauxAssistantMessage([fauxToolCall("save_note", {}, { id: "partial-call" })], { stopReason }), id: "partial",
 			};
-			const recovered: LhMessage = { ...fauxAssistantMessage("Recovered."), id: "recovered" };
+			const recovered: NpMessage = { ...fauxAssistantMessage("Recovered."), id: "recovered" };
 			const messages = [newUserMessage("hello"), partial, recovered, newUserMessage("next question")];
 			const before = JSON.parse(JSON.stringify(messages));
 			const converted = toLlmMessages(asAgentMessages(messages));
@@ -395,10 +395,10 @@ describe("retained generations and Pi's native provider filtering", () => {
 
 	it("keeps an actual tool-cancellation result and its completed calling message", () => {
 		const faux = createFauxCore({});
-		const call: LhMessage = {
+		const call: NpMessage = {
 			...fauxAssistantMessage([fauxToolCall("save_note", {}, { id: "completed-call" })], { stopReason: "toolUse" }), id: "caller",
 		};
-		const cancellation: LhMessage = {
+		const cancellation: NpMessage = {
 			id: "cancelled-result", role: "toolResult", toolCallId: "completed-call", toolName: "save_note",
 			content: [{ type: "text", text: "Tool execution was aborted." }], isError: true, timestamp: 1,
 		};
@@ -414,7 +414,7 @@ describe("retained generations and Pi's native provider filtering", () => {
 
 	it("still repairs an unanswered call from a completed generation", () => {
 		const faux = createFauxCore({});
-		const question: LhMessage = {
+		const question: NpMessage = {
 			...fauxAssistantMessage([fauxToolCall("quiz", QUIZ_INPUT, { id: "unanswered-question" })], { stopReason: "toolUse" }), id: "question",
 		};
 		const messages = [newUserMessage("hello"), question, newUserMessage("move on")];
@@ -602,8 +602,8 @@ describe("Retry eligibility and temporary omissions (pure)", () => {
 
 	it("excludes aborts, healthy responses, missing input and assistant-only predecessors", () => {
 		const user = newUserMessage("hi");
-		const aborted = { ...failed("aborted"), stopReason: "aborted" } as LhMessage;
-		const healthy = { ...fauxAssistantMessage("Done"), id: "healthy" } as LhMessage;
+		const aborted = { ...failed("aborted"), stopReason: "aborted" } as NpMessage;
+		const healthy = { ...fauxAssistantMessage("Done"), id: "healthy" } as NpMessage;
 		for (const messages of [[user], [failed("a1")], [user, aborted], [user, healthy], [healthy, failed("a1")]]) {
 			assert.equal(endsInFailedTurn(messages), false);
 			assert.throws(() => retryDrops(messages), ChatInputError);

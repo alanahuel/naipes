@@ -346,13 +346,13 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 			if (!(e.target instanceof Element)) return;
 			const t = e.target;
 			if (keyMenuOpen) {
-				if (t.closest("[data-lh-menu]") || t.closest('[data-testid="setup-key-provider"]')) return;
+				if (t.closest("[data-np-menu]") || t.closest('[data-testid="setup-key-provider"]')) return;
 				setKeyMenuOpen(false);
 			}
 			if (openMenu === null) return;
 			const triggerTestid =
 				openMenu.kind === "model" ? `setup-trigger-${openMenu.slot}` : `setup-thinking-${openMenu.slot}`;
-			if (t.closest("[data-lh-menu]") || t.closest(`[data-testid="${triggerTestid}"]`)) return;
+			if (t.closest("[data-np-menu]") || t.closest(`[data-testid="${triggerTestid}"]`)) return;
 			setOpenMenu(null);
 		};
 		document.addEventListener("keydown", onKey);

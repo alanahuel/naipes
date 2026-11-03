@@ -10,17 +10,17 @@ import { createTeacherAgent } from "../src/agent/teacher-agent.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "lh-chatgpt-native-"));
-process.env.LH_DATA_DIR = path.join(scratch, "data");
-process.env.LH_AUTH_FILE = path.join(scratch, "auth.json");
-fs.writeFileSync(process.env.LH_AUTH_FILE, "{}");
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "np-chatgpt-native-"));
+process.env.NP_DATA_DIR = path.join(scratch, "data");
+process.env.NP_AUTH_FILE = path.join(scratch, "auth.json");
+fs.writeFileSync(process.env.NP_AUTH_FILE, "{}");
 const { runPiTurn } = await import("../src/server/pi/ui-stream.ts");
-import { newUserMessage, newNextMessage, newThinkingMessage, newAnswerResult, reconstructRequestCause, concludedByDismissalPair, type LhMessage } from "../src/core/native-messages.ts";
+import { newUserMessage, newNextMessage, newThinkingMessage, newAnswerResult, reconstructRequestCause, concludedByDismissalPair, type NpMessage } from "../src/core/native-messages.ts";
 
 const originalSend = Object.getOwnPropertyDescriptor(process, "send");
 const originalConnected = Object.getOwnPropertyDescriptor(process, "connected");
 const realFetch = globalThis.fetch;
-const desktopMarker = process.env.LH_DESKTOP_SERVER, desktopSecret = process.env.LH_DESKTOP_API_SECRET;
+const desktopMarker = process.env.NP_DESKTOP_SERVER, desktopSecret = process.env.NP_DESKTOP_API_SECRET;
 const model = piModels().getModel("openai", "gpt-5") as Model<"openai-responses">;
 let epoch = 1, revision = 1, background = true;
 let cut: "lease" | "payload" | "full" | "afterFetch" | "none" = "none";
@@ -29,10 +29,10 @@ const status = () => ({ available: true, pending: false, allowBackgroundUse: bac
 const ipc = (m: unknown) => (process.emit as (name: string, m: unknown) => boolean)("message", m);
 function revoke(full = false) {
  background = false; if (full) epoch++;
- ipc({ channel: "lh:chatgpt", kind: "state", stamp: { epoch, authorityRevision: epoch, revision: ++revision }, status: status(), invalidate: full ? "all" : "background" });
+ ipc({ channel: "np:chatgpt", kind: "state", stamp: { epoch, authorityRevision: epoch, revision: ++revision }, status: status(), invalidate: full ? "all" : "background" });
 }
 before(() => {
- process.env.LH_DESKTOP_SERVER = "1"; process.env.LH_DESKTOP_API_SECRET = "d".repeat(64);
+ process.env.NP_DESKTOP_SERVER = "1"; process.env.NP_DESKTOP_API_SECRET = "d".repeat(64);
  Object.defineProperty(process, "connected", { configurable: true, value: true });
  Object.defineProperty(process, "send", { configurable: true, value: (m: any, callback?: () => void) => {
   if (m.op === "lease") {
@@ -41,7 +41,7 @@ before(() => {
    if (m.background && (cut === "lease" || cut === "full")) { const full = cut === "full"; cut = "none"; revoke(full); }
   }
   const value = { epoch, authorityRevision: epoch, revision, ...(m.op === "lease" ? { accountId: "scratch", accessToken: "dummy-oauth-native" } : { status: status(), accountId: "scratch", models: [{ id: model.id, name: "Scratch" }] }) };
-  queueMicrotask(() => ipc({ channel: "lh:chatgpt", id: m.id, op: m.op, ok: true, value })); callback?.(); return true;
+  queueMicrotask(() => ipc({ channel: "np:chatgpt", id: m.id, op: m.op, ok: true, value })); callback?.(); return true;
  } });
  globalThis.fetch = async (input, init) => {
   const request = new Request(input, init);
@@ -52,7 +52,7 @@ before(() => {
   fetches++;
   if (cut === "afterFetch") { cut = "none"; revoke(); throw new Error("admitted local abort"); }
   if (toolFirst && fetches === 1) {
-   const call = { type: "function_call", id: "fc_again", call_id: "call_again", name: "again", namespace: "learnharness", arguments: "{}", status: "completed" };
+   const call = { type: "function_call", id: "fc_again", call_id: "call_again", name: "again", namespace: "naipes", arguments: "{}", status: "completed" };
    return new Response([{ type: "response.output_item.added", output_index: 0, item: call }, { type: "response.output_item.done", output_index: 0, item: call }, { type: "response.completed", response: { status: "completed", output: [call], usage: { input_tokens: 4, output_tokens: 2, total_tokens: 6 } } }].map((e) => `data: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   }
   const item = { id: "msg_native", type: "message", role: "assistant", content: [{ type: "output_text", text: "Accepted learner", annotations: [] }] };
@@ -61,8 +61,8 @@ before(() => {
  };
 });
 after(() => {
- if (desktopMarker === undefined) delete process.env.LH_DESKTOP_SERVER; else process.env.LH_DESKTOP_SERVER = desktopMarker;
- if (desktopSecret === undefined) delete process.env.LH_DESKTOP_API_SECRET; else process.env.LH_DESKTOP_API_SECRET = desktopSecret;
+ if (desktopMarker === undefined) delete process.env.NP_DESKTOP_SERVER; else process.env.NP_DESKTOP_SERVER = desktopMarker;
+ if (desktopSecret === undefined) delete process.env.NP_DESKTOP_API_SECRET; else process.env.NP_DESKTOP_API_SECRET = desktopSecret;
  globalThis.fetch = realFetch;
  fs.rmSync(scratch, { recursive: true, force: true });
  if (originalSend) Object.defineProperty(process, "send", originalSend); else delete process.send;
@@ -141,8 +141,8 @@ test("unfinished foreground ordinary-tool chain recovers without rerunning the c
 
 test("full native record reconstruction preserves original causes and reports genuine ambiguity", () => {
  const user = newUserMessage("Learner"); const auto = automatic();
- const assistant = { role: "assistant", id: "assistant", api: "openai-responses", provider: "chatgpt", model: model.id, content: [{ type: "toolCall", id: "call", name: "read", arguments: {} }], stopReason: "toolUse", timestamp: 3, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } } as LhMessage;
- const result = { role: "toolResult", id: "result", toolName: "read", toolCallId: "call", content: [], details: {}, isError: false, timestamp: 4 } as LhMessage;
+ const assistant = { role: "assistant", id: "assistant", api: "openai-responses", provider: "chatgpt", model: model.id, content: [{ type: "toolCall", id: "call", name: "read", arguments: {} }], stopReason: "toolUse", timestamp: 3, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } } as NpMessage;
+ const result = { role: "toolResult", id: "result", toolName: "read", toolCallId: "call", content: [], details: {}, isError: false, timestamp: 4 } as NpMessage;
  for (const [origin, expected] of [[user, "foreground"], [auto, "background"]] as const) assert.equal(reconstructRequestCause(JSON.parse(JSON.stringify([origin, assistant, result]))), expected);
  assert.equal(reconstructRequestCause([auto, user, assistant, result]), "ambiguous");
  assert.equal(reconstructRequestCause([user, auto, assistant, result]), "background");
@@ -150,7 +150,7 @@ test("full native record reconstruction preserves original causes and reports ge
  assert.equal(reconstructRequestCause([auto, newThinkingMessage("problem", "working")]), "ambiguous");
  assert.equal(reconstructRequestCause([auto, assistant, newNextMessage()]), "foreground");
  assert.equal(reconstructRequestCause([user, ...concludedByDismissalPair("problem")]), "foreground");
- const question = { ...assistant, content: [{ type: "toolCall", id: "question", name: "quiz", arguments: {} }] } as LhMessage;
+ const question = { ...assistant, content: [{ type: "toolCall", id: "question", name: "quiz", arguments: {} }] } as NpMessage;
  assert.equal(reconstructRequestCause([auto, question, newAnswerResult("question", "quiz", { kind: "quiz", questionText: "Scratch", dontKnow: false, answers: [], answeredAt: "2026-10-24T00:00:00Z" })]), "foreground");
  assert.equal(reconstructRequestCause([auto, question, { ...newAnswerResult("question", "quiz", {}), details: null }]), "background");
  assert.equal(reconstructRequestCause([auto, question, newAnswerResult("orphan", "quiz", {})]), "ambiguous");

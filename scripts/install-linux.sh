@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Build LearnHarness from THIS checkout as a local AppImage and install it as
+# Build Naipes from THIS checkout as a local AppImage and install it as
 # a desktop application for the current user (owner, 2026-11-01).
 #
 #   bash scripts/install-linux.sh            # build + install
 #   bash scripts/install-linux.sh --no-build # reinstall the last dist/ AppImage
 #
-# The package is marked `lhLocalBuild: true` (electron-builder extraMetadata),
+# The package is marked `npLocalBuild: true` (electron-builder extraMetadata),
 # which turns the GitHub auto-updater OFF: a local build carries the owner's
 # own changes and must never be replaced by an upstream release. To update,
 # pull/commit your changes and run this script again.
@@ -14,10 +14,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-INSTALL_DIR="${LH_INSTALL_DIR:-$HOME/.local/opt/LearnHarness}"
-APPIMAGE="$INSTALL_DIR/LearnHarness.AppImage"
+INSTALL_DIR="${NP_INSTALL_DIR:-$HOME/.local/opt/Naipes}"
+APPIMAGE="$INSTALL_DIR/Naipes.AppImage"
 ICON_DIR="$HOME/.local/share/icons/hicolor/512x512/apps"
-DESKTOP_FILE="$HOME/.local/share/applications/learnharness.desktop"
+DESKTOP_FILE="$HOME/.local/share/applications/naipes.desktop"
 
 if [[ "${1:-}" != "--no-build" ]]; then
 	echo "==> Compilando Next (standalone)"
@@ -28,10 +28,10 @@ if [[ "${1:-}" != "--no-build" ]]; then
 	echo "==> Prueba de arranque del servidor"
 	node scripts/smoke-server.mjs --electron
 	echo "==> Empaquetando AppImage (sin auto-update)"
-	npx electron-builder --linux AppImage --x64 --publish never -c.extraMetadata.lhLocalBuild=true
+	npx electron-builder --linux AppImage --x64 --publish never -c.extraMetadata.npLocalBuild=true
 fi
 
-BUILT="$(ls -t dist/LearnHarness-*.AppImage 2>/dev/null | head -1 || true)"
+BUILT="$(ls -t dist/Naipes-*.AppImage 2>/dev/null | head -1 || true)"
 if [[ -z "$BUILT" ]]; then
 	echo "No se encontró ningún AppImage en dist/." >&2
 	exit 1
@@ -41,18 +41,18 @@ echo "==> Instalando $BUILT"
 mkdir -p "$INSTALL_DIR" "$ICON_DIR" "$(dirname "$DESKTOP_FILE")"
 install -m 0755 "$BUILT" "$APPIMAGE.new"
 mv -f "$APPIMAGE.new" "$APPIMAGE"
-install -m 0644 build/icon.png "$ICON_DIR/learnharness.png"
+install -m 0644 build/icon.png "$ICON_DIR/naipes.png"
 
 cat >"$DESKTOP_FILE" <<EOF
 [Desktop Entry]
 Type=Application
-Name=LearnHarness
+Name=Naipes
 Comment=Tutor de aprendizaje y grafo de conocimiento
 Exec="$APPIMAGE" %U
-Icon=learnharness
+Icon=naipes
 Terminal=false
 Categories=Education;
-StartupWMClass=learnharness
+StartupWMClass=naipes
 EOF
 
 update-desktop-database "$(dirname "$DESKTOP_FILE")" 2>/dev/null || true

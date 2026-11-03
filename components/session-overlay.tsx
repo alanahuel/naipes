@@ -275,7 +275,7 @@ export function MermaidOverlay({
 							    its max-width cap so it fills the natural-size box. */}
 							{rawSvg !== undefined ? (
 								<div
-									data-lh-overlay-chart
+									data-np-overlay-chart
 									className="bg-white"
 									style={inverted ? { filter: "invert(1) hue-rotate(180deg)" } : undefined}
 								>
@@ -283,7 +283,7 @@ export function MermaidOverlay({
 								</div>
 							) : (
 								<div
-									data-lh-overlay-chart
+									data-np-overlay-chart
 									className="[&_svg]:h-auto [&_svg]:w-full"
 									dangerouslySetInnerHTML={{ __html: svg }}
 								/>

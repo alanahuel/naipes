@@ -28,7 +28,7 @@ import type { GraphStore } from "../../core/ports.ts";
 import { emit } from "../../core/events.ts";
 import { settleGraphLayout } from "../../core/layout-settle.ts";
 import { batchRuns, coverageOf, messageViewLines } from "../../core/coverage.ts";
-import { failedOutputCallIds, type LhMessage } from "../../core/native-messages.ts";
+import { failedOutputCallIds, type NpMessage } from "../../core/native-messages.ts";
 import { auditorGraphTools } from "../tools/graph.ts";
 import { runSubmitAgent, healStringifiedArrays } from "./submit-agent.ts";
 
@@ -133,7 +133,7 @@ export function transcriptView(record: ChatRecord): string {
  *  required messageId). The shared markdown engine stays reserved for the
  *  future user-facing export. */
 function proseView(
-	messages: ReadonlyArray<LhMessage>,
+	messages: ReadonlyArray<NpMessage>,
 	title?: string,
 	failedOutputCalls: ReadonlySet<string> = failedOutputCallIds(messages),
 ): string {
@@ -652,7 +652,7 @@ export interface RunningExtraction {
 	controller: AbortController;
 }
 
-interface LhExtractionGlobal {
+interface NpExtractionGlobal {
 	__lhExtractionRuns?: {
 		/** In-flight pipeline runs, keyed chatId (chat) / src id (notes). */
 		running: Map<string, RunningExtraction>;
@@ -681,8 +681,8 @@ interface LhExtractionGlobal {
  *  one truth — the same idiom as the turn, wake, and abort registries
  *  (moved 2026-09-19, the observability-accuracy wave; also makes the
  *  single-flight guard cross route instances). */
-function runs(): NonNullable<LhExtractionGlobal["__lhExtractionRuns"]> {
-	const g = globalThis as typeof globalThis & LhExtractionGlobal;
+function runs(): NonNullable<NpExtractionGlobal["__lhExtractionRuns"]> {
+	const g = globalThis as typeof globalThis & NpExtractionGlobal;
 	return (g.__lhExtractionRuns ??= { running: new Map(), inFlight: new Set(), lastStartedAt: 0 });
 }
 
@@ -893,7 +893,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	 *  successors never hang). */
 	async function withAuditLock<T>(jobKey: string, kind: "chat" | "notes", label: string | undefined, critical: () => Promise<T>): Promise<T> {
 		setPhase(jobKey, "waiting", kind, label);
-		const g = globalThis as typeof globalThis & LhExtractionGlobal;
+		const g = globalThis as typeof globalThis & NpExtractionGlobal;
 		const lock = (g.__lhAuditLock ??= { tail: Promise.resolve() });
 		const prev = lock.tail;
 		let release!: () => void;

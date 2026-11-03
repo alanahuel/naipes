@@ -1,9 +1,9 @@
 /**
  * Claude Code as a MODEL (owner decision, 2026-11-01): each agent-loop
  * request spawns the user's own `claude -p` with no built-in tools, the
- * LearnHarness system prompt, and LearnHarness tools declared through a
+ * Naipes system prompt, and Naipes tools declared through a
  * declaration-only MCP server. Claude Code streams ONE assistant message;
- * any tool calls are handed back to the LearnHarness agent loop, which
+ * any tool calls are handed back to the Naipes agent loop, which
  * executes them exactly as for every other provider. The process is killed
  * at message_stop, so the stub MCP server is never asked to run a tool.
  *
@@ -25,7 +25,7 @@ import { CLAUDE_CODE_PROVIDER } from "../core/contracts/claude-code.ts";
 import { claudeCodeAbortController, claudeCodeBackgroundAllowed, claudeCodeDenial, claudeCodeEnv, claudeCodeScope, claudeCodeScopeCurrent, findClaudeBinary } from "./claude-code-bridge.ts";
 import { markUnadmittedUsage, type AdmissionScope, type SubscriptionDispatchLifecycle } from "./subscription-request-cycle.ts";
 
-export const MCP_SERVER_NAME = "lh";
+export const MCP_SERVER_NAME = "np";
 const MCP_PREFIX = `mcp__${MCP_SERVER_NAME}__`;
 const NO_FALLBACK = " No API-key fallback was used.";
 
@@ -119,9 +119,9 @@ const send = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
 createInterface({ input: process.stdin }).on("line", (line) => {
 	let m; try { m = JSON.parse(line); } catch { return; }
 	if (m.id === undefined) return;
-	if (m.method === "initialize") send({ jsonrpc: "2.0", id: m.id, result: { protocolVersion: m.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "learnharness", version: "1" } } });
+	if (m.method === "initialize") send({ jsonrpc: "2.0", id: m.id, result: { protocolVersion: m.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "naipes", version: "1" } } });
 	else if (m.method === "tools/list") send({ jsonrpc: "2.0", id: m.id, result: { tools } });
-	else if (m.method === "tools/call") send({ jsonrpc: "2.0", id: m.id, result: { isError: true, content: [{ type: "text", text: "LearnHarness executes this tool itself." }] } });
+	else if (m.method === "tools/call") send({ jsonrpc: "2.0", id: m.id, result: { isError: true, content: [{ type: "text", text: "Naipes executes this tool itself." }] } });
 	else send({ jsonrpc: "2.0", id: m.id, result: {} });
 });
 `;
@@ -257,7 +257,7 @@ export function claudeCodeStream(background: () => boolean, lifecycle?: Subscrip
 				if (signal.aborted || !claudeCodeScopeCurrent(scope)) throw new Error("cancelled or connection changed");
 
 				const request = buildClaudeCodeRequest(context);
-				toolsFile = path.join(os.tmpdir(), `lh-claude-tools-${randomUUID()}.json`);
+				toolsFile = path.join(os.tmpdir(), `np-claude-tools-${randomUUID()}.json`);
 				writeFileSync(toolsFile, JSON.stringify(request.tools));
 				const mcpConfig = JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: process.execPath, args: [stubScript(), toolsFile], env: { ELECTRON_RUN_AS_NODE: "1" } } } });
 				const args = claudeCodeArgs({ modelId: logicalModel.id, systemPrompt: request.systemPrompt, mcpConfig, effort: options?.reasoning, toolNames: request.tools.map((t) => t.name) });

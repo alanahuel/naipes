@@ -10,7 +10,7 @@
  *
  * Truth: GET /api/keys — a PROVIDER key present (env or file; tool keys
  * like Deepgram do not count — they unlock no models). Live updates ride
- * the lh:settings-saved "keys" signal (keys-section dispatches after
+ * the np:settings-saved "keys" signal (keys-section dispatches after
  * save AND delete; the setup dialog's first-key screen dispatches on
  * its own save), the same re-read pattern chat.tsx uses for "models".
  */
@@ -57,7 +57,7 @@ export function selectedModelUnavailable(catalog: ModelCatalogResponse | undefin
 
 /** Reuse the ordinary control (also opened by the existing keyboard action). */
 export function openModelPicker(): void {
-	window.dispatchEvent(new CustomEvent("lh:kbd-open-model-picker"));
+	window.dispatchEvent(new CustomEvent("np:kbd-open-model-picker"));
 }
 
 /** The zero-keys truth for the calling page: TRUE only after a

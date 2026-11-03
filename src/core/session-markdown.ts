@@ -10,7 +10,7 @@
  * serve only the future user-facing export; `anchors: false` mints the
  * same document without them.
  *
- * Pure core: native messages in (LhMessage), string out. Content parity
+ * Pure core: native messages in (NpMessage), string out. Content parity
  * with the coverage line builder (core/coverage.ts messageViewLines) is
  * deliberate — every message that produces view lines produces a markdown
  * block, in the same order — but the formats are SEPARATE by design
@@ -20,7 +20,7 @@
  * learning evidence); custom markers are invisible, same as the view.
  */
 
-import type { LhMessage } from "./native-messages.ts";
+import type { NpMessage } from "./native-messages.ts";
 import {
 	failedOutputCallIds,
 	PRACTICE_CONCLUDE_TOOL,
@@ -38,13 +38,13 @@ import type { ToolResultMessage } from "@earendil-works/pi-ai";
  *  view seam folds cards (clean-only: a refused pose's result is errored
  *  and renders nothing before this join is ever reached). */
 export interface MarkdownContext {
-	messages: ReadonlyArray<LhMessage>;
+	messages: ReadonlyArray<NpMessage>;
 	/** toolCallId → the call part's name + arguments. */
 	calls: Map<string, { name: string; args: Record<string, unknown> | undefined }>;
 	failedOutputCalls?: ReadonlySet<string>;
 }
 
-function markdownContext(messages: ReadonlyArray<LhMessage>): MarkdownContext {
+function markdownContext(messages: ReadonlyArray<NpMessage>): MarkdownContext {
 	const calls: MarkdownContext["calls"] = new Map();
 	for (const message of messages) {
 		if ((message as { role?: string }).role !== "assistant") continue;
@@ -156,7 +156,7 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
  * `mid` is the provenance anchor shown when `anchors` is on.
  */
 export function messageMarkdown(
-	message: LhMessage,
+	message: NpMessage,
 	mid: string,
 	anchors = true,
 	ctx?: MarkdownContext,
@@ -191,7 +191,7 @@ export function messageMarkdown(
  * mints the document header (`# <title>`).
  */
 export function sessionMarkdown(
-	messages: ReadonlyArray<LhMessage>,
+	messages: ReadonlyArray<NpMessage>,
 	opts: { title?: string; anchors?: boolean } = {},
 ): string {
 	const blocks: string[] = [];

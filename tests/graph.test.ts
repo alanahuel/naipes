@@ -21,7 +21,7 @@ import * as fs from "node:fs";
 import { after, describe, it } from "node:test";
 import type { AuditVerdicts, GraphChain, GraphNode, SessionFindings } from "../src/core/contracts.ts";
 import type { QuestionAnswerData } from "../src/core/question-core.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
+import type { NpMessage } from "../src/core/native-messages.ts";
 import { projectView as projectNative } from "../src/core/view.ts";
 import { deriveView, getGraph, graphSnapshot, mergeFindings, type GraphDeps } from "../src/core/graph.ts";
 import { coverageSlots } from "../src/core/coverage.ts";
@@ -86,18 +86,18 @@ interface NativeCall {
 	output: QuestionAnswerData;
 }
 
-function user(id: string, text: string): LhMessage[] {
+function user(id: string, text: string): NpMessage[] {
 	return [{ id, role: "user", content: text, timestamp: Date.now() } as never];
 }
 
 /** A teacher-prose message (the coverage unit, owner 2026-09-28). */
-function teacher(id: string, text: string): LhMessage[] {
+function teacher(id: string, text: string): NpMessage[] {
 	return [{ id, role: "assistant", content: [{ type: "text", text }], timestamp: Date.now() } as never];
 }
 
-function assistant(id: string, calls: NativeCall[]): LhMessage[] {
+function assistant(id: string, calls: NativeCall[]): NpMessage[] {
 	const content = calls.map((c) => ({ type: "toolCall", id: c.toolCallId, name: c.name, arguments: c.input as never }));
-	const out: LhMessage[] = [
+	const out: NpMessage[] = [
 		{
 			id,
 			role: "assistant",
@@ -154,7 +154,7 @@ function answer(over: Partial<QuestionAnswerData>): QuestionAnswerData {
 
 /** Create a chat in the real store with messages; returns the record.
  *  Tree-blind world: the plan tree is irrelevant to the merger — no tree. */
-function fixtureChat(title: string, messages: LhMessage[]) {
+function fixtureChat(title: string, messages: NpMessage[]) {
 	const chat = chatStore.createChat(title);
 	createdChats.push(chat.id);
 	chatStore.saveMessages(chat.id, messages);
@@ -162,7 +162,7 @@ function fixtureChat(title: string, messages: LhMessage[]) {
 }
 
 /** The full fixture transcript: five graded quizzes + a dismissed one + an ask. */
-function fixtureMessages(): LhMessage[] {
+function fixtureMessages(): NpMessage[] {
 	return [
 		user("u1", "teach me the fixture topic"),
 		assistant("a1", [

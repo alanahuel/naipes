@@ -36,7 +36,7 @@ test("desktop capability injects only trusted app mainframe exact-origin API req
 		{ initiatorOrigin: "https://thirdparty.invalid" },
 		{ initiatorOrigin: "null" },
 	]) {
-		const result = desktopAPIHeaders({ ...details, ...mutation, requestHeaders: { "X-LearnHarness-Desktop": secret } }, origin, secret, [win]);
+		const result = desktopAPIHeaders({ ...details, ...mutation, requestHeaders: { "X-Naipes-Desktop": secret } }, origin, secret, [win]);
 		assert(!Object.keys(result).some((key) => key.toLowerCase() === HEADER), JSON.stringify(mutation));
 	}
 	assert.equal(desktopAPIHeaders(details, origin, secret, [])[HEADER], undefined, "other WebContents are not app windows");
@@ -47,25 +47,25 @@ test("desktop capability injects only trusted app mainframe exact-origin API req
 
 test("all methods fail closed for desktop missing/wrong secret; API-only matcher covers SSE/settings/spending", () => {
 	assert(desktopAPIAuthorized(new Headers(), {}), "browser-only API-key mode unchanged");
-	assert(!desktopAPIAuthorized(new Headers({ [HEADER]: secret }), { LH_DESKTOP_SERVER: "1" }), "missing server secret must not disable authorization");
+	assert(!desktopAPIAuthorized(new Headers({ [HEADER]: secret }), { NP_DESKTOP_SERVER: "1" }), "missing server secret must not disable authorization");
 	for (const value of [undefined, "", "wrong", secret + ", " + secret]) {
-		assert(!desktopAPIAuthorized(new Headers(value === undefined ? {} : { [HEADER]: value }), { LH_DESKTOP_SERVER: "1", LH_DESKTOP_API_SECRET: secret }));
+		assert(!desktopAPIAuthorized(new Headers(value === undefined ? {} : { [HEADER]: value }), { NP_DESKTOP_SERVER: "1", NP_DESKTOP_API_SECRET: secret }));
 	}
-	assert(desktopAPIAuthorized(new Headers({ [HEADER]: secret }), { LH_DESKTOP_SERVER: "1", LH_DESKTOP_API_SECRET: secret }));
+	assert(desktopAPIAuthorized(new Headers({ [HEADER]: secret }), { NP_DESKTOP_SERVER: "1", NP_DESKTOP_API_SECRET: secret }));
 	for (const pathname of ["/api/events", "/api/chat", "/api/settings/models", "/api/chats/scratch/markdown"]) assert(unstable_doesProxyMatch({ config, nextConfig: {}, url: origin + pathname }));
 	assert(!unstable_doesProxyMatch({ config, nextConfig: {}, url: origin + "/chat/new" }));
-	const originalMarker = process.env.LH_DESKTOP_SERVER;
-	const originalSecret = process.env.LH_DESKTOP_API_SECRET;
+	const originalMarker = process.env.NP_DESKTOP_SERVER;
+	const originalSecret = process.env.NP_DESKTOP_API_SECRET;
 	try {
-		process.env.LH_DESKTOP_SERVER = "1";
-		process.env.LH_DESKTOP_API_SECRET = secret;
+		process.env.NP_DESKTOP_SERVER = "1";
+		process.env.NP_DESKTOP_API_SECRET = secret;
 		for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]) {
 			assert.equal(proxy(new NextRequest(origin + "/api/settings", { method })).status, 403);
 			assert.equal(proxy(new NextRequest(origin + "/api/settings", { method, headers: { [HEADER]: secret } })).headers.get("x-middleware-next"), "1");
 		}
 	} finally {
-		if (originalMarker === undefined) delete process.env.LH_DESKTOP_SERVER; else process.env.LH_DESKTOP_SERVER = originalMarker;
-		if (originalSecret === undefined) delete process.env.LH_DESKTOP_API_SECRET; else process.env.LH_DESKTOP_API_SECRET = originalSecret;
+		if (originalMarker === undefined) delete process.env.NP_DESKTOP_SERVER; else process.env.NP_DESKTOP_SERVER = originalMarker;
+		if (originalSecret === undefined) delete process.env.NP_DESKTOP_API_SECRET; else process.env.NP_DESKTOP_API_SECRET = originalSecret;
 	}
 });
 
@@ -90,5 +90,5 @@ test("renderer controls have no lease or general token bridge, and require the t
 	assert(!trustedSender({ sender: contents, senderFrame: { url: mainFrame.url } }, origin, BrowserWindow));
 	mainFrame.url = "https://thirdparty.invalid/";
 	assert(!trustedSender({ sender: contents, senderFrame: mainFrame }, origin, BrowserWindow));
-	assert.equal(browserServiceSpawnEnv({ LH_DESKTOP_API_SECRET: secret, LH_DESKTOP_SERVER: "1" }).LH_DESKTOP_API_SECRET, undefined);
+	assert.equal(browserServiceSpawnEnv({ NP_DESKTOP_API_SECRET: secret, NP_DESKTOP_SERVER: "1" }).NP_DESKTOP_API_SECRET, undefined);
 });

@@ -8,11 +8,11 @@ import { createModels, type OAuthCredential, type ProviderAuthInteraction } from
 import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
 import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
 
-const directory = await fs.mkdtemp(path.join(os.tmpdir(), "lh-web-sub-"));
-process.env.LH_AUTH_FILE = path.join(directory, "auth.json");
-process.env.LH_DATA_DIR = path.join(directory, "data");
-delete process.env.LH_DESKTOP_SERVER; delete process.env.LH_DESKTOP_API_SECRET;
-await fs.writeFile(process.env.LH_AUTH_FILE, "{}", { mode: 0o600 });
+const directory = await fs.mkdtemp(path.join(os.tmpdir(), "np-web-sub-"));
+process.env.NP_AUTH_FILE = path.join(directory, "auth.json");
+process.env.NP_DATA_DIR = path.join(directory, "data");
+delete process.env.NP_DESKTOP_SERVER; delete process.env.NP_DESKTOP_API_SECRET;
+await fs.writeFile(process.env.NP_AUTH_FILE, "{}", { mode: 0o600 });
 const require = createRequire(import.meta.url);
 const { SCOPES } = require("../electron/chatgpt.cjs");
 const { createWebSubscriptionOwner, webSubscriptionOwner, webSubscriptionsEnabled } = await import("../src/server/web-subscriptions.ts");
@@ -32,7 +32,7 @@ const credentials = (id: string): OAuthCredential => ({ type: "oauth", access: i
 await fs.writeFile(path.join(directory, "chatgpt-credentials.json"), JSON.stringify({ version: 1, hostId: "fixture-host", allowBackgroundUse: true, activeId: "fixture-account", registrations: [{ id: "fixture-account", clientId: "oaiapp_fixture", issuer: "https://auth.openai.com", subject: "fixture-subject", email: "fixture@example.invalid", tokens: { accessToken: "fixture-chatgpt-access", refreshToken: "fixture-chatgpt-refresh", idToken: "fixture-id-token", scopes: SCOPES, expiresAt: Date.now() + 3600000 } }] }), { mode: 0o600 });
 for (const id of ["github-copilot", "xai"]) await fs.writeFile(path.join(directory, `${id}-credentials.json`), JSON.stringify({ version: 1, allowBackgroundUse: true, connectionId: "00000000-0000-4000-8000-000000000001", credential: credentials(id) }), { mode: 0o600 });
 function request(command?: Record<string, unknown>, origin = "http://192.168.1.10:3000") {
-	return new Request(`${origin}/api/subscriptions`, { method: command ? "POST" : "GET", headers: { host: new URL(origin).host, origin, "sec-fetch-site": "same-origin", "x-learnharness-subscriptions": "1", "content-type": "application/json" }, ...(command ? { body: JSON.stringify(command) } : {}) });
+	return new Request(`${origin}/api/subscriptions`, { method: command ? "POST" : "GET", headers: { host: new URL(origin).host, origin, "sec-fetch-site": "same-origin", "x-naipes-subscriptions": "1", "content-type": "application/json" }, ...(command ? { body: JSON.stringify(command) } : {}) });
 }
 after(async () => { webSubscriptionOwner().close(); globalThis.fetch = originalFetch; await fs.rm(directory, { recursive: true, force: true }); });
 
@@ -69,7 +69,7 @@ test("web background OFF immediately aborts background streams, retains foregrou
 test("HTTP controls reject cross-origin, simple-form and private credential operations; desktop never falls back", async () => {
 	const forged = request({ providerId: "chatgpt", op: "consent", enabled: true }); forged.headers.set("origin", "https://unrelated.invalid");
 	assert.equal((await subscriptionControlsResponse(forged)).status, 403);
-	const noHeader = request(); noHeader.headers.delete("x-learnharness-subscriptions");
+	const noHeader = request(); noHeader.headers.delete("x-naipes-subscriptions");
 	assert.equal((await subscriptionControlsResponse(noHeader)).status, 403);
 	const noOrigin = request({ providerId: "chatgpt", op: "cancel" }); noOrigin.headers.delete("origin");
 	assert.equal((await subscriptionControlsResponse(noOrigin)).status, 403);
@@ -79,13 +79,13 @@ test("HTTP controls reject cross-origin, simple-form and private credential oper
 	const browser = new Request("http://localhost:3000/api/subscriptions/browser?id=00000000-0000-4000-8000-000000000001");
 	assert.equal((await subscriptionBrowserResponse(browser)).status, 403);
 	for (const [marker, secret] of [["1", undefined], [undefined, "fixture-capability"]]) {
-		if (marker) process.env.LH_DESKTOP_SERVER = marker; else delete process.env.LH_DESKTOP_SERVER;
-		if (secret) process.env.LH_DESKTOP_API_SECRET = secret; else delete process.env.LH_DESKTOP_API_SECRET;
+		if (marker) process.env.NP_DESKTOP_SERVER = marker; else delete process.env.NP_DESKTOP_SERVER;
+		if (secret) process.env.NP_DESKTOP_API_SECRET = secret; else delete process.env.NP_DESKTOP_API_SECRET;
 		assert(!webSubscriptionsEnabled());
 		assert.equal((await subscriptionControlsResponse(request())).status, 404);
 		await assert.rejects(chat.chatGPTRequest("status"), /desktop app/);
 	}
-	delete process.env.LH_DESKTOP_SERVER; delete process.env.LH_DESKTOP_API_SECRET;
+	delete process.env.NP_DESKTOP_SERVER; delete process.env.NP_DESKTOP_API_SECRET;
 });
 
 function fakeSDK(login: (id: string, interaction: ProviderAuthInteraction) => Promise<OAuthCredential>) {
@@ -96,7 +96,7 @@ function fakeSDK(login: (id: string, interaction: ProviderAuthInteraction) => Pr
 	return { createModels, githubCopilotProvider: () => factory("github-copilot"), xaiProvider: () => factory("xai") };
 }
 test("device browser actions preserve complete URLs privately, are origin-bound, one-use and cancellation-bound", async () => {
-	const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "lh-web-action-"));
+	const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "np-web-action-"));
 	let complete!: (credential: OAuthCredential) => void;
 	const pending = new Promise<OAuthCredential>((resolve) => { complete = resolve; });
 	let notified!: () => void;
@@ -120,7 +120,7 @@ test("device browser actions preserve complete URLs privately, are origin-bound,
 });
 
 test("web ChatGPT login supplies only an opaque browser action; cancel/replacement invalidates earlier launch", async () => {
-	const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "lh-web-chat-action-"));
+	const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "np-web-chat-action-"));
 	const owner = createWebSubscriptionOwner({ directory: scratch, sdk: fakeSDK(async (id) => credentials(id)) });
 	try {
 		const first = await owner.control("chatgpt", { op: "login" }, "http://localhost:3000");

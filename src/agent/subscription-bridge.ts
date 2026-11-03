@@ -12,12 +12,12 @@ interface State {
 	listeners: Set<() => void>;
 	counter: number;
 }
-const KEY = Symbol.for("lh.subscriptions.bridge");
+const KEY = Symbol.for("np.subscriptions.bridge");
 export function nativeSubscriptionId(logicalId: string): NativeSubscriptionProviderId | undefined {
 	return NATIVE_SUBSCRIPTIONS.find((entry) => entry.logicalId === logicalId)?.providerId;
 }
 function desktopConnected(): boolean {
-	return process.env.LH_DESKTOP_SERVER === "1" && (process.env.LH_DESKTOP_API_SECRET?.length ?? 0) >= 64 && typeof process.send === "function" && process.connected === true;
+	return process.env.NP_DESKTOP_SERVER === "1" && (process.env.NP_DESKTOP_API_SECRET?.length ?? 0) >= 64 && typeof process.send === "function" && process.connected === true;
 }
 function runtimeConnected(): boolean { return desktopConnected() || webSubscriptionsEnabled(); }
 function notify(state: State) { for (const listener of state.listeners) { try { listener(); } catch { /* observer isolation */ } } }
@@ -53,7 +53,7 @@ function bridge(): State {
 		global[KEY] = state;
 		process.on("message", (raw: unknown) => {
 			const message = raw as { channel?: string; op?: string; id?: string; ok?: boolean; value?: unknown; error?: string; snapshot?: NativeSubscriptionSnapshot };
-			if (!desktopConnected() || message?.channel !== "lh:subscriptions") return;
+			if (!desktopConnected() || message?.channel !== "np:subscriptions") return;
 			if (message.op === "changed" && message.snapshot) accept(state, message.snapshot);
 			if (!message.id) return;
 			const pending = state.pending.get(message.id);
@@ -62,7 +62,7 @@ function bridge(): State {
 			if (message.ok) pending.resolve(message.value);
 			else pending.reject(new Error(message.error ?? "Subscription connection failed."));
 		});
-		onWebSubscriptionPacket("lh:subscriptions", (packet) => {
+		onWebSubscriptionPacket("np:subscriptions", (packet) => {
 			if (webSubscriptionsEnabled() && packet.snapshot) accept(state, packet.snapshot as NativeSubscriptionSnapshot);
 		});
 		process.on("disconnect", () => {
@@ -76,13 +76,13 @@ function bridge(): State {
 }
 export function subscriptionRequest<T>(op: "snapshot" | "lease", fields: Record<string, unknown> = {}): Promise<T> {
 	const state = bridge();
-	if (webSubscriptionsEnabled()) return webSubscriptionRequest<T>("lh:subscriptions", op, fields);
+	if (webSubscriptionsEnabled()) return webSubscriptionRequest<T>("np:subscriptions", op, fields);
 	if (!desktopConnected()) return Promise.reject(new Error("Subscription sign-in is available only in the desktop app with a private server connection."));
 	return new Promise<T>((resolve, reject) => {
 		const id = `${process.pid}:${++state.counter}`;
 		const timer = setTimeout(() => { state.pending.delete(id); reject(new Error("The subscription desktop connection timed out.")); }, 45000);
 		state.pending.set(id, { op, timer, resolve: (value) => resolve(value as T), reject });
-		process.send!({ ...fields, channel: "lh:subscriptions", id, op }, (error) => {
+		process.send!({ ...fields, channel: "np:subscriptions", id, op }, (error) => {
 			if (error) { clearTimeout(timer); state.pending.delete(id); reject(new Error("The subscription desktop connection closed.")); }
 		});
 	});

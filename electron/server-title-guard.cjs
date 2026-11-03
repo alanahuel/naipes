@@ -11,7 +11,7 @@
  * Explicit launch arguments (not NODE_OPTIONS) keep the full-Electron browser
  * helper untouched. Node-mode fork descendants can inherit this preload.
  */
-if (process.platform === "darwin" && process.env.ELECTRON_RUN_AS_NODE === "1" && process.env.LH_DESKTOP_SERVER === "1") {
+if (process.platform === "darwin" && process.env.ELECTRON_RUN_AS_NODE === "1" && process.env.NP_DESKTOP_SERVER === "1") {
 	let title = process.title;
 	Object.defineProperty(process, "title", {
 		configurable: true,

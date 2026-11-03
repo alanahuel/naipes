@@ -76,7 +76,7 @@ import type { SearchProvider } from "../src/core/search.ts";
 import { PATHS } from "../config.ts";
 import { projectView as projectNative } from "../src/core/view.ts";
 import { subscribe } from "../src/core/events.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
+import type { NpMessage } from "../src/core/native-messages.ts";
 import type { SteerInput, TurnInput } from "../src/core/input-events.ts";
 
 const JOBS_DIR = path.join(PATHS.data, "jobs");
@@ -96,7 +96,7 @@ function trackChat(id: string) {
 /** Wave B native fixture: user text + an assistant tool call + its ack —
  *  the record is agent history; the runner's transcript scan (input
  *  resolution) reads it through the projection. */
-function nativeToolMessages(text: string, tool: string, toolCallId: string, input: unknown): LhMessage[] {
+function nativeToolMessages(text: string, tool: string, toolCallId: string, input: unknown): NpMessage[] {
 	return [
 		{ id: "u1", role: "user", content: text, timestamp: 1 } as never,
 		{
@@ -324,7 +324,7 @@ describe("steer helpers (contracts.ts)", () => {
 		const job = { id: "job_x", kind: "research" as const, toolCallId: "call-x" };
 		const steer = buildSubagentSteer(job, research);
 		assert.equal(steer.id, "steer_job_x", "deterministic id per job — idempotent delivery");
-		// Wave B: steers are LhMarkerMessage customs — role "custom", the
+		// Wave B: steers are NpMarkerMessage customs — role "custom", the
 		// model reads `content`, the UI reads `details` (never model-visible).
 		assert.equal(steer.role, "custom");
 		assert.equal(steer.customType, "subagent-steer");
@@ -737,7 +737,7 @@ describe("pdf runner (sources v0)", () => {
 	const originalUserProfile = process.env.USERPROFILE;
 
 	before(() => {
-		home = fs.mkdtempSync(path.join(os.tmpdir(), "lh-pdf-job-home-"));
+		home = fs.mkdtempSync(path.join(os.tmpdir(), "np-pdf-job-home-"));
 		const target = path.join(home, relativePath);
 		fs.mkdirSync(path.dirname(target), { recursive: true });
 		fs.copyFileSync(PDF_FIXTURE, target);

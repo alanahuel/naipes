@@ -22,7 +22,7 @@
 import { createHash } from "node:crypto";
 
 import type { CoverageEntry } from "./contracts/graph.ts";
-import { failedOutputCallIds, userFacingTextOf, type LhMessage } from "./native-messages.ts";
+import { failedOutputCallIds, userFacingTextOf, type NpMessage } from "./native-messages.ts";
 
 export type { CoverageEntry };
 
@@ -36,7 +36,7 @@ export type { CoverageEntry };
  * is two slots (per-message coverage).
  */
 export function messageViewLines(
-	message: LhMessage,
+	message: NpMessage,
 	mid: string,
 	failedOutputCalls: ReadonlySet<string> = failedOutputCallIds([message]),
 ): string[] {
@@ -54,7 +54,7 @@ export function messageViewLines(
  * doctrine survives the ruling in this one function pair), rendered
  * without the provenance prefix: plain paragraphs.
  */
-export function teacherProseBlocks(messages: ReadonlyArray<LhMessage>): string[] {
+export function teacherProseBlocks(messages: ReadonlyArray<NpMessage>): string[] {
 	const out: string[] = [];
 	const failedOutputCalls = failedOutputCallIds(messages);
 	for (const message of messages) {
@@ -74,7 +74,7 @@ export function viewTokens(lines: string[]): number {
  * teacher prose, with the message id as the tag). Changes exactly when
  * the teacher prose of the message changes — nothing else can re-open it.
  */
-export function messageFingerprint(message: LhMessage, failedOutputCalls?: ReadonlySet<string>): string {
+export function messageFingerprint(message: NpMessage, failedOutputCalls?: ReadonlySet<string>): string {
 	const h = createHash("sha256");
 	h.update(JSON.stringify([(message as { role?: string }).role, messageViewLines(message, message.id, failedOutputCalls)]));
 	return h.digest("hex");
@@ -82,14 +82,14 @@ export function messageFingerprint(message: LhMessage, failedOutputCalls?: Reado
 
 /** One message's coverage-relevant projection. */
 export interface CoverageSlot {
-	message: LhMessage;
+	message: NpMessage;
 	fp: string;
 	tokens: number;
 }
 
 /** Fingerprint a whole transcript, in order (used by the trigger, the run,
  *  and the coverage view — one derivation everywhere). */
-export function coverageSlots(messages: ReadonlyArray<LhMessage>): CoverageSlot[] {
+export function coverageSlots(messages: ReadonlyArray<NpMessage>): CoverageSlot[] {
 	const failedOutputCalls = failedOutputCallIds(messages);
 	return messages.map((message) => ({
 		message,
@@ -113,7 +113,7 @@ export function coveredSet(entries: ReadonlyArray<CoverageEntry>, chatId: string
  *  entirely: the extractor can never see them, so they are neither covered
  *  nor uncovered. */
 export function coverageOf(
-	messages: ReadonlyArray<LhMessage>,
+	messages: ReadonlyArray<NpMessage>,
 	entries: ReadonlyArray<CoverageEntry>,
 	chatId: string,
 ): {

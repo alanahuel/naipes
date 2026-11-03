@@ -33,12 +33,12 @@ import type { ChatStore } from "../core/ports.ts";
  *  {type:"dismiss-problem", problemCallId}). */
 export type ParkedDismissal = unknown;
 
-interface LhGlobal {
+interface NpGlobal {
 	__lhParkedDismissals?: Map<string, ParkedDismissal>;
 }
 
 function registry(): Map<string, ParkedDismissal> {
-	const g = globalThis as typeof globalThis & LhGlobal;
+	const g = globalThis as typeof globalThis & NpGlobal;
 	return (g.__lhParkedDismissals ??= new Map<string, ParkedDismissal>());
 }
 

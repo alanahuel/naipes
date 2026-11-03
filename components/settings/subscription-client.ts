@@ -7,7 +7,7 @@ import { useNotifyHub, type createNotifyHub } from "@/components/server-events";
 type Hub = ReturnType<typeof createNotifyHub> | null;
 type Reply<T> = { value: T; browserAction?: string; error?: string };
 const PATH = "/api/subscriptions";
-const headers = { "Content-Type": "application/json", "x-learnharness-subscriptions": "1" };
+const headers = { "Content-Type": "application/json", "x-naipes-subscriptions": "1" };
 
 async function status() {
 	const response = await fetch(PATH, { headers, cache: "no-store" });
@@ -28,7 +28,7 @@ function onChange(hub: Hub, listener: () => void): () => void {
  * same-origin action URL enters app JS; provider URLs remain in the owner.
  * Electron dev has no tabs: its narrow main-process opener performs this step. */
 async function withBrowser<T>(action: () => Promise<Reply<T>>): Promise<T> {
-	const external = window.lh?.subscriptionTransport === "web" ? window.lh.openSubscriptionBrowser : undefined;
+	const external = window.np?.subscriptionTransport === "web" ? window.np.openSubscriptionBrowser : undefined;
 	const tab = external ? null : window.open("about:blank", "_blank");
 	if (!external && !tab) throw new Error("Allow a sign-in tab to open, then try again.");
 	if (tab) tab.opener = null;
@@ -69,9 +69,9 @@ export function createWebNativeBridge(hub: Hub): NativeSubscriptionControlBridge
 }
 export function useChatGPTBridge(): ChatGPTControlBridge | undefined {
 	const hub = useNotifyHub();
-	return useMemo(() => typeof window === "undefined" ? undefined : window.lh?.subscriptionTransport !== "web" && window.lh?.chatgpt ? window.lh.chatgpt : createWebChatGPTBridge(hub), [hub]);
+	return useMemo(() => typeof window === "undefined" ? undefined : window.np?.subscriptionTransport !== "web" && window.np?.chatgpt ? window.np.chatgpt : createWebChatGPTBridge(hub), [hub]);
 }
 export function useNativeSubscriptionBridge(): NativeSubscriptionControlBridge | undefined {
 	const hub = useNotifyHub();
-	return useMemo(() => typeof window === "undefined" ? undefined : window.lh?.subscriptionTransport !== "web" && window.lh?.subscriptions ? window.lh.subscriptions : createWebNativeBridge(hub), [hub]);
+	return useMemo(() => typeof window === "undefined" ? undefined : window.np?.subscriptionTransport !== "web" && window.np?.subscriptions ? window.np.subscriptions : createWebNativeBridge(hub), [hub]);
 }

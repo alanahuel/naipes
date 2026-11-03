@@ -40,7 +40,7 @@ import { buildAnswer, dismissedAnswer, normalizeOptions, resolveCorrect, type Qu
 import { danglingQuestionOf, endsInDismissal, needsContinuation, newAnswerResult, newUserMessage } from "../src/core/native-messages.ts";
 import { projectView } from "../src/core/view.ts";
 import type { PiEngine } from "../src/agent/models.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
+import type { NpMessage } from "../src/core/native-messages.ts";
 
 // Route-level pin (the chat-birth-stamp pattern): the dismiss route's
 // handler, driven directly. Env is the runner's (the same the static
@@ -539,7 +539,7 @@ describe("teacher chat flow (scripted model)", () => {
 		// Record shape: the marker sits BETWEEN completed turn units — after
 		// the toolResult it must never split, adjacent to it.
 		const record = chatStore.getChat(chat.id)!;
-		const at = (role: string, pred: (m: LhMessage) => boolean) =>
+		const at = (role: string, pred: (m: NpMessage) => boolean) =>
 			record.messages.findIndex((m) => (m as { role?: string }).role === role && pred(m as never));
 		const callAt = record.messages.findIndex(
 			(m) => (m as { role?: string }).role === "assistant" &&
@@ -571,7 +571,7 @@ describe("teacher chat flow (scripted model)", () => {
 			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			timestamp: 1,
 		};
-		const trailingThink: LhMessage = {
+		const trailingThink: NpMessage = {
 			...baseMessage,
 			id: "a_trail",
 			content: [
@@ -589,7 +589,7 @@ describe("teacher chat flow (scripted model)", () => {
 		assert.ok(order.indexOf("text") > order.indexOf("reasoning"), "text follows the reasoning");
 		assert.equal(order[order.length - 1], "tool-quiz", "the tool call stays last");
 		// The canonical think-first shape is unchanged.
-		const leadingThink: LhMessage = {
+		const leadingThink: NpMessage = {
 			...baseMessage,
 			id: "a_lead",
 			stopReason: "stop",
@@ -600,7 +600,7 @@ describe("teacher chat flow (scripted model)", () => {
 	});
 
 	it("an arrived-but-empty STREAMING message projects the thinking row; a settled empty one stays hidden (optimistic round 3)", () => {
-		const emptyArrived: LhMessage = {
+		const emptyArrived: NpMessage = {
 			id: "a_empty",
 			role: "assistant",
 			content: [],
@@ -934,8 +934,8 @@ describe("canonical persistence failures", () => {
 			});
 			assert.equal(eventsOf(body).find(e => e.type === "error")?.errorText, "An error occurred.");
 			assert.ok(chatStore.getChat(chat.id)!.messages.some(m => m.id === steer.id), "the steer was saved before bookkeeping failed");
-			const delivered: LhMessage[] = [];
-			const next = { steer: (message: LhMessage) => delivered.push(message), state: { model: { provider: "faux" } } } as unknown as Parameters<typeof registerLiveAgent>[1];
+			const delivered: NpMessage[] = [];
+			const next = { steer: (message: NpMessage) => delivered.push(message), state: { model: { provider: "faux" } } } as unknown as Parameters<typeof registerLiveAgent>[1];
 			registerLiveAgent(chat.id, next);
 			assert.deepEqual(delivered, [], "an already-saved learner steer must not reach another agent");
 		} finally {

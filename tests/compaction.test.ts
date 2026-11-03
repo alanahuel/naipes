@@ -15,8 +15,8 @@ import {
 	serializeForSummary,
 	toLlmMessages,
 	COMPACTED_HISTORY_HEADER,
-	type LhMessage,
-	type LhMarkerMessage,
+	type NpMessage,
+	type NpMarkerMessage,
 } from "../src/core/index.ts";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import { projectView } from "../src/core/view.ts";
@@ -35,7 +35,7 @@ import { projectView } from "../src/core/view.ts";
  * - a corrupt cut degrades honestly (everything renders — never throw).
  */
 
-const assistantWithCall = (id: string, callId: string, text = "Let me quiz you."): LhMessage =>
+const assistantWithCall = (id: string, callId: string, text = "Let me quiz you."): NpMessage =>
 	({
 		id,
 		role: "assistant",
@@ -46,10 +46,10 @@ const assistantWithCall = (id: string, callId: string, text = "Let me quiz you."
 		timestamp: 1,
 	}) as never;
 
-const assistantText = (id: string, text: string): LhMessage =>
+const assistantText = (id: string, text: string): NpMessage =>
 	({ id, role: "assistant", content: [{ type: "text", text }], timestamp: 1 }) as never;
 
-const resultFor = (callId: string, text: string): LhMessage & ToolResultMessage =>
+const resultFor = (callId: string, text: string): NpMessage & ToolResultMessage =>
 	({
 		id: `r_${callId}`,
 		role: "toolResult",
@@ -60,12 +60,12 @@ const resultFor = (callId: string, text: string): LhMessage & ToolResultMessage 
 		timestamp: 2,
 	}) as never;
 
-const big = (id: string, kb = 8): LhMessage => newUserMessage(`${id}: ${"x".repeat(kb * 1024)}`);
+const big = (id: string, kb = 8): NpMessage => newUserMessage(`${id}: ${"x".repeat(kb * 1024)}`);
 
 // ─── the anchored estimator (pi's law — 2026-10-05 incident fix) ─────────────
 
 describe("estimateContextTokens (usage-anchored, pi's law)", () => {
-	const usageAssistant = (id: string, total: number, trailing = false): LhMessage =>
+	const usageAssistant = (id: string, total: number, trailing = false): NpMessage =>
 		({
 			id,
 			role: "assistant",
@@ -80,7 +80,7 @@ describe("estimateContextTokens (usage-anchored, pi's law)", () => {
 			newUserMessage(`${"x".repeat(400_000)}`), // 100k chars of DROPPED-span text
 			usageAssistant("a1", 30_000),
 			newUserMessage("y".repeat(4_000)), // 1k estimated tokens AFTER the anchor
-		] as LhMessage[];
+		] as NpMessage[];
 		// ^ newUserMessage signature: (text, ts?) — second arg timestamp
 		const est = estimateContextTokens(msgs);
 		assert.equal(est.lastUsageIndex !== null, true);
@@ -94,7 +94,7 @@ describe("estimateContextTokens (usage-anchored, pi's law)", () => {
 			usageAssistant("a1", 30_000),
 			usageAssistant("a2", 99_999, true), // aborted after the real one
 			{ ...usageAssistant("a3", 0), stopReason: "toolUse" }, // zero usage
-		] as LhMessage[];
+		] as NpMessage[];
 		const est = estimateContextTokens(msgs);
 		assert.equal(est.lastUsageIndex, 0);
 		assert.equal(est.tokens, 30_000 + estimateMessageTokens(msgs[1]!) + estimateMessageTokens(msgs[2]!));
@@ -106,13 +106,13 @@ describe("estimateContextTokens (usage-anchored, pi's law)", () => {
 			tokensBefore: 500_000,
 			at: "2026-10-05T00:00:00.000Z",
 		});
-		const msgs = [usageAssistant("a1", 500_000), marker as LhMessage, newUserMessage("kept tail")] as LhMessage[];
+		const msgs = [usageAssistant("a1", 500_000), marker as NpMessage, newUserMessage("kept tail")] as NpMessage[];
 		const est = estimateContextTokens(msgs);
 		assert.equal(est.lastUsageIndex, null, "the marker invalidates every anchor behind it");
 	});
 
 	it("unanchored (no usage at all): the plain heuristic over everything", () => {
-		const msgs = [big("m1", 4), big("m2", 4)] as LhMessage[]; // 2 × 4,116ish chars
+		const msgs = [big("m1", 4), big("m2", 4)] as NpMessage[]; // 2 × 4,116ish chars
 		const est = estimateContextTokens(msgs);
 		assert.equal(est.lastUsageIndex, null);
 		assert.equal(est.tokens, estimateTokens(msgs));
@@ -132,7 +132,7 @@ describe("estimateMessageTokens (wire text only — the 3x-inflation fix)", () =
 			usage: { input: 9_999_999, output: 1, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 10_000_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
 			responseId: "r".repeat(300),
 			timestamp: 1,
-		} as never as LhMessage;
+		} as never as NpMessage;
 		const expected = Math.ceil((400 + 800 + ("quiz".length + JSON.stringify({ q: "z".repeat(200) }).length)) / 4);
 		assert.equal(estimateMessageTokens(m), expected); // usage/responseId/signature inflate nothing
 	});
@@ -215,12 +215,12 @@ describe("the compaction marker", () => {
 	});
 
 	it("keptIndexFor: found by id; missing → -1 (the honest-fallback signal)", () => {
-		const marker = newCompactionMarker("s", { firstKeptMessageId: "m2", tokensBefore: 1, at: "t" }) as LhMarkerMessage & { details: { firstKeptMessageId: string } };
+		const marker = newCompactionMarker("s", { firstKeptMessageId: "m2", tokensBefore: 1, at: "t" }) as NpMarkerMessage & { details: { firstKeptMessageId: string } };
 		const messages = [newUserMessage("a"), newUserMessage("b"), newUserMessage("c")];
 		messages[0]!.id = "m1";
 		messages[1]!.id = "m2";
 		assert.equal(keptIndexFor(messages as never, marker as never), 1);
-		const gone = newCompactionMarker("s", { firstKeptMessageId: "zzz", tokensBefore: 1, at: "t" }) as LhMarkerMessage & { details: { firstKeptMessageId: string } };
+		const gone = newCompactionMarker("s", { firstKeptMessageId: "zzz", tokensBefore: 1, at: "t" }) as NpMarkerMessage & { details: { firstKeptMessageId: string } };
 		assert.equal(keptIndexFor(messages as never, gone as never), -1);
 	});
 });
@@ -320,7 +320,7 @@ describe("toLlmMessages honors the cut", () => {
 describe("serializeForSummary + buildCompactionPrompt", () => {
 	it("labels roles; truncates long tool results; skips plan blocks", () => {
 		const long = "y".repeat(5_000);
-		const messages: LhMessage[] = [
+		const messages: NpMessage[] = [
 			newUserMessage("hello"),
 			assistantText("a1", "lecture"),
 			resultFor("c1", long),
@@ -372,14 +372,14 @@ describe("serializeForSummary + buildCompactionPrompt", () => {
 // at the kept boundary. Both carry the full summary payload.
 // ---------------------------------------------------------------------------
 describe("projectView compaction dividers", () => {
-	const record = (): LhMessage[] => [
+	const record = (): NpMessage[] => [
 		{ id: "old1", role: "user", content: "earliest", timestamp: 1 },
 		{ id: "kept", role: "user", content: "recent", timestamp: 2 },
 		newCompactionMarker("SUMMARY TEXT", {
 			firstKeptMessageId: "kept",
 			tokensBefore: 12345,
 			at: new Date(0).toISOString(),
-		}) as unknown as LhMessage,
+		}) as unknown as NpMessage,
 	];
 
 	it("emits the cut divider BEFORE the first kept message", () => {
@@ -422,7 +422,7 @@ describe("toLlmMessages carries the leading system message (request chrome)", ()
 		toolsAdded: [{ name: "quiz" }, { name: "plan_init" }],
 		timestamp: 0,
 	};
-	const record = (): LhMessage[] => [
+	const record = (): NpMessage[] => [
 		{ id: "old", role: "user", content: "dropped history", timestamp: 1 },
 		{ id: "kept", role: "user", content: "kept tail", timestamp: 2 },
 		newCompactionMarker("SUPERSEDED SUMMARY", {
@@ -434,7 +434,7 @@ describe("toLlmMessages carries the leading system message (request chrome)", ()
 			firstKeptMessageId: "kept",
 			tokensBefore: 99,
 			at: new Date(0).toISOString(),
-		}) as unknown as LhMessage,
+		}) as unknown as NpMessage,
 	];
 
 	it("chrome FIRST, then the compaction head, then the kept tail — never dropped by the cut", () => {
@@ -456,7 +456,7 @@ describe("toLlmMessages carries the leading system message (request chrome)", ()
 	it("without a cut the chrome renders EXACTLY ONCE (no duplicate)", () => {
 		const plain = [
 			{ id: "u1", role: "user", content: "hello", timestamp: 1 },
-		] as unknown as LhMessage[];
+		] as unknown as NpMessage[];
 		const out = toLlmMessages([chrome, ...plain] as never);
 		assert.equal(out.filter((m) => m.role === "system").length, 1);
 		assert.equal(out[0]!.role, "system");

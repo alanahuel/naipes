@@ -34,7 +34,7 @@ export interface LlmSlots {
 	queue: { resolve: () => void; dead: boolean }[];
 }
 
-interface LhLlmSemaphoreGlobal {
+interface NpLlmSemaphoreGlobal {
 	__lhLlmSlots?: LlmSlots;
 }
 
@@ -42,7 +42,7 @@ interface LhLlmSemaphoreGlobal {
  *  route entry as its own module instance; a module-level object would
  *  split the pool per route. One process, one truth). */
 export function bgLlmSlots(): LlmSlots {
-	const g = globalThis as typeof globalThis & LhLlmSemaphoreGlobal;
+	const g = globalThis as typeof globalThis & NpLlmSemaphoreGlobal;
 	return (g.__lhLlmSlots ??= { active: 0, queue: [] });
 }
 

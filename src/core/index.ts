@@ -36,7 +36,7 @@ export * from "./phases.ts";
 export * from "./pending.ts";
 export * from "./prompt-segments.ts";
 export * from "./math-delims.ts";
-// Wave B (owner-approved 2026-09-26): the native record (LhMessage), the
+// Wave B (owner-approved 2026-09-26): the native record (NpMessage), the
 // and the input-events contract — all
 // pure logic, browser-safe.
 export * from "./native-messages.ts";
@@ -70,6 +70,7 @@ export * from "./dictation.ts";
 export type { ChatDeleteMode, ChatDeletionStats } from "./graph-deletion.ts";
 export * from "./settings-resolution.ts";
 export * from "./vault-notes.ts";
+export * from "./stored-item.ts";
 export * from "./search.ts"; // search port (search wave, 2026-09-20)
 export * from "./session-find.ts";
 export * from "./session-navigation.ts";

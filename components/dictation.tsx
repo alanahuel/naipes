@@ -591,12 +591,12 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		};
 	}, [cleanup]);
 	useEffect(() => {
-		window.addEventListener("lh:kbd-toggle-dictation", toggle);
-		return () => window.removeEventListener("lh:kbd-toggle-dictation", toggle);
+		window.addEventListener("np:kbd-toggle-dictation", toggle);
+		return () => window.removeEventListener("np:kbd-toggle-dictation", toggle);
 	}, [toggle]);
 	useEffect(() => {
-		window.addEventListener("lh:kbd-cancel-dictation", cancel);
-		return () => window.removeEventListener("lh:kbd-cancel-dictation", cancel);
+		window.addEventListener("np:kbd-cancel-dictation", cancel);
+		return () => window.removeEventListener("np:kbd-cancel-dictation", cancel);
 	}, [cancel]);
 
 	return {

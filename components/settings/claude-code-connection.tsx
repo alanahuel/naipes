@@ -7,8 +7,8 @@ import { ConnectionDialog, ConnectionFooter, ConnectionRow } from "./connection-
 import { Toggle } from "./controls";
 
 const PATH = "/api/claude-code";
-const HEADERS = { "Content-Type": "application/json", "x-learnharness-subscriptions": "1" };
-export const CLAUDE_CODE_NOTICE = "LearnHarness runs your own installed Claude Code (`claude -p`) as the model, so your prompts, tool results and relevant session context are sent to Anthropic through Claude Code. Sign-in is handled entirely by Claude Code; LearnHarness never reads or stores your Claude credentials. Usage counts against your Claude plan limits. This connection never falls back to an API key. For personal use on this computer.";
+const HEADERS = { "Content-Type": "application/json", "x-naipes-subscriptions": "1" };
+export const CLAUDE_CODE_NOTICE = "Naipes runs your own installed Claude Code (`claude -p`) as the model, so your prompts, tool results and relevant session context are sent to Anthropic through Claude Code. Sign-in is handled entirely by Claude Code; Naipes never reads or stores your Claude credentials. Usage counts against your Claude plan limits. This connection never falls back to an API key. For personal use on this computer.";
 const INSTALL_HINT = "Claude Code is not installed. Install it from claude.com/claude-code (for example `curl -fsSL https://claude.ai/install.sh | bash`), then check again.";
 
 async function request(action?: ClaudeCodeAction, fields: Record<string, unknown> = {}): Promise<ClaudeCodeStatus> {
@@ -71,7 +71,7 @@ export function ClaudeCodeConnection({ labelClassName }: { labelClassName?: stri
 			{waiting && !connected && <p className="mt-2 text-xs text-muted-foreground" role="status">Finish signing in in the Claude Code terminal window. This updates automatically.</p>}
 			{connected && <div className="mt-4 flex items-center gap-3 text-xs text-foreground">
 				<Toggle label="Allow background use" checked={status.allowBackgroundUse} disabled={busy} onChange={(enabled) => void run("consent", { enabled })} />
-				<span>Allow background use<span className="mt-1 block leading-relaxed text-muted-foreground">Allow LearnHarness helper agents and automatic follow-ups to use this connection.</span></span>
+				<span>Allow background use<span className="mt-1 block leading-relaxed text-muted-foreground">Allow Naipes helper agents and automatic follow-ups to use this connection.</span></span>
 			</div>}
 			{error && <p role="alert" className="mt-3 text-xs text-red-400">{error}</p>}
 			<ConnectionFooter testid="claude-code-dialog-footer" leading={connected && <Button variant="ghost" size="sm" className="cursor-pointer text-red-400 hover:bg-red-500/10 hover:text-red-300" disabled={busy} onClick={() => void run("logout")}>Sign out of Claude Code</Button>}>

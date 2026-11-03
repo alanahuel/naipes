@@ -16,7 +16,7 @@ function service(store: unknown) {
 }
 
 test("ordinary startup restores saved accounts and global OFF from JSON without OAuth or native storage", async () => {
-	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lh-chatgpt-restore-"));
+	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "np-chatgpt-restore-"));
 	const file = path.join(dir, "chatgpt-credentials.json");
 	const state = { ...initial(), activeId: "B", registrations: [account("A", "first"), account("B", "second")], allowBackgroundUse: false };
 	let connection;
@@ -35,7 +35,7 @@ test("ordinary startup restores saved accounts and global OFF from JSON without 
 });
 
 test("new store ignores experimental encrypted files and never alters the separate API-key file", async () => {
-	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lh-chatgpt-fresh-"));
+	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "np-chatgpt-fresh-"));
 	const file = path.join(dir, "chatgpt-credentials.json");
 	const experimental = path.join(dir, "chatgpt-credentials.enc.json");
 	const auth = path.join(dir, "auth.json");
@@ -60,7 +60,7 @@ test("new store ignores experimental encrypted files and never alters the separa
 
 for (const bytes of ["{broken-json", "null", "[]", '{"version":1,"encrypted":"ZXhwZXJpbWVudA=="}']) {
 	test(`invalid JSON/record fails closed without overwriting it: ${bytes}`, async () => {
-		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lh-chatgpt-invalid-"));
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "np-chatgpt-invalid-"));
 		const file = path.join(dir, "chatgpt-credentials.json");
 		let connection;
 		try {
@@ -78,7 +78,7 @@ for (const bytes of ["{broken-json", "null", "[]", '{"version":1,"encrypted":"ZX
 
 for (const phase of ["sync", "rename"] as const) {
 	test(`failed ${phase} leaves the previous JSON intact and removes temporary files`, async (t) => {
-		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lh-chatgpt-atomic-"));
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "np-chatgpt-atomic-"));
 		const file = path.join(dir, "chatgpt-credentials.json");
 		try {
 			const store = fileStore(file);
@@ -101,7 +101,7 @@ for (const phase of ["sync", "rename"] as const) {
 }
 
 test("file read/write failures are sanitized and cannot leak credential or path details", async () => {
-	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lh-chatgpt-io-"));
+	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "np-chatgpt-io-"));
 	try {
 		// Reading a directory and writing beneath a regular file both fail on all supported platforms.
 		await assert.rejects(fileStore(dir).read(), /^Error: storage$/);

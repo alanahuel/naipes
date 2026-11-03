@@ -1,7 +1,7 @@
 /**
  * Claude Code subscription connection — server-side state (personal use).
  *
- * LearnHarness never reads or stores Claude credentials. It drives the
+ * Naipes never reads or stores Claude credentials. It drives the
  * user's own installed `claude` CLI, which owns sign-in (`claude auth
  * login`), and reads `claude auth status --json` to know whether a
  * claude.ai subscription session exists. The only state persisted here is
@@ -33,7 +33,7 @@ interface State {
 	listeners: Set<() => void>;
 	controllers: Map<AbortController, boolean>;
 }
-const key = Symbol.for("lh.claude-code.bridge");
+const key = Symbol.for("np.claude-code.bridge");
 function state(): State {
 	const g = globalThis as typeof globalThis & { [key]?: State };
 	g[key] ??= {
@@ -65,7 +65,7 @@ export async function findClaudeBinary(): Promise<string | null> {
 	const s = state();
 	if (s.binary && existsSync(s.binary)) return s.binary;
 	const candidates: string[] = [];
-	if (process.env.LH_CLAUDE_BIN) candidates.push(process.env.LH_CLAUDE_BIN);
+	if (process.env.NP_CLAUDE_BIN) candidates.push(process.env.NP_CLAUDE_BIN);
 	try {
 		const { stdout } = await execFileP(isWindows ? "where" : "which", ["claude"], { windowsHide: true });
 		candidates.push(...stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
@@ -188,7 +188,7 @@ export function claudeCodeDenial(scope: AdmissionScope | undefined, controller: 
 export function claudeCodeEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = { ...base };
 	for (const name of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"]) delete env[name];
-	env.ENABLE_TOOL_SEARCH = "false"; // every LearnHarness tool must be visible up front
+	env.ENABLE_TOOL_SEARCH = "false"; // every Naipes tool must be visible up front
 	env.DISABLE_AUTOUPDATER = "1";
 	return env;
 }

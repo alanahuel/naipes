@@ -13,7 +13,7 @@ import * as path from "node:path";
 import { after, describe, it } from "node:test";
 import { probeDoneTool } from "../src/agent/tools/probe.ts";
 import type { SteerMessage } from "../src/core/contracts.ts";
-import { hasProbeDone, type LhMessage } from "../src/core/native-messages.ts";
+import { hasProbeDone, type NpMessage } from "../src/core/native-messages.ts";
 import { phaseAt3Lh } from "../src/core/phases.ts";
 import { HANDOFF_TEXT } from "../src/core/contracts.ts";
 import { chatStore } from "../src/store/chats.ts";
@@ -48,7 +48,7 @@ const ASSESSMENT = {
 
 /** A native assistant message carrying one tool call (the minimal fixture
  *  shape the scans read — role assistant, content blocks). */
-function assistantWithCall(id: string, toolName: string, args: unknown): LhMessage {
+function assistantWithCall(id: string, toolName: string, args: unknown): NpMessage {
 	return {
 		id,
 		role: "assistant",
@@ -145,7 +145,7 @@ describe("probe_done: the probe→planning seam", () => {
 });
 
 /** A real record result, distinct from the calling assistant message. */
-function probeResult(overrides: Partial<Extract<LhMessage, { role: "toolResult" }>> = {}): LhMessage {
+function probeResult(overrides: Partial<Extract<NpMessage, { role: "toolResult" }>> = {}): NpMessage {
 	return {
 		id: "probe-result", role: "toolResult", toolCallId: "call_probe", toolName: "probe_done",
 		content: [{ type: "text", text: "ok" }], isError: false, timestamp: 1,
@@ -154,8 +154,8 @@ function probeResult(overrides: Partial<Extract<LhMessage, { role: "toolResult" 
 }
 
 const probeCall = () => assistantWithCall("probe", "probe_done", { assessment: ASSESSMENT });
-const failedProbeCall = (stopReason: "error" | "aborted"): LhMessage => ({ ...probeCall(), stopReason } as LhMessage);
-const incompleteProbes: Array<[string, () => LhMessage[]]> = [
+const failedProbeCall = (stopReason: "error" | "aborted"): NpMessage => ({ ...probeCall(), stopReason } as NpMessage);
+const incompleteProbes: Array<[string, () => NpMessage[]]> = [
 	["unmatched call", () => [probeCall()]],
 	["errored result", () => [probeCall(), probeResult({ isError: true })]],
 	["explicit refusal without isError", () => [probeCall(), probeResult({ details: { ok: false, error: "refused" } })]],

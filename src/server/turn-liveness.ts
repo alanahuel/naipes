@@ -23,12 +23,12 @@
 import { emit } from "../core/events.ts";
 import { clearTurnFailure } from "./turn-runs.ts";
 
-interface LhGlobal {
+interface NpGlobal {
 	__lhTurnRegistry?: Map<string, number>;
 }
 
 function registry(): Map<string, number> {
-	const g = globalThis as typeof globalThis & LhGlobal;
+	const g = globalThis as typeof globalThis & NpGlobal;
 	return (g.__lhTurnRegistry ??= new Map<string, number>());
 }
 

@@ -20,7 +20,7 @@ describe("offline native Pi Google initialization gate", () => {
 		assert.match(String(result.stdout), /zero network attempts/);
 	});
 	it("rejects a missing Pi entry instead of treating any error as success", () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "lh-provider-missing-"));
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "np-provider-missing-"));
 		try {
 			const result = run(root);
 			assert.equal(result.status, 1);
@@ -30,7 +30,7 @@ describe("offline native Pi Google initialization gate", () => {
 		} finally { fs.rmSync(root, { recursive: true, force: true }); }
 	});
 	it("rejects an otherwise complete SDK outside the payload (no host fallback)", () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), "lh-provider-escape-"));
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "np-provider-escape-"));
 		try {
 			fs.symlinkSync(path.join(checkout, "node_modules"), path.join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir");
 			const result = run(root);

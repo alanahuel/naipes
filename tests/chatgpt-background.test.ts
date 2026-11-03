@@ -8,10 +8,10 @@ import { AssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-s
 import { piModels } from "../src/agent/models.ts";
 import { toLlmMessages } from "../src/core/native-messages.ts";
 import { buildSubagentSteer } from "../src/core/contracts.ts";
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lh-chatgpt-background-"));
-process.env.LH_DATA_DIR = path.join(dir, "data");
-process.env.LH_AUTH_FILE = path.join(dir, "scratch-auth.json");
-fs.writeFileSync(process.env.LH_AUTH_FILE, "{}");
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), "np-chatgpt-background-"));
+process.env.NP_DATA_DIR = path.join(dir, "data");
+process.env.NP_AUTH_FILE = path.join(dir, "scratch-auth.json");
+fs.writeFileSync(process.env.NP_AUTH_FILE, "{}");
 const { stores } = await import("../src/server/stores.ts");
 const { beginTurn, endTurn } = await import("../src/server/turn-liveness.ts");
 const { deliverJobResult, registerLiveAgent, unregisterLiveAgent, setTurnRunner, settleSteers, steerLiveChat } = await import("../src/server/jobs.ts");
@@ -19,12 +19,12 @@ const { persistTurn } = await import("../src/server/turn-service.ts");
 const ipc = (value: unknown) => (process.emit as (name: string, value: unknown) => boolean)("message", value);
 let revision = 1;
 function connection(background: boolean) {
-	ipc({ channel: "lh:chatgpt", kind: "state", stamp: { epoch: 1, authorityRevision: 1, revision: revision++ }, invalidate: background ? "none" : "background", status: { available: true, pending: false, allowBackgroundUse: background, activeId: "scratch-account", accounts: [{ id: "scratch-account", connected: true, planEnabled: true, background: !background }], error: null } });
+	ipc({ channel: "np:chatgpt", kind: "state", stamp: { epoch: 1, authorityRevision: 1, revision: revision++ }, invalidate: background ? "none" : "background", status: { available: true, pending: false, allowBackgroundUse: background, activeId: "scratch-account", accounts: [{ id: "scratch-account", connected: true, planEnabled: true, background: !background }], error: null } });
 }
 const originalSend = Object.getOwnPropertyDescriptor(process, "send"), originalConnected = Object.getOwnPropertyDescriptor(process, "connected");
-const desktopMarker = process.env.LH_DESKTOP_SERVER, desktopSecret = process.env.LH_DESKTOP_API_SECRET;
+const desktopMarker = process.env.NP_DESKTOP_SERVER, desktopSecret = process.env.NP_DESKTOP_API_SECRET;
 before(() => {
-	process.env.LH_DESKTOP_SERVER = "1"; process.env.LH_DESKTOP_API_SECRET = "d".repeat(64);
+	process.env.NP_DESKTOP_SERVER = "1"; process.env.NP_DESKTOP_API_SECRET = "d".repeat(64);
 	Object.defineProperty(process, "connected", { configurable: true, value: true });
 	Object.defineProperty(process, "send", { configurable: true, value: (_message: unknown, callback?: (error: Error) => void) => { callback?.(new Error("unexpected fixture desktop request")); return false; } });
 });
@@ -32,8 +32,8 @@ after(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 	if (originalSend) Object.defineProperty(process, "send", originalSend); else delete process.send;
 	if (originalConnected) Object.defineProperty(process, "connected", originalConnected); else delete (process as { connected?: boolean }).connected;
-	if (desktopMarker === undefined) delete process.env.LH_DESKTOP_SERVER; else process.env.LH_DESKTOP_SERVER = desktopMarker;
-	if (desktopSecret === undefined) delete process.env.LH_DESKTOP_API_SECRET; else process.env.LH_DESKTOP_API_SECRET = desktopSecret;
+	if (desktopMarker === undefined) delete process.env.NP_DESKTOP_SERVER; else process.env.NP_DESKTOP_SERVER = desktopMarker;
+	if (desktopSecret === undefined) delete process.env.NP_DESKTOP_API_SECRET; else process.env.NP_DESKTOP_API_SECRET = desktopSecret;
 });
 
 for (const revokedAfterQueue of [false, true]) {
@@ -77,7 +77,7 @@ for (const revokedAfterQueue of [false, true]) {
 		assert(!agent.hasQueuedMessages());
 		// Ordinary lease/catalog replies are not consent changes and must never
 		// reset/replay a learner steer that the agent has already consumed.
-		ipc({ channel: "lh:chatgpt", id: "ordinary-reply-with-no-pending-call", value: { accessToken: "scratch-only" } });
+		ipc({ channel: "np:chatgpt", id: "ordinary-reply-with-no-pending-call", value: { accessToken: "scratch-only" } });
 		assert(!agent.hasQueuedMessages());
 		const persisted = persistTurn(stores.chatStore, chat.id, 0, agent.state.messages, false);
 		unregisterLiveAgent(chat.id); endTurn(chat.id); settleSteers(chat.id, persisted);

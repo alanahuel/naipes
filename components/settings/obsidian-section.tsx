@@ -52,7 +52,7 @@ export function ObsidianSection({
 	const [loadError, setLoadError] = useState<string | null>(null);
 	// The native picker exists only in the desktop window (SSR-safe probe).
 	const [canPick, setCanPick] = useState(false);
-	useEffect(() => setCanPick(typeof window !== "undefined" && !!window.lh?.pickFolder), []);
+	useEffect(() => setCanPick(typeof window !== "undefined" && !!window.np?.pickFolder), []);
 	const enabled = obsidian?.enabled ?? false;
 	const folders = obsidian?.folders ?? [];
 	const vaultPath = obsidian?.vaultPath ?? "";
@@ -85,7 +85,7 @@ export function ObsidianSection({
 	};
 
 	const pick = async () => {
-		const chosen = await window.lh?.pickFolder?.(overview?.root || vaultPath);
+		const chosen = await window.np?.pickFolder?.(overview?.root || vaultPath);
 		if (chosen) void write({ ...obsidian, vaultPath: chosen, folders: [] });
 	};
 

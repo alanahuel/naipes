@@ -16,7 +16,7 @@ const ids = ["github-copilot", "xai"] as const;
 const credential = (id: string, expires = Date.now() + 3600000): OAuthCredential => ({ type: "oauth", access: id === "xai" ? "fixture-xai-access" : "tid=fixture;proxy-ep=proxy.individual.githubcopilot.com;", refresh: "fixture-refresh", expires, ...(id === "github-copilot" ? { availableModelIds: [githubCopilotProvider().getModels()[0]!.id] } : {}) });
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { resolve, promise }; }
 async function fixture(options: { login?: (id: string, interaction: ProviderAuthInteraction) => Promise<OAuthCredential>; refresh?: (id: string, value: OAuthCredential, signal: AbortSignal) => Promise<OAuthCredential>; stores?: Record<string, unknown> } = {}) {
-	const directory = await fs.mkdtemp(path.join(os.tmpdir(), "lh-subscription-auth-"));
+	const directory = await fs.mkdtemp(path.join(os.tmpdir(), "np-subscription-auth-"));
 	let refreshes = 0;
 	const factory = (id: string) => {
 		const native = id === "xai" ? xaiProvider() : githubCopilotProvider();

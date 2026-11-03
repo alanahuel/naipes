@@ -12,14 +12,14 @@ interface BridgeState {
  status: ChatGPTStatus; stamp: Stamp; models: Model<"openai-responses">[]; catalogAccount: string | null;
  pending: Map<string, Pending>; controllers: Map<AbortController, boolean>; listeners: Set<() => void>; counter: number; catalogRequest: number;
 }
-const key = Symbol.for("lh.chatgpt.bridge");
+const key = Symbol.for("np.chatgpt.bridge");
 const unavailable = (): ChatGPTStatus => ({ available: false, pending: false, allowBackgroundUse: true, activeId: null, accounts: [], error: null });
 const validStamp = (s: Stamp) => s && [s.epoch, s.authorityRevision, s.revision].every((v) => Number.isSafeInteger(v) && v >= 0);
 /** Next dev also uses parent/child IPC. IPC alone is not our desktop
  * transport: require the same launch markers set by Electron startServer.
  * These identify the transport, not a substitute for admission/lease checks. */
 function desktopIPCConnected(): boolean {
- return process.env.LH_DESKTOP_SERVER === "1" && (process.env.LH_DESKTOP_API_SECRET?.length ?? 0) >= 64 && typeof process.send === "function" && process.connected === true;
+ return process.env.NP_DESKTOP_SERVER === "1" && (process.env.NP_DESKTOP_API_SECRET?.length ?? 0) >= 64 && typeof process.send === "function" && process.connected === true;
 }
 function runtimeConnected(): boolean { return desktopIPCConnected() || webSubscriptionsEnabled(); }
 function bridge(): BridgeState {
@@ -29,7 +29,7 @@ function bridge(): BridgeState {
   global[key] = state;
   const receive = (raw: unknown) => {
    const m = raw as { channel?: string; kind?: string; id?: string; op?: string; ok?: boolean; value?: unknown; stamp: Stamp; status: ChatGPTStatus; invalidate?: string; error?: string };
-   if (m?.channel !== "lh:chatgpt") return;
+   if (m?.channel !== "np:chatgpt") return;
    if (m.kind === "state" && validStamp(m.stamp) && m.stamp.revision >= state.stamp.revision) {
     acceptStatus(state, { ...m.stamp, status: m.status });
     if (m.invalidate === "all") { state.catalogRequest++; clearCatalog(state); }
@@ -47,7 +47,7 @@ function bridge(): BridgeState {
    }
   };
   process.on("message", (raw: unknown) => { if (desktopIPCConnected()) receive(raw); });
-  onWebSubscriptionPacket("lh:chatgpt", (packet) => { if (webSubscriptionsEnabled()) receive(packet); });
+  onWebSubscriptionPacket("np:chatgpt", (packet) => { if (webSubscriptionsEnabled()) receive(packet); });
   process.on("disconnect", () => {
    if (webSubscriptionsEnabled()) return;
    state.status = unavailable(); clearCatalog(state); state.catalogRequest++;
@@ -68,13 +68,13 @@ function acceptStatus(state: BridgeState, value: StatusValue) {
 /** Runtime-only: inherited desktop IPC or direct web owner. Never HTTP leases. */
 export function chatGPTRequest<T>(op: "status" | "models" | "lease", fields: Record<string, unknown> = {}): Promise<T> {
  const state = bridge();
- if (webSubscriptionsEnabled()) return webSubscriptionRequest<T>("lh:chatgpt", op, fields);
+ if (webSubscriptionsEnabled()) return webSubscriptionRequest<T>("np:chatgpt", op, fields);
  if (!desktopIPCConnected()) return Promise.reject(new Error("ChatGPT sign-in is available only in the desktop app with a private server connection."));
  return new Promise<T>((resolve, reject) => {
   const id = `${process.pid}:${++state.counter}`;
   const timer = setTimeout(() => { state.pending.delete(id); reject(new Error("The ChatGPT desktop connection timed out.")); }, 45000);
   state.pending.set(id, { op, resolve: (v) => resolve(v as T), reject, timer });
-  process.send!({ ...fields, channel: "lh:chatgpt", id, op }, (error) => {
+  process.send!({ ...fields, channel: "np:chatgpt", id, op }, (error) => {
    if (error) { clearTimeout(timer); state.pending.delete(id); reject(new Error("The ChatGPT desktop connection closed.")); }
   });
  });

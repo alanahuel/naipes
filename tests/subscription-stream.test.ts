@@ -8,7 +8,7 @@ import { subscriptionHistory } from "../src/agent/subscription-stream.ts";
 import { runSubagent } from "../src/agent/subagents/pi-run.ts";
 
 const originalSend = Object.getOwnPropertyDescriptor(process, "send"), originalConnected = Object.getOwnPropertyDescriptor(process, "connected");
-const marker = process.env.LH_DESKTOP_SERVER, secret = process.env.LH_DESKTOP_API_SECRET;
+const marker = process.env.NP_DESKTOP_SERVER, secret = process.env.NP_DESKTOP_API_SECRET;
 const xaiKey = process.env.XAI_API_KEY, copilotKey = process.env.COPILOT_GITHUB_TOKEN;
 let revision = 1, denied = false, sends = 0;
 const context = normalizeContext({ messages: [{ role: "user", content: "Offline fixture", timestamp: 0 }] });
@@ -20,11 +20,11 @@ function snapshot(background = true): NativeSubscriptionSnapshot {
 }
 const emit = (value: unknown) => (process.emit as (event: string, value: unknown) => boolean)("message", value);
 before(async () => {
-	process.env.LH_DESKTOP_SERVER = "1"; process.env.LH_DESKTOP_API_SECRET = "d".repeat(64);
+	process.env.NP_DESKTOP_SERVER = "1"; process.env.NP_DESKTOP_API_SECRET = "d".repeat(64);
 	process.env.XAI_API_KEY = "fixture-must-never-be-used"; process.env.COPILOT_GITHUB_TOKEN = "fixture-api-route-only";
 	Object.defineProperty(process, "connected", { configurable: true, value: true });
 	Object.defineProperty(process, "send", { configurable: true, value: (message: any, callback?: () => void) => {
-		sends++; queueMicrotask(() => emit({ channel: "lh:subscriptions", id: message.id, op: message.op, ...(denied && message.op === "lease" ? { ok: false, error: "fixture expired refresh" } : { ok: true, value: message.op === "snapshot" ? snapshot() : { scope: message.scope, auth: { apiKey: "fixture-oauth-only", ...(message.scope.providerId === "github-copilot" ? { baseUrl: "https://api.business.githubcopilot.com", headers: { "x-fixture-auth": "native-retained" } } : {}) } } }) }));
+		sends++; queueMicrotask(() => emit({ channel: "np:subscriptions", id: message.id, op: message.op, ...(denied && message.op === "lease" ? { ok: false, error: "fixture expired refresh" } : { ok: true, value: message.op === "snapshot" ? snapshot() : { scope: message.scope, auth: { apiKey: "fixture-oauth-only", ...(message.scope.providerId === "github-copilot" ? { baseUrl: "https://api.business.githubcopilot.com", headers: { "x-fixture-auth": "native-retained" } } : {}) } } }) }));
 		callback?.(); return true;
 	} });
 	await refreshSubscriptionModels();
@@ -32,7 +32,7 @@ before(async () => {
 after(() => {
 	if (originalSend) Object.defineProperty(process, "send", originalSend); else delete process.send;
 	if (originalConnected) Object.defineProperty(process, "connected", originalConnected); else delete (process as { connected?: boolean }).connected;
-	for (const [key, value] of [["LH_DESKTOP_SERVER", marker], ["LH_DESKTOP_API_SECRET", secret], ["XAI_API_KEY", xaiKey], ["COPILOT_GITHUB_TOKEN", copilotKey]]) { if (value === undefined) delete process.env[key!]; else process.env[key!] = value; }
+	for (const [key, value] of [["NP_DESKTOP_SERVER", marker], ["NP_DESKTOP_API_SECRET", secret], ["XAI_API_KEY", xaiKey], ["COPILOT_GITHUB_TOKEN", copilotKey]]) { if (value === undefined) delete process.env[key!]; else process.env[key!] = value; }
 });
 test("logical subscription routes are separate catalog entries without rewriting native API models", () => {
 	for (const p of NATIVE_SUBSCRIPTIONS) {
@@ -95,13 +95,13 @@ test("history treatment distinguishes the same model through API and subscriptio
 test("background invalidation is provider-specific and preserves foreground controllers; stale updates cannot reenable it", () => {
 	const foreground = subscriptionAbortController("xai", false), background = subscriptionAbortController("xai", true), other = subscriptionAbortController("github-copilot", true);
 	revision++; const next = snapshot(); next.statuses.find((s) => s.providerId === "xai")!.allowBackgroundUse = false;
-	emit({ channel: "lh:subscriptions", op: "changed", snapshot: next });
+	emit({ channel: "np:subscriptions", op: "changed", snapshot: next });
 	assert(!foreground.controller.signal.aborted); assert(background.controller.signal.aborted); assert(!other.controller.signal.aborted);
-	const stale = snapshot(); stale.statuses.forEach((s) => { s.revision = 0; }); emit({ channel: "lh:subscriptions", op: "changed", snapshot: stale });
+	const stale = snapshot(); stale.statuses.forEach((s) => { s.revision = 0; }); emit({ channel: "np:subscriptions", op: "changed", snapshot: stale });
 	foreground.release(); background.release(); other.release();
 });
 test("framework IPC alone cannot request subscription credentials or retain a usable catalog", async () => {
-	const previous = sends; delete process.env.LH_DESKTOP_SERVER;
+	const previous = sends; delete process.env.NP_DESKTOP_SERVER;
 	await assert.rejects(subscriptionRequest("snapshot"), /desktop app/); assert.equal(sends, previous); assert.deepEqual(nativeSubscriptionModels(), []);
-	process.env.LH_DESKTOP_SERVER = "1";
+	process.env.NP_DESKTOP_SERVER = "1";
 });

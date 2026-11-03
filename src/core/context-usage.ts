@@ -1,5 +1,5 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { LhMessage } from "./native-messages.ts";
+import type { NpMessage } from "./native-messages.ts";
 
 /** Latest completed conversation measurement, never a request-size estimate.
  * Ordered compaction markers invalidate every earlier reading. Live callers
@@ -7,7 +7,7 @@ import type { LhMessage } from "./native-messages.ts";
  * Reasoning is already inside output; totalTokens is deliberately not used.
  */
 export function measuredContextTokens(
-	messages: readonly LhMessage[],
+	messages: readonly NpMessage[],
 	incompleteIds: ReadonlySet<string> = new Set(),
 ): number | null {
 	for (let i = messages.length - 1; i >= 0; i--) {

@@ -11,11 +11,11 @@ import * as path from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 
 // ── the seam, BEFORE any config-loading import ──────────────────────────────
-const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-vault-data-"));
-const VAULT = fs.mkdtempSync(path.join(os.tmpdir(), "lh-vault-root-"));
+const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "np-vault-data-"));
+const VAULT = fs.mkdtempSync(path.join(os.tmpdir(), "np-vault-root-"));
 /** The output folder sits inside a watched folder, so exclusion is exercised. */
 const OUT = "Recursos/Naipes";
-process.env.LH_DATA_DIR = TMP_DATA;
+process.env.NP_DATA_DIR = TMP_DATA;
 
 import {
 	MARK_END,
@@ -33,8 +33,8 @@ import { normalizeVaultFolder, sanitizeUserSettings } from "../src/core/settings
 
 describe("vault note format", () => {
 	it("mints a new note with frontmatter, the app zone and the user zone", () => {
-		const text = composeManagedNote(null, [["tipo", "concepto"], ["tags", ["learnharness", "concepto"]]], "# Idea\n\nCuerpo")!;
-		assert.ok(text.startsWith('---\ntipo: "concepto"\ntags:\n  - "learnharness"\n  - "concepto"\n---\n'));
+		const text = composeManagedNote(null, [["tipo", "concepto"], ["tags", ["naipes", "concepto"]]], "# Idea\n\nCuerpo")!;
+		assert.ok(text.startsWith('---\ntipo: "concepto"\ntags:\n  - "naipes"\n  - "concepto"\n---\n'));
 		assert.ok(text.includes(`${MARK_START}\n# Idea\n\nCuerpo\n${MARK_END}`));
 		assert.ok(text.trimEnd().endsWith(USER_ZONE));
 	});
@@ -63,6 +63,16 @@ describe("vault note format", () => {
 		assert.ok(stamped.includes('estado: "eliminada"'));
 		assert.ok(!stamped.includes('estado: "activa"'));
 		assert.equal(stamped.slice(stamped.indexOf(MARK_START)), first.slice(first.indexOf(MARK_START)));
+	});
+
+	it("adopts notes written with the pre-rename learnharness markers", () => {
+		const legacy = `---\ntipo: "concepto"\n---\n<!-- learnharness:inicio -->\nViejo\n<!-- learnharness:fin -->\n\n## Mis notas\n\nMío\n`;
+		assert.equal(managedZoneOf(legacy), "Viejo");
+		const next = composeManagedNote(legacy, [["tipo", "concepto"]], "Nuevo")!;
+		assert.ok(next.includes(`${MARK_START}\nNuevo\n${MARK_END}`));
+		assert.ok(!next.includes("learnharness:"));
+		assert.ok(next.endsWith("## Mis notas\n\nMío\n"));
+		assert.ok(restampManagedNote(legacy, [["estado", "eliminada"]])?.includes("<!-- learnharness:inicio -->\nViejo"));
 	});
 
 	it("makes safe file names and path links", () => {

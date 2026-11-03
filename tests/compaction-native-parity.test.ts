@@ -7,18 +7,18 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compactionCutIndex, estimateMessageTokens, newCompactionMarker, KEEP_RECENT_TOKENS, type LhMessage } from "../src/core/index.ts";
+import { compactionCutIndex, estimateMessageTokens, newCompactionMarker, KEEP_RECENT_TOKENS, type NpMessage } from "../src/core/index.ts";
 
 let serial = 0;
-const user = (chars: number): LhMessage => ({ id: `u${serial++}`, role: "user", content: "u".repeat(chars), timestamp: 1 });
-const assistant = (chars: number): LhMessage => ({ id: `a${serial++}`, role: "assistant", content: [{ type: "text", text: "a".repeat(chars) }], timestamp: 1 }) as LhMessage;
-const call = (chars: number): LhMessage => ({ ...assistant(chars), content: [{ type: "text", text: "a".repeat(chars) }, { type: "toolCall", name: "quiz", arguments: {}, id: "c" }] }) as LhMessage;
-const result = (chars: number): LhMessage => ({ id: `r${serial++}`, role: "toolResult", content: [{ type: "text", text: "r".repeat(chars) }], toolCallId: "c", toolName: "quiz", isError: false, timestamp: 1 });
-const image = (): LhMessage => ({ id: `i${serial++}`, role: "user", content: [{ type: "image", data: "fixture", mimeType: "image/png" }], timestamp: 1 });
-const metadata = (): LhMessage => ({ id: `m${serial++}`, role: "custom", customType: "plan-block", content: "invisible".repeat(1000), display: false, details: {}, timestamp: 1 });
+const user = (chars: number): NpMessage => ({ id: `u${serial++}`, role: "user", content: "u".repeat(chars), timestamp: 1 });
+const assistant = (chars: number): NpMessage => ({ id: `a${serial++}`, role: "assistant", content: [{ type: "text", text: "a".repeat(chars) }], timestamp: 1 }) as NpMessage;
+const call = (chars: number): NpMessage => ({ ...assistant(chars), content: [{ type: "text", text: "a".repeat(chars) }, { type: "toolCall", name: "quiz", arguments: {}, id: "c" }] }) as NpMessage;
+const result = (chars: number): NpMessage => ({ id: `r${serial++}`, role: "toolResult", content: [{ type: "text", text: "r".repeat(chars) }], toolCallId: "c", toolName: "quiz", isError: false, timestamp: 1 });
+const image = (): NpMessage => ({ id: `i${serial++}`, role: "user", content: [{ type: "image", data: "fixture", mimeType: "image/png" }], timestamp: 1 });
+const metadata = (): NpMessage => ({ id: `m${serial++}`, role: "custom", customType: "plan-block", content: "invisible".repeat(1000), display: false, details: {}, timestamp: 1 });
 
 test("local cutoff matches published native golden boundaries and estimator values", () => {
-	const cases: [string, LhMessage[], number, number, number[]][] = [
+	const cases: [string, NpMessage[], number, number, number[]][] = [
 		["exact threshold", [user(40), user(40), user(40)], 20, 1, [10, 10, 10]],
 		["under budget", [user(4), assistant(4)], 20, 0, [1, 1]],
 		["split turn", [user(400), assistant(40), assistant(40)], 15, 1, [100, 10, 10]],
@@ -47,7 +47,7 @@ test("chained cutoff operates on active retained history, never the previous sum
 });
 
 test("opaque signatures remain unmeasured and preserved; system/image allowances match native", () => {
-	const signed = { ...assistant(4), content: [{ type: "thinking", thinking: "", thinkingSignature: "opaque".repeat(100_000) }] } as LhMessage;
+	const signed = { ...assistant(4), content: [{ type: "thinking", thinking: "", thinkingSignature: "opaque".repeat(100_000) }] } as NpMessage;
 	assert.equal(estimateMessageTokens(signed), 0);
 	assert.equal((signed as { content: { thinkingSignature: string }[] }).content[0]!.thinkingSignature.length, 600_000);
 	const system = { role: "system", content: [{ type: "image", data: "fixture", mimeType: "image/png" }], sections: { a: "abcd" }, toolsAdded: [{ name: "fixture" }] };

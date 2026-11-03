@@ -70,7 +70,7 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 	}
 	const app = Object.assign(new EventEmitter(), {
 		isPackaged: packaged,
-		name: "LearnHarness",
+		name: "Naipes",
 		setName() {},
 		getPath: () => userData,
 		setPath: (_: string, value: string) => { userData = value; },
@@ -100,7 +100,7 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 			};
 			return mainRequire(id);
 		},
-		process: { argv: [], env: { LH_DEV_URL: "http://127.0.0.1:9000" }, platform: "darwin", on() {} },
+		process: { argv: [], env: { NP_DEV_URL: "http://127.0.0.1:9000" }, platform: "darwin", on() {} },
 		__dirname: path.dirname(mainFile), URL,
 		setInterval: (callback: () => void, delay: number) => intervals.push({ callback, delay }),
 		setTimeout() {},
@@ -188,7 +188,7 @@ describe("status observation never controls the updater", () => {
 		f.updater.emit("update-downloaded", { version: "0.3.9" });
 		assert.equal(f.state().version, "0.3.9");
 		assert.ok(f.state().revision > ready.revision);
-		assert.equal(win.webContents.messages.at(-1)!.channel, "lh:update-status");
+		assert.equal(win.webContents.messages.at(-1)!.channel, "np:update-status");
 	});
 
 	for (const status of ["checking", "downloading", "error", "disabled", "downloaded"]) {
@@ -215,7 +215,7 @@ describe("status observation never controls the updater", () => {
 	it("window enumeration/send failures do not break checks or the next window's notification", async () => {
 		const f = fixture(); const bad = f.window(); bad.webContents.fails = true; const good = f.window();
 		f.run("setupAutoUpdater()"); await f.check();
-		assert.equal(good.webContents.messages.at(-1)!.channel, "lh:update-status");
+		assert.equal(good.webContents.messages.at(-1)!.channel, "np:update-status");
 		f.setEnumerationFailure(true); await f.check();
 		f.setEnumerationFailure(false); await f.check();
 		assert.equal(f.updater.checks, 3);
@@ -256,7 +256,7 @@ describe("startup, timer, trusted IPC and menu wiring", () => {
 		const f = fixture(); f.setSettings({ general: { autoUpdate: false } }); await f.run("main()");
 		const sender = f.windows[0]!.webContents;
 		const event = { sender, senderFrame: sender.mainFrame };
-		const get = f.handles.get("lh:update:get")!; const check = f.handles.get("lh:update:check")!;
+		const get = f.handles.get("np:update:get")!; const check = f.handles.get("np:update:check")!;
 		assert.equal((get(event) as { status: string }).status, "idle"); assert.equal(f.updater.checks, 0);
 		check(event); assert.equal(f.updater.checks, 1);
 		for (const bad of [
@@ -275,7 +275,7 @@ describe("startup, timer, trusted IPC and menu wiring", () => {
 		const win = f.windows[0]!; win.webContents.loading = false; win.minimized = true;
 		f.menuCheck();
 		assert.equal(win.minimized, false); assert.equal(win.focused, true);
-		assert.ok(win.webContents.messages.some(message => message.channel === "lh:open-settings" && message.value === "general"));
+		assert.ok(win.webContents.messages.some(message => message.channel === "np:open-settings" && message.value === "general"));
 		assert.equal(f.updater.checks, 1);
 	});
 
@@ -284,11 +284,11 @@ describe("startup, timer, trusted IPC and menu wiring", () => {
 		f.windows.length = 0; f.menuCheck();
 		assert.equal(f.windows.length, 1); assert.equal(f.updater.checks, 1);
 		const win = f.windows[0]!;
-		assert.ok(!win.webContents.messages.some(message => message.channel === "lh:open-settings"));
+		assert.ok(!win.webContents.messages.some(message => message.channel === "np:open-settings"));
 		win.webContents.emit("did-finish-load");
-		assert.ok(win.webContents.messages.some(message => message.channel === "lh:open-settings"));
+		assert.ok(win.webContents.messages.some(message => message.channel === "np:open-settings"));
 		f.menuCheck(); win.webContents.emit("did-finish-load");
-		assert.equal(win.webContents.messages.filter(message => message.channel === "lh:open-settings").length, 2);
+		assert.equal(win.webContents.messages.filter(message => message.channel === "np:open-settings").length, 2);
 	});
 
 	it("menu navigation failure does not prevent its manual check", async () => {

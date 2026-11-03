@@ -36,7 +36,7 @@ describe("opening message storage", () => {
 	});
 
 	it("treats a legacy raw-text stash conservatively as a possibly attempted send", () => {
-		data.set("lh.openingPrompt.old", "teach me logic");
+		data.set("np.openingPrompt.old", "teach me logic");
 		assert.deepEqual(readOpeningPromptEntry("old"), { text: "teach me logic", attempted: true });
 	});
 

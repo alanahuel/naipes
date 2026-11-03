@@ -13,19 +13,19 @@ import {
 } from "@earendil-works/pi-ai";
 import type { PiEngine } from "../src/agent/models.ts";
 import type { AgentBuildOptions } from "../src/agent/teacher-agent.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
+import type { NpMessage } from "../src/core/native-messages.ts";
 
 // Set the data/auth seams BEFORE importing app modules. Do not read local
 // keys, recordings, or learner sessions, even if a dev server is running.
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "lh-send-to-user-"));
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "np-send-to-user-"));
 const originalEnv = process.env;
 const originalFetch = globalThis.fetch;
 process.env = {
 	...(originalEnv.NODE_TEST_CONTEXT ? { NODE_TEST_CONTEXT: originalEnv.NODE_TEST_CONTEXT } : {}),
 	...(originalEnv.NODE_OPTIONS ? { NODE_OPTIONS: originalEnv.NODE_OPTIONS } : {}),
 	NODE_ENV: "test",
-	LH_DATA_DIR: path.join(scratch, "data"),
-	LH_AUTH_FILE: path.join(scratch, "auth.json"),
+	NP_DATA_DIR: path.join(scratch, "data"),
+	NP_AUTH_FILE: path.join(scratch, "auth.json"),
 	HOME: path.join(scratch, "home"),
 };
 globalThis.fetch = async () => { throw new Error("CLOSED: unexpected network request"); };
@@ -66,10 +66,10 @@ const factories = {
 function outputCall(message: string | number | null = "An explanation.", id = "send-1") {
 	return { type: "toolCall" as const, id, name: SEND_TO_USER_TOOL, arguments: { message } };
 }
-function assistant(content: unknown[], id = "a1"): LhMessage {
-	return { ...fauxAssistantMessage(""), content, id } as LhMessage;
+function assistant(content: unknown[], id = "a1"): NpMessage {
+	return { ...fauxAssistantMessage(""), content, id } as NpMessage;
 }
-function ack(callId = "send-1", isError = false): LhMessage {
+function ack(callId = "send-1", isError = false): NpMessage {
 	return {
 		id: `result-${callId}`, role: "toolResult", toolCallId: callId, toolName: SEND_TO_USER_TOOL,
 		content: [{ type: "text", text: isError ? "Invalid tool input" : "Message received for display." }],
@@ -289,7 +289,7 @@ describe("send_to_user native flow (offline)", () => {
 			await agent.prompt("Pose a synthetic problem.");
 			assert.equal(faux.state.callCount, 1);
 			assert.ok(!agent.state.messages.some((m) => m.role === "toolResult"));
-			const messages = agent.state.messages.map((m, i) => ({ ...m, id: `interrupted-${i}` })) as LhMessage[];
+			const messages = agent.state.messages.map((m, i) => ({ ...m, id: `interrupted-${i}` })) as NpMessage[];
 			assert.equal(activeProblemOf(messages), null);
 			assert.deepEqual(prose(projectView(messages)), []);
 		});

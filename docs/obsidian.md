@@ -8,14 +8,14 @@ Local modification (owner, 2026-11-01). Not part of the upstream release.
 
 | What | Where |
 |---|---|
-| AppImage | `~/.local/opt/LearnHarness/LearnHarness.AppImage` |
-| Launcher | `~/.local/share/applications/learnharness.desktop` (`StartupWMClass=learnharness`) |
-| Icon | `~/.local/share/icons/hicolor/512x512/apps/learnharness.png` |
-| Data | `~/.config/LearnHarness/data/` (Electron `userData`) |
-| Keys | `~/.config/LearnHarness/auth.json` (0600) |
-| Shell log | `~/.config/LearnHarness/logs/main.log` |
+| AppImage | `~/.local/opt/Naipes/Naipes.AppImage` |
+| Launcher | `~/.local/share/applications/naipes.desktop` (`StartupWMClass=naipes`) |
+| Icon | `~/.local/share/icons/hicolor/512x512/apps/naipes.png` |
+| Data | `~/.config/Naipes/data/` (Electron `userData`) |
+| Keys | `~/.config/Naipes/auth.json` (0600) |
+| Shell log | `~/.config/Naipes/logs/main.log` |
 
-The build passes `-c.extraMetadata.lhLocalBuild=true`. `electron/main.cjs` reads that flag from the packaged `package.json`: a local build never starts the GitHub updater and hides **Check for Updates…**, so an upstream release can never replace a build that carries local changes. To update, commit or pull, then run the script again. `--no-build` reinstalls the last `dist/` AppImage.
+The build passes `-c.extraMetadata.npLocalBuild=true`. `electron/main.cjs` reads that flag from the packaged `package.json`: a local build never starts the GitHub updater and hides **Check for Updates…**, so an upstream release can never replace a build that carries local changes. To update, commit or pull, then run the script again. `--no-build` reinstalls the last `dist/` AppImage.
 
 ## Settings → Obsidian
 
@@ -39,7 +39,7 @@ There is no default vault: while `vaultPath` is empty the sync stays idle and th
 
 ## App → vault
 
-The output folder is `003 - 📋 RECURSOS/007 - LEARNHARNESS 🎓/`, with these subfolders:
+The output folder is `003 - 📋 RECURSOS/007 - NAIPES 🎓/`, with these subfolders:
 
 | Subfolder | Content | Updated |
 |---|---|---|
@@ -51,7 +51,7 @@ The output folder is `003 - 📋 RECURSOS/007 - LEARNHARNESS 🎓/`, with these 
 Note format (`src/core/vault-notes.ts`):
 
 - **Frontmatter:** the app rewrites its own keys (`tipo`, `estado`, …); any key you add is kept.
-- **App zone:** everything between `<!-- learnharness:inicio -->` and `<!-- learnharness:fin -->` is regenerated. Text outside the markers (`## Mis notas`) is never touched.
+- **App zone:** everything between `<!-- naipes:inicio -->` and `<!-- naipes:fin -->` is regenerated. Text outside the markers (`## Mis notas`) is never touched.
 - **Your note:** removing a marker makes the note yours, and the app stops writing it.
 - **Deleted sessions and concepts:** a session deleted in the app gets `estado: eliminada`; a concept that leaves the graph gets `estado: eliminado`. Neither note is deleted. A concept re-extracted under the same name reuses its old note, including your zone.
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { parseModelsRefusal, parseProviderKeyRefusal, retryFailedResponse } from "../components/chat.tsx";
 import { SessionModel } from "../components/session-core.ts";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { newUserMessage, type LhMessage } from "../src/core/native-messages.ts";
+import { newUserMessage, type NpMessage } from "../src/core/native-messages.ts";
 import { prefillFromSlots, prefillLevelFromPin, setupStage } from "../components/setup-dialog.tsx";
 import {
 	isModelsRefusal,
@@ -45,7 +45,7 @@ describe("parseModelsRefusal — the send refusal detector", () => {
 describe("Retry owns no composer recovery draft", () => {
 	for (const envelope of [providerKeyMissing("openrouter", ["strong"]), modelsNotConfigured(["strong"])]) {
 		it(`accepted A / failed model / unsent B / Retry ${envelope.code} retires only A's fallback`, async () => {
-			const durable: LhMessage[] = [
+			const durable: NpMessage[] = [
 				newUserMessage("Accepted text A"),
 				{ ...fauxAssistantMessage("Partial reply", { stopReason: "error", errorMessage: "Model failed" }), id: "failed-A" },
 			];

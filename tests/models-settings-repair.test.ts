@@ -8,16 +8,16 @@ import type { NativeSubscriptionSnapshot } from "../src/core/contracts/subscript
 
 // Every app import follows isolation. No installed credentials, ambient keys,
 // OAuth, or provider requests: subscription state comes from synthetic IPC.
-const directory = fs.mkdtempSync(path.join(os.tmpdir(), "lh-models-repair-"));
-process.env.LH_DATA_DIR = directory;
-process.env.LH_AUTH_FILE = path.join(directory, "auth.json");
-process.env.LH_IGNORE_ENV_KEYS = "1";
-fs.writeFileSync(process.env.LH_AUTH_FILE, "{}");
+const directory = fs.mkdtempSync(path.join(os.tmpdir(), "np-models-repair-"));
+process.env.NP_DATA_DIR = directory;
+process.env.NP_AUTH_FILE = path.join(directory, "auth.json");
+process.env.NP_IGNORE_ENV_KEYS = "1";
+fs.writeFileSync(process.env.NP_AUTH_FILE, "{}");
 const originalSend = Object.getOwnPropertyDescriptor(process, "send");
 const originalConnected = Object.getOwnPropertyDescriptor(process, "connected");
-const marker = process.env.LH_DESKTOP_SERVER, secret = process.env.LH_DESKTOP_API_SECRET;
-process.env.LH_DESKTOP_SERVER = "1";
-process.env.LH_DESKTOP_API_SECRET = "d".repeat(64);
+const marker = process.env.NP_DESKTOP_SERVER, secret = process.env.NP_DESKTOP_API_SECRET;
+process.env.NP_DESKTOP_SERVER = "1";
+process.env.NP_DESKTOP_API_SECRET = "d".repeat(64);
 Object.defineProperty(process, "connected", { configurable: true, value: true });
 
 const { piModels, piEngineForSpec } = await import("../src/agent/models.ts");
@@ -40,7 +40,7 @@ function snapshot(): NativeSubscriptionSnapshot {
 }
 Object.defineProperty(process, "send", { configurable: true, value: (message: { id: string; op: string }, callback?: () => void) => {
 	if (message.op !== "snapshot") { leases++; throw new Error("No credential lease expected"); }
-	queueMicrotask(() => (process.emit as (event: string, value: unknown) => boolean)("message", { channel: "lh:subscriptions", id: message.id, op: message.op, ok: true, value: snapshot() }));
+	queueMicrotask(() => (process.emit as (event: string, value: unknown) => boolean)("message", { channel: "np:subscriptions", id: message.id, op: message.op, ok: true, value: snapshot() }));
 	callback?.(); return true;
 } });
 async function connection(value: boolean) { connected = value; revision++; await refreshSubscriptionModels(); }
@@ -54,7 +54,7 @@ beforeEach(async () => {
 after(() => {
 	if (originalSend) Object.defineProperty(process, "send", originalSend); else delete process.send;
 	if (originalConnected) Object.defineProperty(process, "connected", originalConnected); else delete (process as { connected?: boolean }).connected;
-	for (const [key, value] of [["LH_DESKTOP_SERVER", marker], ["LH_DESKTOP_API_SECRET", secret]]) {
+	for (const [key, value] of [["NP_DESKTOP_SERVER", marker], ["NP_DESKTOP_API_SECRET", secret]]) {
 		if (value === undefined) delete process.env[key!]; else process.env[key!] = value;
 	}
 	fs.rmSync(directory, { recursive: true, force: true });

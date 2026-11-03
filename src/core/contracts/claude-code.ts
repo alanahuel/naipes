@@ -1,5 +1,5 @@
 /**
- * Claude Code subscription connection (local, personal use). LearnHarness
+ * Claude Code subscription connection (local, personal use). Naipes
  * never sees Claude credentials: it drives the user's own installed
  * `claude` CLI, which owns sign-in. See src/agent/claude-code-stream.ts.
  */

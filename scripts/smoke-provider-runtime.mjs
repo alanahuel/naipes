@@ -17,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { formatProbeError, probeEnv } from "./smoke-demo-runtime.mjs";
 
 export function verifyProviderRuntime(standalone, runtime = process.execPath) {
-	const home = fs.mkdtempSync(path.join(os.tmpdir(), "lh-provider-runtime-"));
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), "np-provider-runtime-"));
 	try {
 		fs.writeFileSync(path.join(home, "auth.json"), "{}\n", { mode: 0o600 });
 		const result = spawnSync(runtime, [fileURLToPath(import.meta.url), "--probe", path.resolve(standalone)], {
@@ -86,7 +86,7 @@ async function probe(standalone) {
 			models.setProvider(provider);
 			const model = provider.getModels().find((candidate) => candidate.api === "google-generative-ai");
 			assert.ok(model, `${name}: missing Google-backed catalog model`);
-			const sentinel = `LH_OFFLINE_ON_PAYLOAD_${randomUUID()}`;
+			const sentinel = `NP_OFFLINE_ON_PAYLOAD_${randomUUID()}`;
 			let reached = 0;
 			const result = await models.streamSimple(model, { messages: [{ role: "user", content: "Offline initialization only", timestamp: 0 }] }, {
 				apiKey: "dummy-offline-provider-gate-not-a-key",
@@ -115,7 +115,7 @@ async function probe(standalone) {
 			for (const model of provider.getModels()) {
 				if (seenApis.has(model.api)) continue;
 				seenApis.add(model.api);
-				const sentinel = `LH_OFFLINE_SUBSCRIPTION_${randomUUID()}`;
+				const sentinel = `NP_OFFLINE_SUBSCRIPTION_${randomUUID()}`;
 				let reached = 0;
 				const result = await provider.streamSimple({ ...model, ...(auth.baseUrl ? { baseUrl: auth.baseUrl } : {}) }, { messages: [{ role: "user", content: "Offline initialization only", timestamp: 0 }] }, {
 					...auth, maxRetries: 0, onPayload() { reached++; throw new Error(sentinel); },

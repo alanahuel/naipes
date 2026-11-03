@@ -9,7 +9,7 @@ import { subscriptionRequestOrigin } from "./web-subscription-http.ts";
 const HEADERS = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" };
 function authorized(request: Request): boolean {
 	const origin = subscriptionRequestOrigin(request);
-	if (!origin || request.headers.get("x-learnharness-subscriptions") !== "1") return false;
+	if (!origin || request.headers.get("x-naipes-subscriptions") !== "1") return false;
 	if (request.headers.get("sec-fetch-site") === "cross-site") return false;
 	const supplied = request.headers.get("origin");
 	return request.method === "GET" ? !supplied || supplied === origin : supplied === origin;
@@ -17,7 +17,7 @@ function authorized(request: Request): boolean {
 const fail = (error: string, status: number) => Response.json({ error }, { status, headers: HEADERS });
 
 export async function claudeCodeControlsResponse(request: Request): Promise<Response> {
-	if (!authorized(request)) return fail("Claude Code controls require a same-origin LearnHarness request.", 403);
+	if (!authorized(request)) return fail("Claude Code controls require a same-origin Naipes request.", 403);
 	if (request.method === "GET") return Response.json(await refreshClaudeCodeStatus(true), { headers: HEADERS });
 	if (request.method !== "POST") return fail("Unsupported method.", 405);
 	let command: { action?: unknown; enabled?: unknown };

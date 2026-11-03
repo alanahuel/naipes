@@ -7,11 +7,11 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { LhViewMessage } from "../src/core/view.ts";
+import type { NpViewMessage } from "../src/core/view.ts";
 import { streamingToolActivity } from "../src/core/pending.ts";
 
-function msg(role: string, parts: unknown[]): LhViewMessage {
-	return { id: "m1", role, parts } as unknown as LhViewMessage;
+function msg(role: string, parts: unknown[]): NpViewMessage {
+	return { id: "m1", role, parts } as unknown as NpViewMessage;
 }
 
 function toolPart(tool: string, state: string) {

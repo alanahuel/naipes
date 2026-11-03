@@ -4,10 +4,10 @@ const { publicError } = require("./chatgpt.cjs");
 /** Inherited Node child IPC, not a listening HTTP/socket token service. */
 function attachChatGPTChild(child, connection) {
 	const send = (value) => {
-		if (child.connected) child.send({ channel: "lh:chatgpt", ...value }, () => {});
+		if (child.connected) child.send({ channel: "np:chatgpt", ...value }, () => {});
 	};
 	const listener = async (message) => {
-		if (!message || message.channel !== "lh:chatgpt" || typeof message.id !== "string" || message.id.length > 100) return;
+		if (!message || message.channel !== "np:chatgpt" || typeof message.id !== "string" || message.id.length > 100) return;
 		try {
 			let value;
 			if (message.op === "status") value = { status: await connection.status(), ...connection.stamp() };

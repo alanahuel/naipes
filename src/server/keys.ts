@@ -25,7 +25,7 @@
  * generic status rows (no catalog form to edit through — only curated
  * keys have shapes and docs; core/auth-keys.ts).
  *
- * THE FRESH-USER SWITCH (owner, interlude 2026-09-22): LH_IGNORE_ENV_KEYS=1
+ * THE FRESH-USER SWITCH (owner, interlude 2026-09-22): NP_IGNORE_ENV_KEYS=1
  * makes every env key invisible APP-WIDE — the exact new-user simulation
  * (a fresh empty data dir + the switch = zero keys, zero federated
  * providers, setup stage 1). Under the switch real env vars are DELETED
@@ -64,7 +64,7 @@ interface AuthBoot {
 	/** Vars WE put into process.env (the file's reflection) — deletable. */
 	fillGap: Set<string>;
 }
-const BOOT_KEY = Symbol.for("lh.authBoot");
+const BOOT_KEY = Symbol.for("np.authBoot");
 
 function boot(): AuthBoot {
 	const g = globalThis as Record<symbol, AuthBoot | undefined>;
@@ -90,7 +90,7 @@ export function providerKeyList() {
  *  invisible app-wide — deleted from the process at boot, file keys only.
  *  Read live per call (the launcher exports it before boot). */
 export function envKeysIgnored(): boolean {
-	return process.env.LH_IGNORE_ENV_KEYS === "1";
+	return process.env.NP_IGNORE_ENV_KEYS === "1";
 }
 
 /**

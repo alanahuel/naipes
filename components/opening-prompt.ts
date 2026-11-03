@@ -12,7 +12,7 @@ export interface OpeningPrompt {
 	attempted: boolean;
 }
 
-const keyFor = (id: string) => `lh.openingPrompt.${id}`;
+const keyFor = (id: string) => `np.openingPrompt.${id}`;
 
 export function stashOpeningPrompt(id: string, text: string, attempted = false): boolean {
 	try {

@@ -18,12 +18,12 @@
  * (status error "Aborted by learner" + the abort steer); the runner only unwinds.
  */
 
-interface LhAbortGlobal {
+interface NpAbortGlobal {
 	__lhJobAborts?: Map<string, AbortController>;
 }
 
 function registry(): Map<string, AbortController> {
-	const g = globalThis as typeof globalThis & LhAbortGlobal;
+	const g = globalThis as typeof globalThis & NpAbortGlobal;
 	return (g.__lhJobAborts ??= new Map());
 }
 

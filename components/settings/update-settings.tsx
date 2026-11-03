@@ -12,8 +12,8 @@ export type UpdateState = {
 	revision: number;
 };
 
-export const APP_VERSION = process.env.LH_VERSION ?? "";
-const HOMEPAGE = process.env.LH_HOMEPAGE ?? "";
+export const APP_VERSION = process.env.NP_VERSION ?? "";
+const HOMEPAGE = process.env.NP_HOMEPAGE ?? "";
 export const MANUAL_UPDATE_HINT = "Checking downloads available updates. Downloaded updates install when you quit the app.";
 export const AUTO_UPDATE_HINT = "Check at startup and every 24 hours. Turning this off does not stop updates already in progress or ready to install.";
 const UPDATE_ERROR = "Couldn’t check for updates. Try again later.";
@@ -25,8 +25,8 @@ export function useUpdateState() {
 	const [state, setState] = useState<UpdateState | null>(null);
 	const [failed, setFailed] = useState(false);
 	useEffect(() => {
-		const lh = window.lh;
-		if (!lh) return;
+		const np = window.np;
+		if (!np) return;
 		let live = true;
 		let revision = -1;
 		const accept = (next: UpdateState) => {
@@ -35,8 +35,8 @@ export function useUpdateState() {
 			setState(next);
 			setFailed(false);
 		};
-		const off = lh.onUpdateStatus?.(accept);
-		void lh.getUpdateState?.().then(accept).catch(() => {
+		const off = np.onUpdateStatus?.(accept);
+		void np.getUpdateState?.().then(accept).catch(() => {
 			if (live && revision === -1) setFailed(true);
 		});
 		return () => { live = false; off?.(); };
@@ -78,7 +78,7 @@ export function UpdateSettings({
 	const releaseNotes = version && homepage ? `${homepage}/releases/tag/v${version}` : null;
 	const check = () => {
 		setCheckFailed(false);
-		void window.lh?.checkForUpdates?.().catch(() => setCheckFailed(true));
+		void window.np?.checkForUpdates?.().catch(() => setCheckFailed(true));
 	};
 
 	return (
@@ -95,7 +95,7 @@ export function UpdateSettings({
 				}
 			>
 				{active && (state.status === "downloaded" ? (
-					<Button type="button" size="xs" className="cursor-pointer" data-testid="update-restart" onClick={() => window.lh?.installUpdate?.()}>Restart</Button>
+					<Button type="button" size="xs" className="cursor-pointer" data-testid="update-restart" onClick={() => window.np?.installUpdate?.()}>Restart</Button>
 				) : (
 					<Button type="button" size="xs" variant="outline" className="cursor-pointer disabled:cursor-not-allowed" data-testid="update-check" disabled={busy} aria-busy={busy} onClick={check}>
 						{busy && <BrailleSpinner label={state.status === "downloading" ? "Downloading update" : "Checking for updates"} />}

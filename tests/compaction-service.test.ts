@@ -19,8 +19,8 @@ import * as path from "node:path";
 import { after, describe, it } from "node:test";
 
 // ── the seam, BEFORE any config-loading import (the birth-stamp discipline) ─
-const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-compaction-"));
-process.env.LH_DATA_DIR = TMP_DATA;
+const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "np-compaction-"));
+process.env.NP_DATA_DIR = TMP_DATA;
 
 const { chatStore } = await import("../src/store/chats.ts");
 const {
@@ -35,7 +35,7 @@ import type { CompactionDeps } from "../src/server/compaction.ts";
 import { createFauxCore, fauxAssistantMessage } from "@earendil-works/pi-ai";
 const { subscribe } = await import("../src/core/events.ts");
 const { activeCompactionOf, newCompactionMarker, newUserMessage, measuredContextTokens, toLlmMessages, COMPACTED_HISTORY_HEADER } = await import("../src/core/index.ts");
-import type { LhMessage } from "../src/core/index.ts";
+import type { NpMessage } from "../src/core/index.ts";
 
 after(() => {
 	fs.rmSync(TMP_DATA, { recursive: true, force: true });
@@ -43,7 +43,7 @@ after(() => {
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
-const big = (text: string, kb = 100): LhMessage => newUserMessage(`${text}: ${"x".repeat(kb * 1024)}`);
+const big = (text: string, kb = 100): NpMessage => newUserMessage(`${text}: ${"x".repeat(kb * 1024)}`);
 
 /** A chat whose record projects far over any test threshold. */
 function overThresholdChat(label: string): string {
@@ -196,7 +196,7 @@ describe("the compaction service", () => {
 			if (cycle > 1) messages.push(big(`growth-${cycle}`, 8));
 			// Controlled provider readings trigger compaction while the visible
 			// retained tail advances slowly enough to contain older markers.
-			messages.push({ id: `usage-${cycle}`, role: "assistant", content: [{ type: "text", text: "measured response" }], stopReason: "stop", usage: { input: 150_001, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 150_002 }, timestamp: cycle } as LhMessage);
+			messages.push({ id: `usage-${cycle}`, role: "assistant", content: [{ type: "text", text: "measured response" }], stopReason: "stop", usage: { input: 150_001, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 150_002 }, timestamp: cycle } as NpMessage);
 			chatStore.saveMessages(chat.id, messages);
 			await ensureCompacted(deps, chat.id);
 			assert.equal(calls, cycle);
@@ -214,7 +214,7 @@ describe("the compaction service", () => {
 		const chat = chatStore.createChat("summary span fixture");
 		const kept = big("previously retained");
 		const details = { firstKeptMessageId: kept.id, tokensBefore: 150_000, at: "fixture" };
-		const steer: LhMessage = { id: "steer", role: "custom", customType: "subagent-steer", content: "RESEARCH DELIVERY", display: true, details: {}, timestamp: 1 };
+		const steer: NpMessage = { id: "steer", role: "custom", customType: "subagent-steer", content: "RESEARCH DELIVERY", display: true, details: {}, timestamp: 1 };
 		const messages = [big("discarded"), kept, newCompactionMarker("SUPERSEDED SUMMARY", details), steer, newCompactionMarker("LATEST SUMMARY", details), big("growth"), big("recent")];
 		chatStore.saveMessages(chat.id, messages);
 		let seenPrompt = "";
@@ -316,7 +316,7 @@ describe("the compaction service", () => {
 
 	it("a usage-heavy zero cut does not spend or append a marker", async () => {
 		const chat = chatStore.createChat("no-progress fixture");
-		const assistant = { id: "measured", role: "assistant", content: [{ type: "text", text: "ok" }], stopReason: "stop", usage: { input: 120_000, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 120_001 }, timestamp: 1 } as LhMessage;
+		const assistant = { id: "measured", role: "assistant", content: [{ type: "text", text: "ok" }], stopReason: "stop", usage: { input: 120_000, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 120_001 }, timestamp: 1 } as NpMessage;
 		chatStore.saveMessages(chat.id, [newUserMessage("tiny visible history"), assistant]);
 		const before = summarizeCalls;
 		await ensureCompacted(depsOf(chat.id, 40_000), chat.id);
@@ -327,7 +327,7 @@ describe("the compaction service", () => {
 
 	it("starting/failing compaction preserves the meter; committing its marker clears it, regardless of summary usage", async () => {
 		const id = overThresholdChat("meter validity fixture");
-		const assistant = { id: "measured", role: "assistant", content: [{ type: "text", text: "ok" }], stopReason: "stop", usage: { input: 120_000, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 120_001 }, timestamp: 1 } as LhMessage;
+		const assistant = { id: "measured", role: "assistant", content: [{ type: "text", text: "ok" }], stopReason: "stop", usage: { input: 120_000, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 120_001 }, timestamp: 1 } as NpMessage;
 		chatStore.saveMessages(id, [...chatStore.getChat(id)!.messages, assistant]);
 		let release!: () => void;
 		const gate = new Promise<void>((done) => { release = done; });

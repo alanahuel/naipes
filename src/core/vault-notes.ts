@@ -5,9 +5,9 @@
  *   ---                         frontmatter: the app's keys are rewritten,
  *   tipo: …                     any key the user adds survives untouched
  *   ---
- *   <!-- learnharness:inicio --> the APP ZONE: regenerated on every export
+ *   <!-- naipes:inicio --> the APP ZONE: regenerated on every export
  *   …
- *   <!-- learnharness:fin -->
+ *   <!-- naipes:fin -->
  *
  *   ## Mis notas                 the USER ZONE: everything outside the
  *                                markers is never touched by the app
@@ -28,8 +28,23 @@ export const VAULT_SUBFOLDERS = {
 	concepts: "Conceptos",
 } as const;
 
-export const MARK_START = "<!-- learnharness:inicio -->";
-export const MARK_END = "<!-- learnharness:fin -->";
+export const MARK_START = "<!-- naipes:inicio -->";
+export const MARK_END = "<!-- naipes:fin -->";
+/** Markers written before the LearnHarness → Naipes rename (2026-11-03):
+ *  still recognised, and replaced by the current ones on the next export. */
+const LEGACY_MARKERS = [["<!-- learnharness:inicio -->", "<!-- learnharness:fin -->"]] as const;
+
+/** The app zone's bounds in `text` (current markers first, then legacy):
+ *  `from` is the start marker's index, `to` the index just past the end
+ *  marker, `inner` the text between them. null = not a managed note. */
+function findZone(text: string): { from: number; to: number; inner: string } | null {
+	for (const [open, close] of [[MARK_START, MARK_END], ...LEGACY_MARKERS]) {
+		const start = text.indexOf(open);
+		const end = start === -1 ? -1 : text.indexOf(close, start);
+		if (start !== -1 && end !== -1) return { from: start, to: end + close.length, inner: text.slice(start + open.length, end) };
+	}
+	return null;
+}
 export const USER_ZONE = "## Mis notas";
 
 export type FrontmatterValue = string | string[];
@@ -112,10 +127,9 @@ export function composeManagedNote(existing: string | null, fields: FrontmatterF
 		return `${mergeFrontmatter([], fields)}${zone}\n\n${USER_ZONE}\n\n`;
 	}
 	const { entries, rest } = splitFrontmatter(existing);
-	const start = rest.indexOf(MARK_START);
-	const end = start === -1 ? -1 : rest.indexOf(MARK_END, start);
-	if (start === -1 || end === -1) return null;
-	return `${mergeFrontmatter(entries, fields)}${rest.slice(0, start)}${zone}${rest.slice(end + MARK_END.length)}`;
+	const found = findZone(rest);
+	if (!found) return null;
+	return `${mergeFrontmatter(entries, fields)}${rest.slice(0, found.from)}${zone}${rest.slice(found.to)}`;
 }
 
 /**
@@ -124,7 +138,7 @@ export function composeManagedNote(existing: string | null, fields: FrontmatterF
  */
 export function restampManagedNote(existing: string, fields: FrontmatterFields): string | null {
 	const { entries, rest } = splitFrontmatter(existing);
-	if (!rest.includes(MARK_START) || !rest.includes(MARK_END)) return null;
+	if (!findZone(rest)) return null;
 	const replaced = new Map(fields.map(([key, value]) => [key, renderField(key, value)]));
 	const keys = new Set(entries.map(([key]) => key));
 	const lines = [
@@ -136,9 +150,7 @@ export function restampManagedNote(existing: string, fields: FrontmatterFields):
 
 /** The managed zone's text (between the markers), or null. */
 export function managedZoneOf(text: string): string | null {
-	const start = text.indexOf(MARK_START);
-	const end = start === -1 ? -1 : text.indexOf(MARK_END, start);
-	return start === -1 || end === -1 ? null : text.slice(start + MARK_START.length, end).trim();
+	return findZone(text)?.inner.trim() ?? null;
 }
 
 // ─── concept notes ────────────────────────────────────────────────────────────

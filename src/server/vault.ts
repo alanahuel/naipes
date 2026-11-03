@@ -397,7 +397,7 @@ function writeIfChanged(abs: string, text: string): boolean {
 	}
 	if (current === text) return false;
 	fs.mkdirSync(path.dirname(abs), { recursive: true });
-	const tmp = path.join(path.dirname(abs), `.${path.basename(abs)}.lh-tmp`);
+	const tmp = path.join(path.dirname(abs), `.${path.basename(abs)}.np-tmp`);
 	fs.writeFileSync(tmp, text, "utf-8");
 	fs.renameSync(tmp, abs);
 	return true;
@@ -479,7 +479,7 @@ function chatFields(record: ChatRecord, tipo: string): FrontmatterFields {
 		["creado", record.createdAt],
 		["actualizado", record.updatedAt],
 		["estado", "activa"],
-		["tags", ["learnharness", tipo]],
+		["tags", ["naipes", tipo]],
 	];
 }
 
@@ -561,7 +561,7 @@ function exportConcepts(): void {
 			["aliases", node.aliases.filter((a) => a.length <= 120)],
 			["creado", node.createdAt],
 			["estado", "activo"],
-			["tags", ["learnharness", "concepto"]],
+			["tags", ["naipes", "concepto"]],
 		];
 		const text = composeManagedNote(readOrNull(abs), fields, body);
 		if (text !== null) writeIfChanged(abs, text);
@@ -791,7 +791,7 @@ export async function summarizeChatToVault(chatId: string): Promise<VaultSummary
 		["titulo", record.title],
 		["resumido", new Date().toISOString()],
 		["estado", "activa"],
-		["tags", ["learnharness", "resumen-sesion"]],
+		["tags", ["naipes", "resumen-sesion"]],
 	];
 	const next = composeManagedNote(readOrNull(abs), fields, body);
 	if (next === null) return { ok: false, status: 409, error: `${rel} is no longer managed by the app (its markers were removed).` };

@@ -34,8 +34,8 @@ await new Promise(resolve => listener.close(resolve));
 const origin = `http://127.0.0.1:${port}`;
 const env = {
 	PATH: process.env.PATH, HOME: home, TMPDIR: home, NODE_ENV: "development",
-	LH_DATA_DIR: path.join(home, "data"), LH_AUTH_FILE: path.join(home, "auth.json"),
-	LH_IGNORE_ENV_KEYS: "1", NEXT_TELEMETRY_DISABLED: "1",
+	NP_DATA_DIR: path.join(home, "data"), NP_AUTH_FILE: path.join(home, "auth.json"),
+	NP_IGNORE_ENV_KEYS: "1", NEXT_TELEMETRY_DISABLED: "1",
 	NEXT_FONT_GOOGLE_MOCKED_RESPONSES: path.join(home, "fonts.cjs"),
 };
 const server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--hostname", "127.0.0.1", "--port", String(port)], {
@@ -57,7 +57,7 @@ try {
 		ready();
 	});
 	browser = await puppeteer.launch({
-		executablePath: process.env.LH_TEST_CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+		executablePath: process.env.NP_TEST_CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 		headless: true, userDataDir: path.join(home, "browser"), env,
 		args: ["--disable-background-networking", "--disable-sync", "--no-first-run", "--disable-default-apps"],
 	});
@@ -126,7 +126,7 @@ try {
 		});
 		await page.locator('button[aria-label="Start session"], [data-testid="composer"] button[aria-label="Send"]').click();
 	}
-	async function stash(id) { return page.evaluate(chat => sessionStorage.getItem(`lh.openingPrompt.${chat}`), id); }
+	async function stash(id) { return page.evaluate(chat => sessionStorage.getItem(`np.openingPrompt.${chat}`), id); }
 	async function assertDraft(text) { await page.waitForFunction(value => document.querySelector('[data-testid="composer"] textarea')?.value === value, {}, text); }
 	const long = "A full synthetic syllabus — 世界 & ? #. ".repeat(1200).trim();
 	for (const route of ["/", "/chat/new"]) {
@@ -136,7 +136,7 @@ try {
 			await fill(text); await submit();
 			await page.waitForFunction(() => /^\/chat\/chat_/.test(location.pathname) && !location.search);
 			await page.waitForFunction(() => document.querySelector('[data-testid="composer"]'));
-			await page.waitForFunction(() => !Object.keys(sessionStorage).some(k => k.startsWith("lh.openingPrompt.")));
+			await page.waitForFunction(() => !Object.keys(sessionStorage).some(k => k.startsWith("np.openingPrompt.")));
 			assert.equal(posts.length, count + 1);
 			assert.equal(posts.at(-1).input.text, text);
 			assert.equal(new URL(page.url()).search, "");
@@ -154,7 +154,7 @@ try {
 		await page.evaluate(() => {
 			const setItem = Storage.prototype.setItem;
 			Storage.prototype.setItem = function(key, value) {
-				if (window.failOpeningStorage && key.startsWith("lh.openingPrompt.")) throw new DOMException("synthetic quota", "QuotaExceededError");
+				if (window.failOpeningStorage && key.startsWith("np.openingPrompt.")) throw new DOMException("synthetic quota", "QuotaExceededError");
 				return setItem.call(this, key, value);
 			};
 			window.failOpeningStorage = true;
@@ -169,7 +169,7 @@ try {
 		await page.evaluate(() => { window.failOpeningStorage = false; });
 		await submit();
 		await page.waitForFunction(() => /^\/chat\/chat_/.test(location.pathname));
-		await page.waitForFunction(() => !Object.keys(sessionStorage).some(k => k.startsWith("lh.openingPrompt.")));
+		await page.waitForFunction(() => !Object.keys(sessionStorage).some(k => k.startsWith("np.openingPrompt.")));
 		assert.equal(creates.length, createCount + 1, "unchanged retry reuses creation");
 		assert.equal(posts.at(-1).input.text, long);
 		checks.push(`${route}: quota failure preserved visible draft/no navigation; retry reused creation`);
@@ -192,7 +192,7 @@ try {
 			mode = "accepted";
 			await submit();
 			const id = new URL(page.url()).pathname.split("/").at(-1);
-			await page.waitForFunction(chat => !sessionStorage.getItem(`lh.openingPrompt.${chat}`), {}, id);
+			await page.waitForFunction(chat => !sessionStorage.getItem(`np.openingPrompt.${chat}`), {}, id);
 			assert.equal(posts.length, count + 1);
 			assert.equal(posts.at(-1).input.text, text);
 			checks.push("restored draft sent only after explicit click and cleaned up on acceptance");
@@ -205,10 +205,10 @@ try {
 		const res = await fetch("/api/chats", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "marker fixture", graphContext: { propositions: [{ id: "synthetic_node", name: "Fixture", statement: "Synthetic" }] } }) });
 		return (await res.json()).id;
 	});
-	await page.evaluate(id => sessionStorage.setItem(`lh.openingPrompt.${id}`, JSON.stringify({ text: "marker opening", attempted: false })), markerId);
+	await page.evaluate(id => sessionStorage.setItem(`np.openingPrompt.${id}`, JSON.stringify({ text: "marker opening", attempted: false })), markerId);
 	const markerCount = posts.length;
 	await page.goto(`${origin}/chat/${markerId}`, { waitUntil: "domcontentloaded" });
-	await page.waitForFunction(id => !sessionStorage.getItem(`lh.openingPrompt.${id}`), {}, markerId);
+	await page.waitForFunction(id => !sessionStorage.getItem(`np.openingPrompt.${id}`), {}, markerId);
 	assert.equal(posts.length, markerCount + 1);
 	assert.equal(posts.at(-1).input.text, "marker opening");
 	checks.push("graph-marker-only record still receives opening text");
@@ -217,10 +217,10 @@ try {
 	const record = JSON.parse(fs.readFileSync(chatFile, "utf8"));
 	record.messages.push({ id: "confirmed_fixture", role: "user", content: "already received", timestamp: Date.now() });
 	fs.writeFileSync(chatFile, JSON.stringify(record));
-	await page.evaluate(id => sessionStorage.setItem(`lh.openingPrompt.${id}`, JSON.stringify({ text: "stale opening", attempted: true })), markerId);
+	await page.evaluate(id => sessionStorage.setItem(`np.openingPrompt.${id}`, JSON.stringify({ text: "stale opening", attempted: true })), markerId);
 	const completedCount = posts.length;
 	await page.reload({ waitUntil: "domcontentloaded" });
-	await page.waitForFunction(id => !sessionStorage.getItem(`lh.openingPrompt.${id}`), {}, markerId);
+	await page.waitForFunction(id => !sessionStorage.getItem(`np.openingPrompt.${id}`), {}, markerId);
 	assert.equal(posts.length, completedCount);
 	checks.push("persisted real conversation removed stale stash without reposting");
 	await open("/chat/new");
@@ -231,7 +231,7 @@ try {
 	const legacyCount = posts.length;
 	await page.goto(`${origin}/chat/${legacyId}?prompt=${encodeURIComponent("legacy opening")}`, { waitUntil: "domcontentloaded" });
 	await page.waitForFunction(() => document.body.innerText.includes("legacy opening"));
-	await page.waitForFunction(id => !sessionStorage.getItem(`lh.openingPrompt.${id}`), {}, legacyId);
+	await page.waitForFunction(id => !sessionStorage.getItem(`np.openingPrompt.${id}`), {}, legacyId);
 	assert.equal(posts.length, legacyCount + 1);
 	assert.equal(posts.at(-1).input.text, "legacy opening");
 	checks.push("legacy short ?prompt link still sends its complete opening message");

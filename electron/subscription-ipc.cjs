@@ -5,18 +5,18 @@ function attachSubscriptionChild(child, controller) {
 	let disposed = false;
 	const send = (packet) => { if (!disposed && child.connected) { try { child.send(packet, () => {}); } catch { /* child exited */ } } };
 	const listener = async (message) => {
-		if (disposed || !child.connected || message?.channel !== "lh:subscriptions" || typeof message.id !== "string") return;
+		if (disposed || !child.connected || message?.channel !== "np:subscriptions" || typeof message.id !== "string") return;
 		const { id, op } = message;
 		try {
 			if (!controller || !["snapshot", "lease"].includes(op)) throw new Error();
 			if (op === "lease" && (typeof message.background !== "boolean" || !validScope(message.scope))) throw new Error();
 			const value = op === "snapshot" ? await controller.snapshot() : await controller.lease(message.scope, message.background);
-			send({ channel: "lh:subscriptions", id, op, ok: true, value });
-		} catch (error) { send({ channel: "lh:subscriptions", id, op, ok: false, error: publicError(error) }); }
+			send({ channel: "np:subscriptions", id, op, ok: true, value });
+		} catch (error) { send({ channel: "np:subscriptions", id, op, ok: false, error: publicError(error) }); }
 	};
 	child.on("message", listener);
 	return {
-		send(snapshot) { send({ channel: "lh:subscriptions", op: "changed", snapshot }); },
+		send(snapshot) { send({ channel: "np:subscriptions", op: "changed", snapshot }); },
 		dispose() { disposed = true; child.removeListener("message", listener); },
 	};
 }

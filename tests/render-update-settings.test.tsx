@@ -19,7 +19,7 @@ Object.assign(globalThis, { window: dom.window, document: dom.document, CustomEv
 const originalFetch = globalThis.fetch;
 const roots: { root: Root; host: HTMLElement }[] = [];
 const state = (over: Partial<UpdateState> = {}): UpdateState => ({ status: "idle", version: null, revision: 0, ...over });
-const props = { autoUpdate: true, onAutoUpdateChange: () => {}, version: "0.3.7", homepage: "https://github.com/amosblomqvist/learnharness" };
+const props = { autoUpdate: true, onAutoUpdateChange: () => {}, version: "0.3.7", homepage: "https://github.com/alanahuel/naipes" };
 const q = (host: ParentNode, id: string) => host.querySelector<HTMLElement>(`[data-testid='${id}']`);
 
 function deferred<T>() {
@@ -34,7 +34,7 @@ function bridge(initial = state(), snapshot = Promise.resolve(initial)) {
 	const calls = { check: 0, install: 0, get: 0 };
 	let onOpen: ((section: string) => void) | null = null;
 	let checkFailure: Error | null = null;
-	window.lh = {
+	window.np = {
 		expandWindow() {},
 		getUpdateState: () => { calls.get++; return snapshot; },
 		onUpdateStatus: cb => { listeners.add(cb); return () => { listeners.delete(cb); }; },
@@ -66,14 +66,14 @@ afterEach(async () => {
 	for (const { root, host } of roots.splice(0)) {
 		await act(async () => { root.unmount(); }); host.remove();
 	}
-	delete window.lh;
+	delete window.np;
 	globalThis.fetch = originalFetch;
 });
 
 describe("version and contextual copy", () => {
 	it("build metadata comes from package.json and exposes only public version/homepage values", () => {
 		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-		assert.deepEqual(nextConfig.env, { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage });
+		assert.deepEqual(nextConfig.env, { NP_VERSION: pkg.version, NP_HOMEPAGE: pkg.homepage });
 	});
 
 	it("never claims live/latest information and keeps updater errors generic", () => {
