@@ -168,11 +168,13 @@ describe("graphSnapshot birth-session clusters", () => {
 			id: "chat1",
 			label: "Learning session",
 			members: ["a", "b", "c"],
+			areaId: "area:sessions",
 		});
 		assert.deepEqual(byLabel.get("/vault/notes.md"), {
 			id: "src_notes",
 			label: "/vault/notes.md",
 			members: ["d", "e", "f"],
+			areaId: "area:vault",
 		}, "a notes file is a birth-session too (owner ruling)");
 		// A 2-proposition session renders no hull (the presentation rule).
 		const two = fakeStores([node("x", "X", [pt("chat1")]), node("y", "Y", [pt("chat1")])], {

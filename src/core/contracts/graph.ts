@@ -19,6 +19,7 @@
 // ─── Knowledge graph (vision §1 — global, cross-session) ────────────────────
 
 import type { CallUsage, ExtractionRunUsage } from "./chat.ts";
+import type { GraphArea } from "../areas.ts";
 
 /** One relation of the DERIVED view — chains are the stored truth (owner,
  *  2026-09-30: "the graph is a lossy image of what is truly stored"), and
@@ -298,6 +299,8 @@ export interface Cluster {
 	label: string | null;
 	/** Node ids, sorted. Hull + centroid are renderer concerns. */
 	members: string[];
+	/** The area (core/areas.ts) this cluster belongs to. */
+	areaId: string;
 }
 
 export interface GraphSnapshot {
@@ -340,6 +343,10 @@ export interface GraphSnapshot {
 	 * nodes are never partitioned. Purely provenance-derived — never
 	 * depends on layout. */
 	clusters: Cluster[];
+	/** Folder AREAS (core/areas.ts, owner 2026-11-03): the level above
+	 *  clusters — zoomed-out labels, region colors, and the layout's
+	 *  centroid pull. Covers every clustered node (no hull filter). */
+	areas: GraphArea[];
 	/** Resting layout positions per node id, when a positions ledger
 	 *  exists (core/layout.ts settle writes it). Absent on a fresh graph —
 	 *  the view then falls back to its own one-shot forceAtlas2 pass. */

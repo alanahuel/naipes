@@ -67,6 +67,7 @@ import type {
 import { MIN_CLUSTER_SIZE } from "./clusters.ts";
 import { formatChainLine } from "./chains.ts";
 import { attachImpToCommunities, birthSessionOf, birthSessionPartition } from "./session-clusters.ts";
+import { buildAreas, SESSIONS_AREA_ID } from "./areas.ts";
 import type { ChatStore, GraphStore } from "./ports.ts";
 
 /** The storage ports every graph operation needs, passed explicitly. */
@@ -563,12 +564,20 @@ export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
 	// PROPOSITIONS ONLY (owner, 2026-09-30): derived implication nodes
 	// never partition — the stored world clusters, its image follows.
 	const communities = birthSessionPartition(graph.nodes);
+	// AREAS (owner, 2026-11-03): the folder level above clusters, built
+	// from EVERY community (no hull filter — an area must cover each
+	// node the centroid pull moves) with imp nodes attached the same way
+	// the settle does, so client and server pull the same partition.
+	const allCommunities = communities.map((c) => ({ id: c.id, members: [...c.members] }));
+	attachImpToCommunities(allCommunities, graph.nodes, graph.chains);
+	const { areas, areaOfCluster } = buildAreas(allCommunities, fileSources);
 	const clusters: Cluster[] = communities
 		.filter((community) => community.members.length >= MIN_CLUSTER_SIZE)
 		.map((community) => ({
 			id: community.id,
 			label: sessions[community.id] ?? fileSources[community.id] ?? null,
 			members: community.members,
+			areaId: areaOfCluster.get(community.id) ?? SESSIONS_AREA_ID,
 		}));
 	// IMP-NODE CLUSTER ASSIGNMENT (owner, 2026-09-30): majority among the
 	// premises' birth sessions, ties to the chain's own birth — attached
@@ -594,6 +603,7 @@ export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
 		fileSources,
 		nodeSessions,
 		clusters,
+		areas,
 		...(Object.keys(positions).length > 0 ? { positions } : {}),
 	};
 }
