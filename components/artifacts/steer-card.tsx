@@ -7,6 +7,7 @@ import { isSubagentFailure } from "@/src/core";
 import { DemoOutputCard } from "@/components/artifacts/demo-card";
 import { PdfBriefCard, ResearchBriefCard } from "@/components/artifacts/job-card";
 import { VisualOutputCard } from "@/components/artifacts/visual-card";
+import { useT, type Translate } from "@/components/i18n";
 
 /**
  * The sub-agent result delivery card (contracts.ts "THE ASYNC PROTOCOL" §4).
@@ -26,6 +27,7 @@ import { VisualOutputCard } from "@/components/artifacts/visual-card";
  *     render; only a failure note does.
  */
 export function SubagentSteerCard({ message }: { message: NpViewMessage }) {
+	const t = useT();
 	const artifactPart = message.parts.find((p) => p.type === "data-subagent-artifact");
 	const data = artifactPart?.data as SubagentArtifactData | undefined;
 	// The abort steer (2026-09 dock semantics): its message-type part is
@@ -38,7 +40,7 @@ export function SubagentSteerCard({ message }: { message: NpViewMessage }) {
 		if (aborted?.data) return <AbortedBadge kind={aborted.data.kind ?? "job"} />;
 		return (
 				<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
-				A sub-agent finished, but its result could not be displayed.
+				{t("artifacts.steer.unreadable")}
 			</div>
 		);
 	}
@@ -65,12 +67,31 @@ export function SubagentSteerCard({ message }: { message: NpViewMessage }) {
 /** The aborted-job chip: mirrors the complete-badge one-liner — the
  * teacher's wake turn acknowledges the abort in the lesson itself,
  * this just marks what happened. */
+/** The job kind as the aborted badge names it; unknown kinds show as sent. */
+function abortedKindLabel(kind: string, t: Translate): string {
+	switch (kind) {
+		case "research":
+			return t("artifacts.steer.kindResearch");
+		case "demo":
+			return t("artifacts.steer.kindDemo");
+		case "visual":
+			return t("artifacts.steer.kindVisual");
+		case "pdf":
+			return t("artifacts.steer.kindPdf");
+		case "job":
+			return t("artifacts.steer.kindJob");
+		default:
+			return kind;
+	}
+}
+
 function AbortedBadge({ kind }: { kind: string }) {
+	const t = useT();
 	return (
 		<div data-testid="job-aborted-badge" className="flex items-center gap-2 text-xs text-muted-foreground">
 			<CircleX className="size-3.5" />
-			<span className="font-medium uppercase tracking-wide">{kind}</span>
-			<span>aborted by the learner</span>
+			<span className="font-medium uppercase tracking-wide">{abortedKindLabel(kind, t)}</span>
+			<span>{t("artifacts.steer.aborted")}</span>
 		</div>
 	);
 }
@@ -82,20 +103,21 @@ function AbortedBadge({ kind }: { kind: string }) {
 function PdfCompleteBadge({ result }: { result: PdfResult }) {
 	// The honest count is READ pages (extract/render — sources v1 split);
 	// the ?? is runtime tolerance for pre-split persisted steers.
+	const t = useT();
 	const readPages = result.pagesRead ?? result.pagesConsulted;
 	return (
 		<details data-testid="pdf-complete-badge" className="group w-full text-xs text-muted-foreground">
 			<summary className="flex cursor-pointer select-none list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
 				<CheckIcon className="size-3.5" />
 				<span className="font-medium uppercase tracking-wide">PDF</span>
-				<span>reading complete</span>
+				<span>{t("artifacts.pdf.complete")}</span>
 				{readPages.length > 0 && (
 					<span>
-						· read {readPages.length} page{readPages.length === 1 ? "" : "s"}
+						{t("artifacts.pdf.pagesReadCount", { n: readPages.length })}
 					</span>
 				)}
-				<span className="ml-1 text-xs text-muted-foreground/70 group-open:hidden">view brief</span>
-				<span className="ml-1 hidden text-xs text-muted-foreground/70 group-open:inline">hide brief</span>
+				<span className="ml-1 text-xs text-muted-foreground/70 group-open:hidden">{t("artifacts.steer.viewBrief")}</span>
+				<span className="ml-1 hidden text-xs text-muted-foreground/70 group-open:inline">{t("artifacts.steer.hideBrief")}</span>
 			</summary>
 			<div className="mt-2">
 				<PdfBriefCard output={result} />
@@ -110,15 +132,16 @@ function PdfCompleteBadge({ result }: { result: PdfResult }) {
  * affordance): full markdown + sources, one click away, no extra fetch —
  * the artifact part in the record is the single source of truth. */
 function ResearchCompleteBadge({ result }: { result: ResearchResult }) {
+	const t = useT();
 	return (
 		<details data-testid="research-complete-badge" className="group w-full text-xs text-muted-foreground">
 			<summary className="flex cursor-pointer select-none list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
 				<CheckIcon className="size-3.5" />
-				<span className="font-medium uppercase tracking-wide">Research</span>
-				<span>complete</span>
-				{result.sources.length > 0 && <span>· {result.sources.length} sources</span>}
-				<span className="ml-1 text-xs text-muted-foreground/70 group-open:hidden">view brief</span>
-				<span className="ml-1 hidden text-xs text-muted-foreground/70 group-open:inline">hide brief</span>
+				<span className="font-medium uppercase tracking-wide">{t("artifacts.research.label")}</span>
+				<span>{t("artifacts.research.complete")}</span>
+				{result.sources.length > 0 && <span>{t("artifacts.research.sourceCount", { n: result.sources.length })}</span>}
+				<span className="ml-1 text-xs text-muted-foreground/70 group-open:hidden">{t("artifacts.steer.viewBrief")}</span>
+				<span className="ml-1 hidden text-xs text-muted-foreground/70 group-open:inline">{t("artifacts.steer.hideBrief")}</span>
 			</summary>
 			<div className="mt-2">
 				<ResearchBriefCard output={result} />
