@@ -67,7 +67,9 @@ import {
 	type GraphSettings,
 	type ModelSlotName,
 	type ModelsSettings,
+	type MessageKey,
 } from "@/src/core";
+import { translator, useT } from "@/components/i18n";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { prettyModel } from "@/components/usage-format";
 import { cn } from "@/lib/utils";
@@ -78,10 +80,25 @@ import { NativeSubscriptionBackgroundAccess } from "./subscription-connections";
 
 /** One slot's display identity — the tier's roster as the row hint rides
  *  with the resolved default (owner: the hint ALWAYS names the default). */
-const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
-	strong: { label: "Strong", roster: "The main model for your sessions" },
-	cheap: { label: "Cheap", roster: "The assistants that research, build demos, and grade your work" },
-	vision: { label: "Vision", roster: "The assistants that draw and read PDFs" },
+const SLOT_META: Record<ModelSlotName, { label: MessageKey; roster: MessageKey; model: MessageKey; thinking: MessageKey }> = {
+	strong: { label: "settings.agent.slotStrong", roster: "settings.agent.slotStrongHint", model: "settings.agent.slotStrongModel", thinking: "settings.agent.slotStrongThinking" },
+	cheap: { label: "settings.agent.slotCheap", roster: "settings.agent.slotCheapHint", model: "settings.agent.slotCheapModel", thinking: "settings.agent.slotCheapThinking" },
+	vision: { label: "settings.agent.slotVision", roster: "settings.agent.slotVisionHint", model: "settings.agent.slotVisionModel", thinking: "settings.agent.slotVisionThinking" },
+};
+
+/** Each toggleable tool's display name (Tool · {name}). */
+const TOOL_NAME: Record<(typeof TOGGLE_TOOLS)[number], MessageKey> = {
+	research: "settings.agent.toolResearch",
+	demo: "settings.agent.toolDemo",
+	visual: "settings.agent.toolVisual",
+	pdf: "settings.agent.toolPdf",
+};
+
+/** The prompt sections' display names (sectionedSegments keeps the English ones). */
+const PROMPT_SECTION_LABEL: Record<PromptSection["id"], MessageKey> = {
+	teacher: "settings.agent.sectionTeacher",
+	prober: "settings.agent.sectionProber",
+	shared: "settings.agent.sectionShared",
 };
 
 /** The search engines this wave ships (src/core/search.ts) + their labels. */
@@ -170,7 +187,7 @@ export function composeSearchEngine(
  *  when the default composes, even if a saved override sits on disk
  *  unused. The switch's meaning becomes legible: it visibly controls
  *  this line). Exported for the pin. */
-export const PROMPT_IN_USE_HINT = "Your version is in use";
+export const PROMPT_IN_USE_HINT = translator("en")("settings.agent.promptInUse");
 
 /** One section of the prompt view — the owner's ruled order: Teacher,
  *  Prober, then Shared last. */
@@ -292,6 +309,7 @@ export function AgentSection({
 	/** Writes the whole compaction section (replace-PUT discipline). */
 	onCompactionChange: (next: CompactionSettings) => void;
 }) {
+	const t = useT();
 	const { catalog: body, failed: catalogFailed, refresh: refreshCatalog } = useModelCatalog();
 	const catalog = body?.models;
 	const slots = body?.slots;
@@ -403,11 +421,11 @@ export function AgentSection({
 			body: JSON.stringify({ text }),
 		});
 		if (!res.ok) {
-			setSegmentStatus(`Save failed: ${(await res.json().catch(() => ({}))).error ?? res.status}`);
+			setSegmentStatus(t("settings.agent.saveFailed", { error: (await res.json().catch(() => ({}))).error ?? res.status }));
 			return;
 		}
 		readPrompts();
-		setSegmentStatus("Saved");
+		setSegmentStatus(t("settings.agent.saved"));
 		// Auto-on (owner ruling, refined 2026-09-26): writing an override and
 		// putting it to work are ONE action — a save with the switch off was
 		// the "did something, changed nothing" trap (the composed prompt
@@ -424,7 +442,7 @@ export function AgentSection({
 		setSegmentStatus(null);
 		const res = await fetch(`/api/settings/prompts/${path}`, { method: "DELETE" });
 		if (!res.ok) {
-			setSegmentStatus(`Delete failed: ${res.status}`);
+			setSegmentStatus(t("settings.agent.deleteFailed", { status: res.status }));
 			return;
 		}
 		// Auto-off — the mirror of save's auto-on: deleting the file while
@@ -436,7 +454,7 @@ export function AgentSection({
 			onSectionChange(composePromptSwitch(agent, path, false));
 		}
 		readPrompts();
-		setSegmentStatus("Deleted");
+		setSegmentStatus(t("settings.agent.deleted"));
 	}
 
 		/** The search-engine menu row — label + the quiet live-key mark. */
@@ -458,7 +476,7 @@ export function AgentSection({
 		>
 			<span>{label}</span>
 			<span className="text-muted-foreground">
-				{live === null ? (active && <span aria-hidden>✓</span>) : live ? <span aria-hidden>✓ key</span> : <span aria-hidden>· no key</span>}
+				{live === null ? (active && <span aria-hidden>✓</span>) : live ? <span aria-hidden>{t("settings.agent.engineKey")}</span> : <span aria-hidden>{t("settings.agent.engineNoKey")}</span>}
 			</span>
 		</button>
 	);
@@ -483,7 +501,7 @@ export function AgentSection({
 					// on disk unused), "Your version is in use" when the
 					// switch is on. The switch's meaning becomes legible
 					// through this line.
-					hint={info.enabled ? PROMPT_IN_USE_HINT : undefined}
+					hint={info.enabled ? t("settings.agent.promptInUse") : undefined}
 					testid={`prompt-row-${info.path}`}
 				>
 					{/* Graying ruling: ONLY the toggle dims without an
@@ -493,7 +511,8 @@ export function AgentSection({
 						<Toggle
 							checked={info.enabled}
 							disabled={!fileExists}
-							label={`prompt ${info.path}`}
+							label={t("settings.agent.promptToggle", { path: info.path })}
+							testid={`toggle-${`prompt ${info.path}`.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
 							onChange={(on) => onSectionChange(composePromptSwitch(agent, info.path, on))}
 						/>
 					</span>
@@ -506,26 +525,26 @@ export function AgentSection({
 					}}
 					className="text-xs text-muted-foreground/70 underline-offset-2 hover:text-foreground hover:underline"
 				>
-					{open ? "Hide text" : "Show text"}
+					{open ? t("settings.agent.hideText") : t("settings.agent.showText")}
 				</button>
 				{open && (
 					<div className="mt-1 flex flex-col gap-2">
 						<div>
-							<p className="mb-1 text-xs uppercase tracking-widest text-muted-foreground/70">Source</p>
+							<p className="mb-1 text-xs uppercase tracking-widest text-muted-foreground/70">{t("settings.agent.source")}</p>
 							<textarea
 								readOnly
 								value={info.sourceText}
-								aria-label="The original instructions"
+								aria-label={t("settings.agent.sourceAria")}
 								className="h-24 w-full resize-y rounded-sm border border-border bg-muted p-2 font-ui text-xs text-muted-foreground"
 							/>
 						</div>
 						<div>
-							<p className="mb-1 text-xs uppercase tracking-widest text-muted-foreground/70">Override</p>
+							<p className="mb-1 text-xs uppercase tracking-widest text-muted-foreground/70">{t("settings.agent.override")}</p>
 							<textarea
 								value={segmentDraft[info.path] ?? info.overrideText ?? ""}
 								onChange={(e) => setSegmentDraft({ ...segmentDraft, [info.path]: e.target.value })}
-								aria-label="Your version of the instructions"
-								placeholder="Add your own instructions…"
+								aria-label={t("settings.agent.overrideAria")}
+								placeholder={t("settings.agent.overridePlaceholder")}
 								className="h-24 w-full resize-y rounded-sm border border-border bg-background p-2 font-ui text-xs text-foreground outline-none"
 							/>
 						</div>
@@ -540,7 +559,7 @@ export function AgentSection({
 										: "cursor-not-allowed text-xs text-muted-foreground/40 underline-offset-2"
 								}
 							>
-								Save
+								{t("common.save")}
 							</button>
 							{fileExists && (
 								<button
@@ -548,7 +567,7 @@ export function AgentSection({
 									onClick={() => void deleteSegment(info.path)}
 									className="text-xs text-muted-foreground/70 underline-offset-2 hover:text-warn hover:underline"
 								>
-									Delete
+									{t("settings.delete")}
 								</button>
 							)}
 							{/* The quiet inline confirmation — next to the
@@ -580,8 +599,8 @@ export function AgentSection({
 
 	return (
 		<>
-			<SettingsGroup label="Models" testid="group-models">
-				{catalogFailed && <p role="alert" className="text-xs text-warn">Model catalog could not be loaded. Check the connection and retry. <button type="button" className="underline" onClick={refreshCatalog}>Retry</button></p>}
+			<SettingsGroup label={t("settings.agent.groupModels")} testid="group-models">
+				{catalogFailed && <p role="alert" className="text-xs text-warn">{t("settings.agent.catalogError")} <button type="button" className="underline" onClick={refreshCatalog}>{t("settings.retry")}</button></p>}
 				{MODEL_SLOTS.map((slot) => {
 					const override = models?.[slot];
 					const modelId = override?.model?.id ?? "";
@@ -606,8 +625,8 @@ export function AgentSection({
 					return (
 						<SettingsRow
 							key={slot}
-							label={SLOT_META[slot].label}
-							hint={SLOT_META[slot].roster}
+							label={t(SLOT_META[slot].label)}
+							hint={t(SLOT_META[slot].roster)}
 							testid={`slot-row-${slot}`}
 						>
 							{/* The anchor for the outside-click contract is the
@@ -621,7 +640,7 @@ export function AgentSection({
 									value={modelId ? prettyModel(modelId) : ""}
 									hint={modelId ? `${provider}:${modelId}` : undefined}
 									emptyLabel="—"
-									ariaLabel={`${SLOT_META[slot].label} model`}
+									ariaLabel={t(SLOT_META[slot].model)}
 									testid={`slot-model-${slot}`}
 									open={thisMenuOpen === "model"}
 									onClick={() => setOpenMenu(thisMenuOpen === "model" ? null : { target: slot, kind: "model" })}
@@ -633,7 +652,7 @@ export function AgentSection({
 									// what the engine build runs). Display-only until a pick writes.
 									value={thinking || (chosen ? defaultOrderLevel(levels) : "")}
 									emptyLabel="—"
-									ariaLabel={`${SLOT_META[slot].label} thinking`}
+									ariaLabel={t(SLOT_META[slot].thinking)}
 									testid={`slot-thinking-${slot}`}
 									open={thisMenuOpen === "thinking"}
 									onClick={() => setOpenMenu(thisMenuOpen === "thinking" ? null : { target: slot, kind: "thinking" })}
@@ -660,8 +679,8 @@ export function AgentSection({
 											}}
 											footer={
 												catalog && catalog.length === 0
-													? "No models — add a provider key in Keys"
-													: "Runs every agent of this tier"
+													? t("settings.agent.noModels")
+													: t("settings.agent.tierFooter")
 											}
 										/>
 									</MenuShell>
@@ -691,7 +710,7 @@ export function AgentSection({
 				})}
 			</SettingsGroup>
 
-			<SettingsGroup label="Tools" testid="group-tools">
+			<SettingsGroup label={t("settings.agent.groupTools")} testid="group-tools">
 				{/* The prober's graph tools (wave 7, owner ruling 2026-09-23):
 				    FIRST row of the group — its subject is the map, its
 				    mechanism is agent capability, so it lives in Tools but
@@ -703,15 +722,16 @@ export function AgentSection({
 					const graphOn = graph?.enabled ?? true;
 					return (
 						<SettingsRow
-							label="Graph tools"
-							hint={graphOn ? "Lets the tutor consult your knowledge map between sessions" : "Graph is disabled"}
+							label={t("settings.agent.graphTools")}
+							hint={graphOn ? t("settings.agent.graphToolsHint") : t("settings.agent.graphToolsOff")}
 							testid="graph-tools-row"
 							dimmed={!graphOn}
 						>
 							<Toggle
 								checked={agent?.graphTools?.enabled ?? true}
 								disabled={!graphOn}
-								label="graph tools"
+								label={t("settings.agent.graphToolsToggle")}
+								testid="toggle-graph-tools"
 								onChange={(on) => onSectionChange(composeGraphTools(agent, on))}
 							/>
 						</SettingsRow>
@@ -725,13 +745,13 @@ export function AgentSection({
 					const free = agent?.tools?.explain === true;
 					return (
 						<SettingsRow
-							label="Quizzing"
-							hint="How both tutors check your understanding"
+							label={t("settings.agent.quizzing")}
+							hint={t("settings.agent.quizzingHint")}
 							testid="quiz-mechanics-row"
 						>
 							<div
 								role="radiogroup"
-								aria-label="Quizzing mechanics"
+								aria-label={t("settings.agent.quizzingAria")}
 								className="flex rounded-lg border border-border/60 bg-muted/30 p-0.5"
 								>
 								{(["choice", "free"] as const).map((m) => {
@@ -749,7 +769,7 @@ export function AgentSection({
 												active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
 											)}
 										>
-											{m === "choice" ? "Multiple choice" : "Free recall"}
+											{m === "choice" ? t("settings.agent.multipleChoice") : t("settings.agent.freeRecall")}
 										</button>
 									);
 								})}
@@ -760,12 +780,13 @@ export function AgentSection({
 				{TOGGLE_TOOLS.map((id) => (
 					<SettingsRow
 						key={id}
-						label={`Tool · ${id}`}
+						label={t("settings.agent.toolLabel", { name: t(TOOL_NAME[id]) })}
 						testid={`tool-row-${id}`}
 					>
 						<Toggle
 							checked={agent?.tools?.[id] ?? true}
-							label={`tool ${id}`}
+							label={t("settings.agent.toolToggle", { name: t(TOOL_NAME[id]) })}
+							testid={`toggle-tool-${id}`}
 							onChange={(on) => onSectionChange(composeTool(agent, id, on))}
 						/>
 					</SettingsRow>
@@ -776,7 +797,7 @@ export function AgentSection({
 					const open = openMenu?.target === "search";
 					return (
 						<SettingsRow
-							label="Search engine"
+							label={t("settings.agent.searchEngine")}
 							hint={search?.reason ?? undefined}
 							testid="search-engine-row"
 							dimmed={!anyKey}
@@ -784,8 +805,8 @@ export function AgentSection({
 							<span ref={open ? menuAnchorRef : undefined} className="relative flex items-center gap-2">
 								<MenuTrigger
 									value={engine === "tavily" ? "Tavily" : engine === "brave" ? "Brave" : ""}
-									emptyLabel="Automatic"
-									ariaLabel="Search engine"
+									emptyLabel={t("settings.agent.automatic")}
+									ariaLabel={t("settings.agent.searchEngine")}
 									testid="search-engine-trigger"
 									open={open}
 									onClick={() => setOpenMenu(open ? null : { target: "search", kind: "engine" })}
@@ -799,7 +820,7 @@ export function AgentSection({
 										testid="search-engine-menu"
 										menuClass="flex w-44 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
 									>
-										{engineOption("auto", "Automatic", engine === null, null, () => {
+										{engineOption("auto", t("settings.agent.automatic"), engine === null, null, () => {
 											onSectionChange(composeSearchEngine(agent, null));
 											setOpenMenu(null);
 										})}
@@ -817,17 +838,17 @@ export function AgentSection({
 				})()}
 			</SettingsGroup>
 
-			<SettingsGroup label="Context" testid="group-context">
+			<SettingsGroup label={t("settings.agent.groupContext")} testid="group-context">
 				<SettingsRow
-					label="Compaction threshold"
-					hint={`${resolvedCompaction.thresholdTokens} tok`}
+					label={t("settings.agent.compaction")}
+					hint={t("settings.tokens", { n: resolvedCompaction.thresholdTokens })}
 					testid="compaction-row-threshold"
 				>
 					<CommitInput
 						type="number"
 						value={String(compaction?.thresholdTokens ?? "")}
 						placeholder={String(resolvedCompaction.thresholdTokens)}
-						ariaLabel="compaction threshold"
+						ariaLabel={t("settings.agent.compactionAria")}
 						testid="input-compaction-threshold"
 						onCommit={(v) => {
 							// Empty = factory default (the budget row's discipline):
@@ -850,9 +871,9 @@ export function AgentSection({
 				</SettingsRow>
 			</SettingsGroup>
 
-			<SettingsGroup label="System prompts" testid="group-prompts">
+			<SettingsGroup label={t("settings.agent.groupPrompts")} testid="group-prompts">
 				{prompts === null ? (
-					<p className="text-xs text-muted-foreground/70">Loading prompt segments…</p>
+					<p className="text-xs text-muted-foreground/70">{t("settings.agent.loadingPrompts")}</p>
 				) : (
 					<div className="flex flex-col gap-4">
 						{/* The owner's ruled order (2026-09-26): Teacher first,
@@ -862,10 +883,10 @@ export function AgentSection({
 						{sectionedSegments(prompts).map((section) => (
 							<div key={section.id} data-testid={`prompt-section-${section.id}`}>
 								<p className="mb-1 text-xs uppercase tracking-widest text-muted-foreground/70">
-									{section.label}
+									{t(PROMPT_SECTION_LABEL[section.id])}
 								</p>
 								{section.hint && (
-									<p className="mb-1 text-xs text-muted-foreground/60">{section.hint}</p>
+									<p className="mb-1 text-xs text-muted-foreground/60">{t("settings.agent.sectionSharedHint")}</p>
 								)}
 								<div className="flex flex-col gap-2">
 									{section.segments.map((info) => segmentRow(info))}

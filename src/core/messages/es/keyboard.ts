@@ -1,3 +1,20 @@
-/** Los nombres de los atajos de teclado. */
+/** Los nombres de las acciones con atajo (src/core/keyboard.ts), tal como se ven en la chuleta y en Ajustes → Atajos. */
 export default {
+	"keyboard.toggleDictation": "Empezar o parar el dictado",
+	"keyboard.openSettings": "Abrir los ajustes",
+	"keyboard.openModelPicker": "Elegir el modelo",
+	"keyboard.cycleThinking": "Cambiar el nivel de razonamiento",
+	"keyboard.toggleSidebar": "Mostrar u ocultar las sesiones",
+	"keyboard.sessionsSearch": "Buscar sesiones",
+	"keyboard.jumpGraph": "Ver tu grafo",
+	"keyboard.newSession": "Nueva sesión",
+	"keyboard.renameSession": "Renombrar la sesión",
+	"keyboard.toggleUserThinking": "Mostrar u ocultar todo lo que piensas",
+	"keyboard.find": "Buscar",
+	"keyboard.cheatSheet": "Ver los atajos de teclado",
+	"keyboard.questionFocus": "Pregunta · pasar de lo que piensas a las opciones",
+	"keyboard.questionNextRow": "Pregunta · siguiente opción",
+	"keyboard.questionPrevRow": "Pregunta · opción anterior",
+	"keyboard.questionPickRow": "Pregunta · marcar la opción",
+	"keyboard.questionSubmit": "Pregunta · enviar la respuesta",
 } as const;

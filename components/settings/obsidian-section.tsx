@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ObsidianSettings } from "@/src/core";
+import { useT } from "@/components/i18n";
 import { CommitInput, SettingsGroup, SettingsRow, Toggle } from "./controls.tsx";
 
 interface VaultFolder {
@@ -48,6 +49,7 @@ export function ObsidianSection({
 	obsidian: ObsidianSettings | undefined;
 	onSectionChange: (next: ObsidianSettings) => Promise<void> | void;
 }) {
+	const t = useT();
 	const [overview, setOverview] = useState<VaultOverview | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
 	// The native picker exists only in the desktop window (SSR-safe probe).
@@ -119,15 +121,15 @@ export function ObsidianSection({
 
 	return (
 		<>
-			<SettingsRow label="Connection" hint="Reads the chosen folders and writes your sessions into the vault" testid="obsidian-row-enabled">
-				<Toggle checked={enabled} label="obsidian connection" onChange={(on) => void write({ ...obsidian, enabled: on })} />
+			<SettingsRow label={t("settings.obsidian.connection")} hint={t("settings.obsidian.connectionHint")} testid="obsidian-row-enabled">
+				<Toggle checked={enabled} label={t("settings.obsidian.connectionToggle")} testid="toggle-obsidian-connection" onChange={(on) => void write({ ...obsidian, enabled: on })} />
 			</SettingsRow>
-			<SettingsRow label="Vault" hint={!overview ? undefined : overview.root === "" ? "Choose your vault folder" : !overview.exists ? "Folder not found" : overview.root} testid="obsidian-row-vault">
+			<SettingsRow label={t("settings.obsidian.vault")} hint={!overview ? undefined : overview.root === "" ? t("settings.obsidian.chooseVault") : !overview.exists ? t("settings.obsidian.folderNotFound") : overview.root} testid="obsidian-row-vault">
 				<span className="flex items-center gap-2">
 					<CommitInput
 						value={vaultPath}
-						placeholder={overview?.root || "/path/to/vault"}
-						ariaLabel="vault path"
+						placeholder={overview?.root || t("settings.obsidian.pathPlaceholder")}
+						ariaLabel={t("settings.obsidian.pathAria")}
 						testid="input-vault-path"
 						onCommit={(v) => void write({ ...obsidian, vaultPath: v.trim(), folders: v.trim() === vaultPath ? folders : [] })}
 					/>
@@ -137,16 +139,16 @@ export function ObsidianSection({
 							className="h-7 shrink-0 rounded-sm border border-border px-2 font-ui text-xs text-foreground hover:border-muted-foreground/50"
 							onClick={() => void pick()}
 						>
-							Choose…
+							{t("settings.obsidian.choose")}
 						</button>
 					)}
 				</span>
 			</SettingsRow>
-			<SettingsRow label="Output folder" hint="Vault-relative folder the app writes its notes into" testid="obsidian-row-output">
+			<SettingsRow label={t("settings.obsidian.outputFolder")} hint={t("settings.obsidian.outputFolderHint")} testid="obsidian-row-output">
 				<CommitInput
 					value={obsidian?.outputFolder ?? ""}
 					placeholder={overview?.outputFolder || "Naipes"}
-					ariaLabel="output folder"
+					ariaLabel={t("settings.obsidian.outputFolderAria")}
 					testid="input-vault-output-folder"
 					onCommit={(v) => {
 						const next = v.trim();
@@ -156,25 +158,25 @@ export function ObsidianSection({
 			</SettingsRow>
 			{status && enabled && (
 				<p className="text-xs text-muted-foreground" data-testid="obsidian-status">
-					{status.watching ? "Watching" : "Not watching"} · {status.synced} notes synced
-					{status.running + status.queued > 0 ? ` · ${status.running} extracting, ${status.queued} waiting` : ""}
-					{status.lastError ? ` · last error: ${status.lastError}` : ""}
+					{status.watching ? t("settings.obsidian.watching") : t("settings.obsidian.notWatching")} · {t("settings.obsidian.synced", { n: status.synced })}
+					{status.running + status.queued > 0 ? ` · ${t("settings.obsidian.queue", { running: status.running, queued: status.queued })}` : ""}
+					{status.lastError ? ` · ${t("settings.obsidian.lastError", { error: status.lastError })}` : ""}
 				</p>
 			)}
-			{loadError && <p className="text-xs text-warn">Could not read the vault: {loadError}</p>}
+			{loadError && <p className="text-xs text-warn">{t("settings.obsidian.readError", { error: loadError })}</p>}
 
-			<SettingsGroup label="Folders to read" testid="obsidian-folders">
+			<SettingsGroup label={t("settings.obsidian.folders")} testid="obsidian-folders">
 				<p className="text-xs text-muted-foreground">
-					{selectedNotes} notes selected. Each new or changed note costs one extraction run; unchanged notes cost nothing.
+					{t("settings.obsidian.selected", { n: selectedNotes })}
 				</p>
 				<div className="max-h-72 overflow-y-auto rounded-sm border border-border p-2">
 					{overview?.folders.length ? overview.folders.map((folder) => renderFolder(folder, 0)) : (
-						<p className="text-xs text-muted-foreground">No folders found.</p>
+						<p className="text-xs text-muted-foreground">{t("settings.obsidian.noFolders")}</p>
 					)}
 				</div>
 				{overview && (
 					<p className="text-xs text-muted-foreground">
-						The app writes its notes to “{overview.outputFolder}”, which is never read back.
+						{t("settings.obsidian.writesTo", { folder: overview.outputFolder })}
 					</p>
 				)}
 			</SettingsGroup>

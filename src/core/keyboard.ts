@@ -19,6 +19,7 @@
  * Order is fixed: mod, alt, shift, then the key.
  */
 import { getStoredItem } from "./stored-item.ts";
+import type { MessageKey } from "./messages/index.ts";
 
 export type KeyAction =
 	| "toggle-dictation"
@@ -87,6 +88,36 @@ export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 	{ id: "question-pick-row", label: "Question · pick row", scope: "chat", binding: "space", displayOnly: true },
 	{ id: "question-submit", label: "Question · submit", scope: "chat", binding: "enter", displayOnly: true },
 ];
+
+/** Each action's interface-dictionary key (keyboard.*). The English
+ *  `label` above stays the canonical value (tests and logs read it); the
+ *  DISPLAYED name goes through keyboardActionLabel. */
+export const KEYBOARD_ACTION_MESSAGE: Record<KeyAction, MessageKey> = {
+	"toggle-dictation": "keyboard.toggleDictation",
+	"open-settings": "keyboard.openSettings",
+	"open-model-picker": "keyboard.openModelPicker",
+	"cycle-thinking": "keyboard.cycleThinking",
+	"toggle-sidebar": "keyboard.toggleSidebar",
+	"sessions-search": "keyboard.sessionsSearch",
+	"jump-graph": "keyboard.jumpGraph",
+	"new-session": "keyboard.newSession",
+	"rename-session": "keyboard.renameSession",
+	"toggle-user-thinking": "keyboard.toggleUserThinking",
+	find: "keyboard.find",
+	"cheat-sheet": "keyboard.cheatSheet",
+	"question-focus": "keyboard.questionFocus",
+	"question-next-row": "keyboard.questionNextRow",
+	"question-prev-row": "keyboard.questionPrevRow",
+	"question-pick-row": "keyboard.questionPickRow",
+	"question-submit": "keyboard.questionSubmit",
+};
+
+/** An action's display name in the interface language: pass the
+ *  translator (`useT()` in components). Without one, the English `label`. */
+export function keyboardActionLabel(id: KeyAction, t?: (key: MessageKey) => string): string {
+	if (t) return t(KEYBOARD_ACTION_MESSAGE[id]);
+	return KEYBOARD_ACTIONS.find((a) => a.id === id)?.label ?? id;
+}
 
 const STORAGE_KEY = "np:keymap";
 

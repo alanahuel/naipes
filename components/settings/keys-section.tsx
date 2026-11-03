@@ -31,6 +31,7 @@ import { ProviderMenuList } from "./model-menu.tsx";
 import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { DictationLanguageSetting } from "@/components/dictation-language";
+import { translator, useT, type Translate } from "@/components/i18n";
 
 /** One pi-ai provider with plain API-key auth (the Platform seam —
  *  derived from pi-ai's own env-key table; no drift possible). */
@@ -107,8 +108,8 @@ export function providerKeyLabel(id: string, providers: readonly ProviderKeyInfo
 
 /** The minimal status line, e.g. "…ab12 · 64 chars" (" · env" marks an
  *  environment-owned value — the row itself is read-only then). Pure. */
-export function keyStatusLine(status: AuthKeyStatus): string {
-	if (!status.present || !status.masked) return "not set";
+export function keyStatusLine(status: AuthKeyStatus, t: Translate = translator("en")): string {
+	if (!status.present || !status.masked) return t("settings.providers.notSet");
 	const tail = status.masked.replace(/ \((\d+) chars\)$/, "");
 	const chars = status.masked.match(/\((\d+) chars\)$/)?.[1] ?? "?";
 	return `${tail} · ${chars}${status.source === "env" ? " · env" : ""}`;
@@ -141,6 +142,7 @@ function KeyTableRow({
 	onCancel: () => void;
 	testid: string;
 }) {
+	const t = useT();
 	const envOwned = status.source === "env";
 	const [value, setValue] = useState("");
 	const [error, setError] = useState<string | null>(null);
@@ -172,8 +174,8 @@ function KeyTableRow({
 						onKeyDown={(e) => {
 							if (e.key === "Enter") void save();
 						}}
-						placeholder="Paste key…"
-						aria-label={`${label} key`}
+						placeholder={t("settings.providers.pasteKey")}
+						aria-label={t("settings.providers.keyAria", { label })}
 						data-testid={`${testid}-input`}
 						disabled={busy}
 						autoFocus
@@ -186,7 +188,7 @@ function KeyTableRow({
 						data-testid={`${testid}-save`}
 						className="shrink-0 text-xs text-foreground underline-offset-2 hover:underline disabled:text-muted-foreground/40 disabled:no-underline"
 					>
-						Save
+						{t("common.save")}
 					</button>
 					<button
 						type="button"
@@ -195,7 +197,7 @@ function KeyTableRow({
 						data-testid={`${testid}-cancel`}
 						className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-foreground hover:underline"
 					>
-						Cancel
+						{t("common.cancel")}
 					</button>
 					{status.present && status.source === "file" && onDelete && (
 						<button
@@ -205,7 +207,7 @@ function KeyTableRow({
 							data-testid={`${testid}-delete`}
 							className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-warn hover:underline"
 						>
-							Delete
+							{t("settings.delete")}
 						</button>
 					)}
 				</div>
@@ -239,11 +241,11 @@ function KeyTableRow({
 							onClick={(e) => e.stopPropagation()}
 							className="text-[10px] text-muted-foreground/60 underline-offset-2 hover:text-foreground hover:underline"
 						>
-							key ↗
+							{t("settings.providers.getKey")}
 						</a>
 					)}
 					<span data-testid={`${testid}-status`} className="font-mono text-[11px] text-muted-foreground">
-						{keyStatusLine(status)}
+						{keyStatusLine(status, t)}
 					</span>
 				</span>
 			</button>
@@ -265,6 +267,7 @@ function AddProviderRow({
 	addable: ProviderKeyInfo[];
 	onPick: (p: ProviderKeyInfo) => void;
 }) {
+	const t = useT();
 	const [open, setOpen] = useState(false);
 	const anchorRef = useRef<HTMLDivElement>(null);
 
@@ -299,7 +302,7 @@ function AddProviderRow({
 				onClick={() => setOpen((v) => !v)}
 				className="flex w-full items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left font-ui text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
 			>
-				<span>+ Add provider key</span>
+				<span>{t("settings.providers.addProvider")}</span>
 				{addable.length > 0 && <span className="font-mono text-[11px]">{addable.length}</span>}
 			</button>
 			{open && (
@@ -333,6 +336,7 @@ export function KeysSection({
 }: {
 	initialRow?: string;
 }) {
+	const t = useT();
 	const [statuses, setStatuses] = useState<AuthKeyStatus[] | null>(null);
 	const [providers, setProviders] = useState<ProviderKeyInfo[] | undefined>(undefined);
 	const [loading, setLoading] = useState(true);
@@ -392,7 +396,7 @@ export function KeysSection({
 		});
 		if (!res.ok) {
 			const body = (await res.json().catch(() => ({}))) as { error?: string };
-			return body.error ?? `Save failed (${res.status})`;
+			return body.error ?? t("settings.providers.saveFailed", { status: res.status });
 		}
 		await reload();
 		// The cross-surface keys signal (zero-keys wave): the zero-keys pill,
@@ -409,7 +413,7 @@ export function KeysSection({
 	}
 
 	if (loading || statuses === null) {
-		return <p className="px-6 py-5 text-xs text-muted-foreground/70">Loading keys…</p>;
+		return <p className="px-6 py-5 text-xs text-muted-foreground/70">{t("settings.providers.loading")}</p>;
 	}
 
 	const { providerRows, toolRows, unknownRows, addable } = classifyKeys(statuses, providers);
@@ -425,7 +429,7 @@ export function KeysSection({
 
 	return (
 		<>
-			<SettingsGroup label="Model API keys" testid="group-provider-keys">
+			<SettingsGroup label={t("settings.providers.groupModelKeys")} testid="group-provider-keys">
 				{providerRows.map((status) => (
 					<KeyTableRow
 						key={status.id}
@@ -467,11 +471,11 @@ export function KeysSection({
 				</div>}
 			</SettingsGroup>
 
-			<SettingsGroup label="Subscriptions" testid="group-subscriptions">
+			<SettingsGroup label={t("settings.providers.groupSubscriptions")} testid="group-subscriptions">
 				<SubscriptionConnections />
 			</SettingsGroup>
 
-			{(["Dictation", "Search"] as const).map((label) => <SettingsGroup key={label} label={label} testid={label === "Dictation" ? "group-dictation" : "group-search"}>
+			{(["Dictation", "Search"] as const).map((label) => <SettingsGroup key={label} label={label === "Dictation" ? t("settings.providers.groupDictation") : t("settings.providers.groupSearch")} testid={label === "Dictation" ? "group-dictation" : "group-search"}>
 				{toolRows.filter((status) => label === "Dictation" ? status.id === "DEEPGRAM_API_KEY" : status.id !== "DEEPGRAM_API_KEY").map((status) => (
 					<KeyTableRow
 						key={status.id}
@@ -493,12 +497,12 @@ export function KeysSection({
 				{label === "Dictation" && <>
 					<DictationLanguageSetting />
 					<p data-testid="dictation-setup-hint" className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
-						Create a <a
+						{t("settings.providers.dictationHintBefore")}<a
 							href="https://console.deepgram.com/"
 							target="_blank"
 							rel="noreferrer"
 							className="underline underline-offset-2 hover:text-foreground"
-						>Deepgram API key</a> with the Member role or higher, then add it above.
+						>{t("settings.providers.dictationHintLink")}</a>{t("settings.providers.dictationHintAfter")}
 					</p>
 				</>}
 			</SettingsGroup>)}
@@ -520,6 +524,7 @@ function AddProviderEditor({
 	onCancel: () => void;
 	error: string | null;
 }) {
+	const t = useT();
 	const [value, setValue] = useState("");
 	return (
 		<>
@@ -530,8 +535,8 @@ function AddProviderEditor({
 				onKeyDown={(e) => {
 					if (e.key === "Enter" && value.trim()) onSave(value);
 				}}
-				placeholder="Paste key…"
-				aria-label={`${provider.label} key`}
+				placeholder={t("settings.providers.pasteKey")}
+				aria-label={t("settings.providers.keyAria", { label: provider.label })}
 				data-testid={`key-${provider.id}-input`}
 				autoFocus
 				className="h-7 min-w-0 flex-1 rounded-sm border border-border bg-background px-1.5 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-muted-foreground/50"
@@ -543,7 +548,7 @@ function AddProviderEditor({
 				data-testid={`key-${provider.id}-save`}
 				className="shrink-0 text-xs text-foreground underline-offset-2 hover:underline disabled:text-muted-foreground/40 disabled:no-underline"
 			>
-				Save
+				{t("common.save")}
 			</button>
 			<button
 				type="button"
@@ -551,7 +556,7 @@ function AddProviderEditor({
 				data-testid={`key-${provider.id}-cancel`}
 				className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-foreground hover:underline"
 			>
-				Cancel
+				{t("common.cancel")}
 			</button>
 			{error && (
 				<p role="alert" className="w-full pl-0 text-xs text-warn" data-testid={`key-${provider.id}-error`}>
