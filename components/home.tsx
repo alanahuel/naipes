@@ -6,6 +6,7 @@ import { CornerDownLeftIcon, DumbbellIcon } from "lucide-react";
 import Link from "next/link";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { SessionRow, useChatList } from "@/components/sessions";
+import { ActivitySection } from "@/components/activity-dock";
 import { SetupDialog } from "@/components/setup-dialog";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
@@ -320,6 +321,10 @@ export function Home({ initialConfigured }: { initialConfigured: boolean }) {
 					/>
 					</div>
 				</section>
+
+				{/* «Ahora» (stage 5): what is running in the background — hidden
+				    while empty, three at most with «Ver N más». */}
+				<ActivitySection variant="now" limit={3} />
 
 				{recent && recent.length > 0 && (
 					<section className="flex flex-col gap-3" data-testid="continue-with">

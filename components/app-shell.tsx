@@ -20,6 +20,7 @@ import { ChevronRightIcon, CircleUserRoundIcon, FolderOpenIcon } from "lucide-re
 import { cn } from "@/lib/utils";
 import { NpMark } from "@/components/np-mark";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
+import { NoticesBell, NoticesProvider } from "@/components/notices";
 import { SettingsDialogProvider } from "@/components/settings/settings-dialog.tsx";
 import { APP_VERSION } from "@/components/settings/update-settings.tsx";
 import { notifySettingsSaved } from "@/components/settings-signal";
@@ -135,6 +136,7 @@ export function TopNav({ pathname }: { pathname: string }) {
 				})}
 			</nav>
 			<div className="ml-auto flex items-center gap-1">
+				<NoticesBell />
 				<ProfileMenu />
 			</div>
 		</header>
@@ -240,12 +242,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 	const pathname = usePathname() ?? "/";
 	return (
 		<SettingsDialogProvider>
+			<NoticesProvider>
 			<div className="flex h-dvh flex-col bg-frame">
 				<TopNav pathname={pathname} />
 				<main className="relative mx-2 mb-2 min-h-0 flex-1 overflow-hidden rounded-xl border bg-background" data-testid="app-sheet">
 					{children}
 				</main>
 			</div>
+			</NoticesProvider>
 			{/* The single document-level keydown listener (keyboard wave A). */}
 			<KeyboardShortcuts />
 		</SettingsDialogProvider>

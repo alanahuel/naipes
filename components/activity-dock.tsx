@@ -308,7 +308,17 @@ const KIND_ICON: Record<JobKind, typeof SearchIcon> = {
 /** Abort states per blob id: pending (fired) / failed (backend absent). */
 type AbortState = "pending" | "failed";
 
-export function ActivitySection({ feed: feedProp }: { feed?: ActivityFeed }) {
+export function ActivitySection({
+	feed: feedProp,
+	variant = "dock",
+	limit,
+}: {
+	feed?: ActivityFeed;
+	/** "now" = Inicio's «Ahora» (stage 5): hidden while empty, at most
+	 *  `limit` rows with «Ver N más»; "dock" = the always-present strip. */
+	variant?: "dock" | "now";
+	limit?: number;
+}) {
 	const ctx = useContext(ActivityContext);
 	const feed = feedProp ?? ctx.feed;
 	const refresh = ctx.refresh;
@@ -316,6 +326,7 @@ export function ActivitySection({ feed: feedProp }: { feed?: ActivityFeed }) {
 	const blobs = useMemo(() => toBlobs(feed, t), [feed, t]);
 	const [openBlob, setOpenBlob] = useState<string | null>(null); // detail, inline-expanded
 	const [abortStates, setAbortStates] = useState<Record<string, AbortState>>({});
+	const [expanded, setExpanded] = useState(false);
 	const now = useNow(blobs.length > 0);
 	// Refs for stable abort handlers (no re-created closures per tick).
 	const abortRef = useRef({ blobs, refresh, setAbortStates });
@@ -364,6 +375,45 @@ export function ActivitySection({ feed: feedProp }: { feed?: ActivityFeed }) {
 	// sidebar's own edge line, the header matches the "Sessions" label, the
 	// rows match the session rows' hover. Empty means empty: the header sits
 	// alone (the cost span is population, not decoration).
+	if (variant === "now") {
+		if (blobs.length === 0) return null;
+		const visible = limit && !expanded ? blobs.slice(0, limit) : blobs;
+		const hidden = blobs.length - visible.length;
+		return (
+			<section data-testid="now-section" className="flex flex-col gap-3">
+				<div className="flex items-baseline justify-between px-1">
+					<h2 className="text-lg font-semibold">{t("now.title")}</h2>
+					<span className="text-sm tabular-nums text-muted-foreground" data-testid="activity-total-cost" title={t("graph.activity.totalCost")}>
+						{planCostLabel(totalCost, subscriptionLabels(blobs.map((blob) => blob.model)))}
+					</span>
+				</div>
+				<div className="flex flex-col gap-1 rounded-xl border p-2">
+					{visible.map((blob) => (
+						<ActivityBlobRow
+							key={blob.id}
+							blob={blob}
+							now={now}
+							detailOpen={openBlob === blob.id}
+							onToggleDetail={() => setOpenBlob((id) => (id === blob.id ? null : blob.id))}
+							abortState={abortStates[blob.id]}
+							onAbort={() => void abort(blob)}
+						/>
+					))}
+					{(hidden > 0 || expanded) && limit !== undefined && blobs.length > limit && (
+						<button
+							type="button"
+							data-testid="now-more"
+							onClick={() => setExpanded((v) => !v)}
+							className="self-start rounded-lg px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						>
+							{expanded ? t("now.less") : t("now.more", { n: hidden })}
+						</button>
+					)}
+				</div>
+			</section>
+		);
+	}
+
 	return (
 		<section data-testid="activity-section" className="border-t border-border px-3 pb-3 pt-2">
 			<div className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground/70">
