@@ -240,6 +240,26 @@ export interface GeneralSettings {
 	language?: Locale;
 }
 
+/** Spaced review («Repaso», owner 2026-11-04). Every field optional in
+ *  the delta record; resolution fills the factory values. */
+export interface ReviewSettings {
+	/** FSRS desired retention, 0.80–0.97 (factory 0.90). */
+	targetRetention?: number;
+	/** Daily digest time, "HH:MM" local (factory "09:00"). */
+	digestTime?: string;
+	/** Evening reminder when nothing was reviewed, "HH:MM" (factory "19:00"). */
+	eveningTime?: string;
+	/** Shared daily intake cap: history backlog + new area ideas (factory 15). */
+	newPerDay?: number;
+	/** Ideas per review practice batch (factory 10). */
+	batchSize?: number;
+	/** Teach check: confidence at/above → Good, below → Hard (factory 70). */
+	confidenceThreshold?: number;
+}
+
+export const REVIEW_RETENTION_MIN = 0.8;
+export const REVIEW_RETENTION_MAX = 0.97;
+
 /** The Obsidian vault connection (owner, 2026-11-01). Both directions ride
  *  ONE switch: vault → graph (the chosen folders are watched and every new
  *  or changed note is extracted, a changed/deleted note's old contribution
@@ -403,6 +423,7 @@ export interface UserSettings {
 	graph?: GraphSettings;
 	compaction?: CompactionSettings;
 	obsidian?: ObsidianSettings;
+	review?: ReviewSettings;
 	[key: string]: unknown;
 }
 
@@ -430,6 +451,7 @@ export interface FactorySettings {
 	graph: Required<GraphSettings>;
 	compaction: Required<CompactionSettings>;
 	obsidian: Required<ObsidianSettings>;
+	review: Required<ReviewSettings>;
 }
 
 export const FACTORY_SETTINGS: FactorySettings = {
@@ -447,6 +469,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096 },
 	compaction: { thresholdTokens: 150_000 },
 	obsidian: { enabled: false, vaultPath: "", folders: [], outputFolder: DEFAULT_VAULT_OUTPUT_FOLDER },
+	review: { targetRetention: 0.9, digestTime: "09:00", eveningTime: "19:00", newPerDay: 15, batchSize: 10, confidenceThreshold: 70 },
 };
 
 /** The chunk budget's validated floor (GraphSettings.extractionChunkTokens
@@ -665,6 +688,38 @@ function sanitizeObsidian(raw: Record<string, unknown>): ObsidianSettings {
 	return out;
 }
 
+/** "H:MM"/"HH:MM" (00:00–23:59) → normalized "HH:MM"; anything else → null. */
+export function normalizeClockTime(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	const m = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+	if (!m) return null;
+	const h = Number(m[1]);
+	const min = Number(m[2]);
+	if (h > 23 || min > 59) return null;
+	return `${String(h).padStart(2, "0")}:${m[2]}`;
+}
+
+const intIn = (value: unknown, min: number, max: number): number | undefined =>
+	typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, Math.round(value))) : undefined;
+
+function sanitizeReview(raw: Record<string, unknown>): ReviewSettings {
+	const out: ReviewSettings = {};
+	if (typeof raw.targetRetention === "number" && Number.isFinite(raw.targetRetention)) {
+		out.targetRetention = Math.min(REVIEW_RETENTION_MAX, Math.max(REVIEW_RETENTION_MIN, raw.targetRetention));
+	}
+	const digest = normalizeClockTime(raw.digestTime);
+	if (digest) out.digestTime = digest;
+	const evening = normalizeClockTime(raw.eveningTime);
+	if (evening) out.eveningTime = evening;
+	const perDay = intIn(raw.newPerDay, 0, 500);
+	if (perDay !== undefined) out.newPerDay = perDay;
+	const batch = intIn(raw.batchSize, 1, 50);
+	if (batch !== undefined) out.batchSize = batch;
+	const threshold = intIn(raw.confidenceThreshold, 0, 100);
+	if (threshold !== undefined) out.confidenceThreshold = threshold;
+	return out;
+}
+
 /**
  * Coerce arbitrary JSON (disk file, network body) into a valid delta record:
  * known fields validated strictly (invalid ones drop/clamp per module doc),
@@ -705,6 +760,9 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.obsidian !== null && typeof r.obsidian === "object" && !Array.isArray(r.obsidian)) {
 		out.obsidian = sanitizeObsidian(r.obsidian as Record<string, unknown>);
+	}
+	if (r.review !== null && typeof r.review === "object" && !Array.isArray(r.review)) {
+		out.review = sanitizeReview(r.review as Record<string, unknown>);
 	}
 	// Unknown top-level keys ride along untouched (forward-compat). One
 	// known-DEAD key is stripped instead of riding: `chat` (the old

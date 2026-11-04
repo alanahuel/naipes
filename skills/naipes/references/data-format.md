@@ -21,7 +21,16 @@ graph/coverage.jsonl       Extraction fingerprints, NOT learner assessment
 graph/positions.json      Canvas layout, not semantic relationships
 graph/render-settings.json  Presentation preferences, not learning evidence
 jobs/<job-id>.json        Background work records; delivered artifacts also appear in sessions
+review/sources.json       Spaced review: activation time, activated areas, pauses
+review/intake.jsonl       Spaced review: ideas released by the daily cap {nodeId, day, reason}
+review/notices.jsonl      Spaced review: review notifications sent
 ```
+
+Spaced-review GRADES are not stored anywhere: the app derives them on read from
+the session records (teach «check» answers per plan step, practice `conclude`
+outcomes on targeted problems — see `src/core/review.ts`). The `review/` files
+hold only what cannot be derived: which areas were switched on, what is paused,
+and when each backlog/new idea was released.
 
 `settings.json`, downloaded models, caches, and provider debug logs are not needed
 to interpret learning history. `auth.json` is normally one directory above data;

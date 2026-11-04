@@ -38,6 +38,7 @@ import {
 	type DictationSettings,
 	type CompactionSettings,
 	type ObsidianSettings,
+	type ReviewSettings,
 	type GraphSettings,
 	type ModelSlot,
 	type ModelSlotName,
@@ -98,6 +99,8 @@ export interface EffectiveSettings {
 	compaction: Required<CompactionSettings>;
 	/** The Obsidian connection, concrete (empty vaultPath = no vault chosen). */
 	obsidian: Required<ObsidianSettings>;
+	/** Spaced review tunables, concrete (factory values fill gaps). */
+	review: Required<ReviewSettings>;
 }
 
 /** The conversation pair's chain (BYOK, owner 2026-09-22): the chat's own
@@ -231,6 +234,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			folders: record?.obsidian?.folders ?? FACTORY_SETTINGS.obsidian.folders,
 			outputFolder: record?.obsidian?.outputFolder ?? FACTORY_SETTINGS.obsidian.outputFolder,
 		},
+		review: { ...FACTORY_SETTINGS.review, ...record?.review },
 	};
 }
 

@@ -29,6 +29,8 @@ export const PATHS = {
 	/** Debug artifacts (env-gated): data/debug/provider-events/<chatId>.jsonl
 	 * raw provider stream recordings (src/agent/provider-events.ts). */
 	debug: path.join(DATA_ROOT, "debug"),
+	/** Spaced review («Repaso», owner 2026-11-04): src/store/review.ts. */
+	review: path.join(DATA_ROOT, "review"),
 } as const;
 
 // ─── Models ────────────────────────────────────────────────────────────────
@@ -92,6 +94,22 @@ export const RENDER_SETTINGS_FILE = path.join(PATHS.graph, "render-settings.json
  *  graph-family write creates it. positions.json is REBUILDABLE and rides
  *  along unversioned by design (owner ruling). */
 export const GRAPH_FORMAT_FILE = path.join(PATHS.graph, "format.json");
+
+/**
+ * Spaced review («Repaso», owner 2026-11-04). Review GRADES are never
+ * stored — they derive from the chat records (src/core/review.ts). Only
+ * what cannot be derived lives here:
+ *   sources.json   read-modify-write: activation time, activated Obsidian
+ *                  areas, pauses (sessions / areas / single ideas).
+ *   intake.jsonl   append-only: one line per idea released by the shared
+ *                  daily cap (history backlog first, then new area ideas).
+ *   notices.jsonl  append-only: review notices sent (digest/evening).
+ */
+export const REVIEW_FILES = {
+	sources: path.join(PATHS.review, "sources.json"),
+	intake: path.join(PATHS.review, "intake.jsonl"),
+	notices: path.join(PATHS.review, "notices.jsonl"),
+} as const;
 
 /**
  * THE USER SETTINGS RECORD (settings-storage wave, 2026-09-19): one
