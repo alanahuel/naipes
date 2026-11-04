@@ -47,7 +47,7 @@ declare global {
 			/** The zoom truth (owner round 7): subscribes to "np:zoom" pushes; returns unsubscribe. */
 			onZoom?: (cb: (factor: number) => void) => () => void;
 			getZoom?: () => Promise<number>;
-			/** Native folder picker (Settings → Obsidian); null = cancelled. */
+			/** Native folder picker (Settings → Knowledge folder); null = cancelled. */
 			pickFolder?: (defaultPath?: string) => Promise<string | null>;
 			/** Opens the app's data folder in the system file manager. */
 			openDataFolder?: () => void;

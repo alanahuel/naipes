@@ -31,7 +31,7 @@ En lugar de limitarse a explicarte algo, usa tus respuestas y tu forma de pensar
 ## Qué añade Naipes
 
 - **Suscripción de Claude Code como proveedor.** Usa los modelos de tu suscripción de Claude Code a través del CLI `claude` instalado en tu equipo, sin API key.
-- **Conexión bidireccional con Obsidian.** Las carpetas que elijas de tu vault alimentan el grafo de conocimiento. Las transcripciones, las prácticas, los conceptos y los resúmenes de sesión se escriben de vuelta en una carpeta de salida configurable. Más detalles en [docs/obsidian.md](docs/obsidian.md).
+- **Conexión bidireccional con tu carpeta de conocimiento.** Elige cualquier carpeta de notas Markdown (un vault de Obsidian o una carpeta normal): las subcarpetas que marques alimentan el grafo de conocimiento. Las transcripciones, las prácticas, los conceptos y los resúmenes de sesión se escriben de vuelta en una carpeta de salida configurable, con enlaces Markdown estándar o, con el formato Obsidian activado, con `[[wikilinks]]`. Más detalles en [docs/obsidian.md](docs/obsidian.md).
 - **Instalación local en Linux.** `scripts/install-linux.sh` compila tu copia del repositorio como AppImage y la instala con lanzador e icono.
 - **Una interfaz rediseñada:**
   - pestañas Inicio · Mis sesiones · Conocimiento sobre una sola hoja;
@@ -56,7 +56,7 @@ El agente también puede investigar preguntas en segundo plano, crear explicacio
 
 ## Conocimiento que se acumula
 
-Lo que aprendes se acumula como proposiciones y cadenas de razonamiento: afirmaciones concretas y las premisas que llevan a ellas. El grafo muestra esa estructura, con enlaces a las sesiones de origen. También puedes importar notas o conectar tu vault de Obsidian.
+Lo que aprendes se acumula como proposiciones y cadenas de razonamiento: afirmaciones concretas y las premisas que llevan a ellas. El grafo muestra esa estructura, con enlaces a las sesiones de origen. También puedes importar notas o conectar tu carpeta de conocimiento (por ejemplo, un vault de Obsidian).
 
 Las sesiones futuras pueden leer el grafo en lugar de empezar de cero, y las de práctica pueden sacar de él su material. El grafo guarda ideas y conexiones, no puntuaciones de tu capacidad.
 

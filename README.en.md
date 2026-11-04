@@ -31,7 +31,7 @@ Instead of just giving you an explanation, it uses your answers and thinking to 
 ## What Naipes adds
 
 - **Claude Code subscription as a provider.** Use the models in your Claude Code subscription through the local `claude` CLI, with no API key.
-- **Two-way Obsidian connection.** The vault folders you choose feed the knowledge graph. Transcripts, practice results, concepts and session summaries are written back to a configurable output folder. Details in [docs/obsidian.md](docs/obsidian.md).
+- **Two-way knowledge-folder connection.** Pick any folder of Markdown notes (an Obsidian vault or a plain folder): the subfolders you check feed the knowledge graph. Transcripts, practice results, concepts and session summaries are written back to a configurable output folder, with standard Markdown links or, with the Obsidian format on, `[[wikilinks]]`. Details in [docs/obsidian.md](docs/obsidian.md).
 - **Local Linux install.** `scripts/install-linux.sh` builds your checkout into an AppImage and installs it with a launcher and icon.
 - **A redesigned interface:**
   - Home · My sessions · Knowledge tabs on a single sheet;
@@ -56,7 +56,7 @@ The agent can also research questions in the background, create visual explanati
 
 ## Knowledge that carries forward
 
-What you are taught accumulates as propositions and reasoning chains: individual claims and the premises that lead to them. The graph shows this structure, with links back to the source sessions. You can also import notes or connect your Obsidian vault.
+What you are taught accumulates as propositions and reasoning chains: individual claims and the premises that lead to them. The graph shows this structure, with links back to the source sessions. You can also import notes or connect your knowledge folder (an Obsidian vault, for example).
 
 Future teaching sessions can read the graph instead of starting from scratch, and practice sessions can draw their material from it. It stores the ideas and their connections, not ratings of your ability.
 

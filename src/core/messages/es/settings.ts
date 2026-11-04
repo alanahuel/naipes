@@ -1,4 +1,4 @@
-/** Las secciones de ajustes: proveedores, conexiones, agente, apariencia, grafo, Obsidian, atajos, general. */
+/** Las secciones de ajustes: proveedores, conexiones, agente, apariencia, grafo, carpeta de conocimiento, atajos, general. */
 export default {
 	// Compartido entre secciones
 	"settings.retry": "Probar otra vez",
@@ -209,25 +209,29 @@ export default {
 	"settings.graph.chunkBudget": "Tamaño de cada extracción",
 	"settings.graph.chunkBudgetAria": "tamaño de cada extracción",
 
-	// Obsidian
+	// Carpeta de conocimiento (la sección `obsidian`)
+	"settings.obsidian.title": "Carpeta de conocimiento",
 	"settings.obsidian.connection": "Conexión",
-	"settings.obsidian.connectionHint": "Lee las carpetas que elijas y guarda tus sesiones en el vault",
-	"settings.obsidian.connectionToggle": "conexión con Obsidian",
-	"settings.obsidian.vault": "Vault",
-	"settings.obsidian.chooseVault": "Elige la carpeta de tu vault",
+	"settings.obsidian.connectionHint": "Lee las carpetas que elijas y guarda tus sesiones en la carpeta",
+	"settings.obsidian.connectionToggle": "conexión con la carpeta de conocimiento",
+	"settings.obsidian.vault": "Carpeta",
+	"settings.obsidian.chooseVault": "Elige tu carpeta de notas",
 	"settings.obsidian.folderNotFound": "No encuentro esa carpeta",
-	"settings.obsidian.pathPlaceholder": "/ruta/a/tu/vault",
-	"settings.obsidian.pathAria": "ruta del vault",
+	"settings.obsidian.pathPlaceholder": "/ruta/a/tu/carpeta",
+	"settings.obsidian.pathAria": "ruta de la carpeta",
 	"settings.obsidian.choose": "Elegir…",
 	"settings.obsidian.outputFolder": "Carpeta de salida",
-	"settings.obsidian.outputFolderHint": "Carpeta del vault donde la app guarda sus notas",
+	"settings.obsidian.outputFolderHint": "Subcarpeta donde la app guarda sus notas",
 	"settings.obsidian.outputFolderAria": "carpeta de salida",
+	"settings.obsidian.format": "Formato Obsidian",
+	"settings.obsidian.formatHint": "Enlaces [[así]] y aliases. Apagado: enlaces Markdown estándar, para cualquier editor",
+	"settings.obsidian.formatToggle": "formato Obsidian",
 	"settings.obsidian.watching": "Atento a los cambios",
 	"settings.obsidian.notWatching": "Sin vigilar los cambios",
 	"settings.obsidian.synced": { one: "{n} nota sincronizada", other: "{n} notas sincronizadas" },
 	"settings.obsidian.queue": "{running} en extracción, {queued} en espera",
 	"settings.obsidian.lastError": "último error: {error}",
-	"settings.obsidian.readError": "No pude leer el vault: {error}. Revisa que la carpeta exista.",
+	"settings.obsidian.readError": "No pude leer la carpeta: {error}. Revisa que exista.",
 	"settings.obsidian.folders": "Carpetas que leer",
 	"settings.obsidian.selected": {
 		one: "{n} nota elegida. Cada nota nueva o cambiada cuesta una extracción; las que no cambian no cuestan nada.",

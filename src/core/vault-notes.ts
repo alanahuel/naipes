@@ -1,6 +1,7 @@
 /**
- * THE OBSIDIAN NOTE FORMAT (owner, 2026-11-01) — pure rendering for the
- * app → vault direction. Every note the app writes has three parts:
+ * THE NOTE FORMAT (owner, 2026-11-01; generalized to any knowledge folder
+ * 2026-11-04) — pure rendering for the app → folder direction. Links are
+ * `[[wikilinks]]` with the Obsidian format on, relative Markdown links off. Every note the app writes has three parts:
  *
  *   ---                         frontmatter: the app's keys are rewritten,
  *   tipo: …                     any key the user adds survives untouched
@@ -17,7 +18,7 @@
  */
 
 /** The default output folder (vault-relative; configurable in Settings →
- *  Obsidian). The output folder is always excluded from reading, so the app
+ *  Knowledge folder). The output folder is always excluded from reading, so the app
  *  never re-extracts what it wrote itself. */
 export const DEFAULT_VAULT_OUTPUT_FOLDER = "Naipes";
 
@@ -75,6 +76,37 @@ export function wikilink(relPath: string, label?: string): string {
 	const target = relPath.replace(/\.md$/i, "");
 	const text = label ?? target.split("/").pop() ?? target;
 	return `[[${target}|${text.replace(/[[\]|]/g, " ")}]]`;
+}
+
+/** The POSIX relative path from folder `fromDir` to `to` (both
+ *  folder-relative, no leading slash). Pure — core has no node imports. */
+function relativePath(fromDir: string, to: string): string {
+	const from = fromDir === "" ? [] : fromDir.split("/");
+	const target = to.split("/");
+	let common = 0;
+	while (common < from.length && common < target.length - 1 && from[common] === target[common]) common++;
+	return [...from.slice(common).map(() => ".."), ...target.slice(common)].join("/");
+}
+
+/** A standard Markdown link from the note at `fromRel` to the note at
+ *  `toRel` (both folder-relative): relative path, every segment
+ *  URL-encoded (spaces, accents, parentheses), the label's brackets
+ *  escaped. Works in any Markdown editor (knowledge folder, 2026-11-04). */
+export function markdownLink(fromRel: string, toRel: string, label?: string): string {
+	const fromDir = fromRel.includes("/") ? fromRel.slice(0, fromRel.lastIndexOf("/")) : "";
+	const href = relativePath(fromDir, toRel)
+		.split("/")
+		.map((segment) => (segment === ".." ? segment : encodeURIComponent(segment).replace(/\(/g, "%28").replace(/\)/g, "%29")))
+		.join("/");
+	const text = label ?? toRel.replace(/\.md$/i, "").split("/").pop() ?? toRel;
+	return `[${text.replace(/([[\]\\])/g, "\\$1")}](${href})`;
+}
+
+/** The link the app writes from note `fromRel` to note `toRel`: a
+ *  `[[wikilink]]` with the Obsidian format on, a relative Markdown link
+ *  otherwise (owner, 2026-11-04). */
+export function noteLink(obsidianFormat: boolean, fromRel: string, toRel: string, label?: string): string {
+	return obsidianFormat ? wikilink(toRel, label) : markdownLink(fromRel, toRel, label);
 }
 
 function yamlScalar(value: string): string {
@@ -160,7 +192,7 @@ export interface ConceptNoteInput {
 	name: string;
 	statement: string;
 	aliases: string[];
-	/** Each chain concluding this concept: its premises as wikilinks. */
+	/** Each chain concluding this concept: its premises as links. */
 	derivedFrom: string[][];
 	/** Each chain using this concept as a premise: the conclusion link plus
 	 *  the other premises it is used together with. */
@@ -187,4 +219,36 @@ export function conceptNoteBody(input: ConceptNoteInput): string {
 	}
 	if (input.sources.length > 0) out.push("", "## Fuentes", "", ...input.sources.map((s) => `- ${s}`));
 	return out.join("\n");
+}
+
+// ─── summary notes ────────────────────────────────────────────────────────────
+
+export const SUMMARY_CONCEPTS_HEADING = "## Conceptos";
+export const SUMMARY_TRANSCRIPT_HEADING = "## Transcripción";
+
+/** A summary note's app zone: the title, the model's prose, then the
+ *  app-built link lists (concepts, transcript). */
+export function summaryNoteBody(title: string, prose: string, concepts: string[], transcriptLink: string | null): string {
+	return [
+		`# ${title}`,
+		"",
+		prose.trim(),
+		...(concepts.length > 0 ? ["", SUMMARY_CONCEPTS_HEADING, "", ...concepts.map((c) => `- ${c}`)] : []),
+		...(transcriptLink ? ["", SUMMARY_TRANSCRIPT_HEADING, "", `- ${transcriptLink}`] : []),
+	].join("\n");
+}
+
+/** The model's prose inside a summary note's app zone (summaryNoteBody's
+ *  inverse): drops the title line and the trailing link lists, so the
+ *  lists can be rebuilt without a model call. */
+export function summaryProseOf(zone: string): string {
+	let text = zone.replace(/\r\n/g, "\n");
+	if (text.startsWith("# ")) text = text.slice(text.indexOf("\n") === -1 ? text.length : text.indexOf("\n") + 1);
+	for (const heading of [SUMMARY_TRANSCRIPT_HEADING, SUMMARY_CONCEPTS_HEADING]) {
+		const at = text.lastIndexOf(`\n${heading}\n`);
+		if (at === -1) continue;
+		const tail = text.slice(at + heading.length + 2).trim();
+		if (tail.split("\n").every((line) => line.trim() === "" || line.startsWith("- "))) text = text.slice(0, at);
+	}
+	return text.trim();
 }

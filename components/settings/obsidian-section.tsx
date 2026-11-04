@@ -1,15 +1,17 @@
 "use client";
 
 /**
- * Settings → Obsidian (owner, 2026-11-01): the vault connection. One switch
- * turns both directions on; the vault path (native picker on desktop); the
+ * Settings → Knowledge folder (owner, 2026-11-01 as "Obsidian"; generalized
+ * 2026-11-04): the folder connection. One switch turns both directions on;
+ * the folder path (native picker on desktop); the Obsidian-format switch
+ * (wikilinks vs standard Markdown links); the
  * folders to read as a checkbox tree with note counts — every new or
  * changed note costs one extraction run, so folders start unchecked and
  * the selection's note total is always visible.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import type { ObsidianSettings } from "@/src/core";
+import { resolveObsidianFormat, type ObsidianSettings } from "@/src/core";
 import { useT } from "@/components/i18n";
 import { CommitInput, SettingsGroup, SettingsRow, Toggle } from "./controls.tsx";
 
@@ -58,6 +60,7 @@ export function ObsidianSection({
 	const enabled = obsidian?.enabled ?? false;
 	const folders = obsidian?.folders ?? [];
 	const vaultPath = obsidian?.vaultPath ?? "";
+	const obsidianFormat = resolveObsidianFormat(obsidian);
 
 	const refresh = useCallback(async () => {
 		try {
@@ -155,6 +158,9 @@ export function ObsidianSection({
 						if (next) void write({ ...obsidian, outputFolder: next });
 					}}
 				/>
+			</SettingsRow>
+			<SettingsRow label={t("settings.obsidian.format")} hint={t("settings.obsidian.formatHint")} testid="obsidian-row-format">
+				<Toggle checked={obsidianFormat} label={t("settings.obsidian.formatToggle")} testid="toggle-obsidian-format" onChange={(on) => void write({ ...obsidian, obsidianFormat: on })} />
 			</SettingsRow>
 			{status && enabled && (
 				<p className="text-xs text-muted-foreground" data-testid="obsidian-status">

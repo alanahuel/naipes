@@ -269,7 +269,9 @@ export interface DesktopSettings {
 export const REVIEW_RETENTION_MIN = 0.8;
 export const REVIEW_RETENTION_MAX = 0.97;
 
-/** The Obsidian vault connection (owner, 2026-11-01). Both directions ride
+/** The knowledge-folder connection (owner, 2026-11-01 as "Obsidian";
+ *  generalized to any folder 2026-11-04 — the section keeps its `obsidian`
+ *  key). Both directions ride
  *  ONE switch: vault → graph (the chosen folders are watched and every new
  *  or changed note is extracted, a changed/deleted note's old contribution
  *  is removed first) and app → vault (transcripts, practice results,
@@ -284,6 +286,21 @@ export interface ObsidianSettings {
 	folders?: string[];
 	/** Vault-relative folder the app writes its notes into (never read back). */
 	outputFolder?: string;
+	/** The Obsidian note format (knowledge folder, owner 2026-11-04): on =
+	 *  `[[wikilinks]]`, off = relative Markdown links. Absent = derived by
+	 *  resolveObsidianFormat (on for a record that already had a vault
+	 *  before the switch existed, off for a fresh install). */
+	obsidianFormat?: boolean;
+}
+
+/** The effective Obsidian-format switch of a stored `obsidian` section: the
+ *  explicit value, else ON when a vault path was already saved (an install
+ *  from before the switch keeps its wikilinks), else OFF. The settings PUT
+ *  pins this value on the first write that lacks the field, so choosing a
+ *  folder later never flips a fresh install to ON. */
+export function resolveObsidianFormat(section: ObsidianSettings | undefined): boolean {
+	if (typeof section?.obsidianFormat === "boolean") return section.obsidianFormat;
+	return typeof section?.vaultPath === "string" && section.vaultPath.trim() !== "";
 }
 
 /** One app-wide dictation preference, shared by every composer. */
@@ -479,7 +496,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 	},
 	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096 },
 	compaction: { thresholdTokens: 150_000 },
-	obsidian: { enabled: false, vaultPath: "", folders: [], outputFolder: DEFAULT_VAULT_OUTPUT_FOLDER },
+	obsidian: { enabled: false, vaultPath: "", folders: [], outputFolder: DEFAULT_VAULT_OUTPUT_FOLDER, obsidianFormat: false },
 	review: { targetRetention: 0.9, digestTime: "09:00", eveningTime: "19:00", newPerDay: 15, batchSize: 10, confidenceThreshold: 70 },
 	desktop: { tray: true, autostart: true },
 };
@@ -697,6 +714,8 @@ function sanitizeObsidian(raw: Record<string, unknown>): ObsidianSettings {
 	}
 	const outputFolder = normalizeVaultFolder(raw.outputFolder);
 	if (outputFolder !== null) out.outputFolder = outputFolder;
+	const obsidianFormat = boolOrDrop(raw.obsidianFormat);
+	if (obsidianFormat !== undefined) out.obsidianFormat = obsidianFormat;
 	return out;
 }
 

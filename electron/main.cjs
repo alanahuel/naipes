@@ -1036,7 +1036,7 @@ async function main() {
 	// window grows right. No-op when already wide.
 	// The renderer's first paint can race did-finish-load — it asks for
 	// the current factor itself (mirrors "np:zoom" pushes).
-	// Settings → Obsidian: the native folder picker for the vault path.
+	// Settings → Knowledge folder: the native folder picker for the folder path.
 	// Returns the chosen absolute path, or null when cancelled.
 	ipcMain.handle("np:pick-folder", async (event, defaultPath) => {
 		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted desktop request.");

@@ -1,5 +1,6 @@
 /**
- * The Obsidian connection (owner, 2026-11-01): the pure note format
+ * The knowledge-folder connection (owner, 2026-11-01 as "Obsidian";
+ * generalized 2026-11-04): the pure note format (both link styles)
  * (core/vault-notes.ts), the settings section, and the sync/export loop
  * (server/vault.ts) against a temp vault + temp data dir. The extraction
  * pipeline is faked at its importNotes seam: no model, no network.
@@ -25,11 +26,15 @@ import {
 	composeManagedNote,
 	isInOutputFolder,
 	managedZoneOf,
+	markdownLink,
+	noteLink,
 	restampManagedNote,
 	safeNoteName,
+	summaryNoteBody,
+	summaryProseOf,
 	wikilink,
 } from "../src/core/vault-notes.ts";
-import { normalizeVaultFolder, sanitizeUserSettings } from "../src/core/settings.ts";
+import { normalizeVaultFolder, resolveObsidianFormat, sanitizeUserSettings } from "../src/core/settings.ts";
 
 describe("vault note format", () => {
 	it("mints a new note with frontmatter, the app zone and the user zone", () => {
@@ -84,6 +89,30 @@ describe("vault note format", () => {
 		assert.ok(!isInOutputFolder("Recursos/other.md", OUT));
 		assert.ok(!isInOutputFolder(`${OUT}-old/a.md`, OUT));
 	});
+
+	it("writes relative, encoded Markdown links", () => {
+		assert.equal(markdownLink("Naipes/Conceptos/A.md", "Naipes/Conceptos/Límite.md", "Límite"), "[Límite](L%C3%ADmite.md)");
+		assert.equal(
+			markdownLink("Naipes/Conceptos/A.md", "Naipes/Transcripciones/Leyes de Newton (abc123).md"),
+			"[Leyes de Newton (abc123)](../Transcripciones/Leyes%20de%20Newton%20%28abc123%29.md)",
+		);
+		assert.equal(markdownLink("Recursos/Naipes/Conceptos/A.md", "Notas/dos.md"), "[dos](../../../Notas/dos.md)");
+		assert.equal(markdownLink("A.md", "x/B.md", "a [b]"), "[a \\[b\\]](x/B.md)");
+	});
+
+	it("picks the link style from the Obsidian format switch", () => {
+		assert.equal(noteLink(true, "Naipes/Conceptos/A.md", "Naipes/Conceptos/B.md", "B"), "[[Naipes/Conceptos/B|B]]");
+		assert.equal(noteLink(false, "Naipes/Conceptos/A.md", "Naipes/Conceptos/B.md", "B"), "[B](B.md)");
+	});
+
+	it("rebuilds a summary's link lists without touching the prose", () => {
+		const prose = "Primer párrafo.\n\nSegundo párrafo con - guion.";
+		const old = summaryNoteBody("Sesión", prose, ["[[a|A]]", "B"], "[[t|Sesión]]");
+		assert.equal(summaryProseOf(old), prose);
+		assert.equal(summaryProseOf(summaryNoteBody("Sesión", prose, [], null)), prose);
+		const rebuilt = summaryNoteBody("Sesión", summaryProseOf(old), ["[A](a.md)", "B"], "[Sesión](t.md)");
+		assert.ok(rebuilt.includes(prose) && rebuilt.includes("- [A](a.md)") && !rebuilt.includes("[["));
+	});
 });
 
 describe("obsidian settings section", () => {
@@ -93,6 +122,15 @@ describe("obsidian settings section", () => {
 		assert.equal(normalizeVaultFolder(""), null);
 		const record = sanitizeUserSettings({ version: 1, obsidian: { enabled: true, vaultPath: " /v ", folders: ["a", "a", "../x"], outputFolder: "/Out//Dir/" } });
 		assert.deepEqual(record?.obsidian, { enabled: true, vaultPath: "/v", folders: ["a"], outputFolder: "Out/Dir" });
+		assert.equal(sanitizeUserSettings({ version: 1, obsidian: { obsidianFormat: false } })?.obsidian?.obsidianFormat, false);
+	});
+
+	it("derives the Obsidian format: on for a pre-switch vault, off for a fresh install", () => {
+		assert.equal(resolveObsidianFormat(undefined), false);
+		assert.equal(resolveObsidianFormat({ vaultPath: "" }), false);
+		assert.equal(resolveObsidianFormat({ vaultPath: "/v" }), true);
+		assert.equal(resolveObsidianFormat({ vaultPath: "/v", obsidianFormat: false }), false);
+		assert.equal(resolveObsidianFormat({ obsidianFormat: true }), true);
 	});
 
 	it("rejects bad PUT bodies", async () => {
@@ -101,6 +139,8 @@ describe("obsidian settings section", () => {
 		assert.equal(parseObsidianSettingsBody({ outputFolder: "../escape" }).ok, false);
 		assert.equal(parseObsidianSettingsBody({ folders: ["../escape"] }).ok, false);
 		assert.deepEqual(parseObsidianSettingsBody({ enabled: true, folders: ["a/"] }), { ok: true, settings: { enabled: true, folders: ["a"] } });
+		assert.equal(parseObsidianSettingsBody({ obsidianFormat: "yes" }).ok, false);
+		assert.deepEqual(parseObsidianSettingsBody({ obsidianFormat: false }), { ok: true, settings: { obsidianFormat: false } });
 	});
 });
 
@@ -262,5 +302,32 @@ describe("vault sync", () => {
 		stores.chatStore.deleteChat(chat.id);
 		vault.exportVaultNow();
 		assert.ok(fs.readFileSync(rel, "utf-8").includes('estado: "eliminada"'));
+	});
+
+	it("pins the derived format on write and switches every note's links", async () => {
+		const { PUT } = await import("../app/api/settings/[section]/route.ts");
+		const { readSettingsRecord, writeSettingsRecord } = await import("../src/server/index.ts");
+		const put = (body: unknown) =>
+			PUT(new Request("http://localhost/api/settings/obsidian", { method: "PUT", body: JSON.stringify(body) }), {
+				params: Promise.resolve({ section: "obsidian" }),
+			});
+		const section = { enabled: true, vaultPath: VAULT, folders: ["Notas", "Recursos"], outputFolder: OUT };
+		const concept = path.join(VAULT, OUT, "Conceptos", "Masa.md");
+
+		// A vault from before the switch: the first write pins ON.
+		assert.equal((await put(section)).status, 200);
+		assert.equal(readSettingsRecord()?.obsidian?.obsidianFormat, true);
+		assert.ok(fs.readFileSync(concept, "utf-8").includes("[[Notas/dos|dos]]"));
+
+		// Off: standard Markdown links, relative to the note.
+		assert.equal((await put({ ...section, obsidianFormat: false })).status, 200);
+		const plain = fs.readFileSync(concept, "utf-8");
+		assert.ok(plain.includes("[dos](../../../Notas/dos.md)"), plain);
+		assert.ok(!plain.includes("[["), "no wikilink is left");
+
+		// A fresh install (no vault yet) stays OFF after choosing a folder.
+		writeSettingsRecord({ ...readSettingsRecord()!, obsidian: { enabled: false } });
+		assert.equal((await put(section)).status, 200);
+		assert.equal(readSettingsRecord()?.obsidian?.obsidianFormat, false);
 	});
 });

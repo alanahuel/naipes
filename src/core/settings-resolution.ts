@@ -27,6 +27,7 @@ import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
 import type { SearchEngineId } from "./search.ts";
 import {
+	resolveObsidianFormat,
 	BACKGROUND_MODEL_ROLES,
 	FACTORY_SETTINGS,
 	MODEL_SLOTS,
@@ -236,6 +237,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			vaultPath: record?.obsidian?.vaultPath ?? FACTORY_SETTINGS.obsidian.vaultPath,
 			folders: record?.obsidian?.folders ?? FACTORY_SETTINGS.obsidian.folders,
 			outputFolder: record?.obsidian?.outputFolder ?? FACTORY_SETTINGS.obsidian.outputFolder,
+			obsidianFormat: resolveObsidianFormat(record?.obsidian),
 		},
 		review: { ...FACTORY_SETTINGS.review, ...record?.review },
 		desktop: { ...FACTORY_SETTINGS.desktop, ...record?.desktop },

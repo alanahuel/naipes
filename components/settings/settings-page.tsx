@@ -5,7 +5,7 @@
  * answer one question:
  *
  *   /settings/ai           Tu IA        — model keys, subscriptions, models, tools
- *   /settings/connections  Conexiones   — Obsidian, dictation, search
+ *   /settings/connections  Conexiones   — knowledge folder, dictation, search
  *   /settings/review       Repaso       — recall target, notices, tray (2026-11-04)
  *   /settings/appearance   Apariencia
  *   /settings/shortcuts    Atajos
@@ -173,7 +173,7 @@ export function SettingsPage({ page, initialRow }: { page: SettingsPageId; initi
 					</>
 				) : page === "connections" ? (
 					<>
-						<Block title="Obsidian" testid="section-obsidian">
+						<Block title={t("settings.obsidian.title")} testid="section-obsidian">
 							<ObsidianSection obsidian={record.obsidian} onSectionChange={(next: ObsidianSettings) => write("obsidian", next)} />
 						</Block>
 						<Block testid="section-keys">

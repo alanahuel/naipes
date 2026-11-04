@@ -1,6 +1,6 @@
-# Obsidian connection and local Linux install
+# Knowledge folder (Obsidian or any folder) and local Linux install
 
-Naipes additions (2026-11-01; generalized for publication 2026-11-03). Not part of upstream LearnHarness.
+Naipes additions (2026-11-01; generalized for publication 2026-11-03; any folder, not just Obsidian, 2026-11-04). Not part of upstream LearnHarness.
 
 ## Desktop app on Linux
 
@@ -17,15 +17,19 @@ Naipes additions (2026-11-01; generalized for publication 2026-11-03). Not part 
 
 The build passes `-c.extraMetadata.npLocalBuild=true`. `electron/main.cjs` reads that flag from the packaged `package.json`: a local build never starts the GitHub updater, so a published release can never replace a build that carries uncommitted or unreleased changes. Instead it only *looks*: at startup, every 24 hours and from **Check for Updates…** / Settings (same automatic-updates toggle), it asks GitHub's `releases/latest` and, when a newer version exists, says so — Settings shows it with a link to the release page, the bell gets a notice, and one desktop notification fires per version (`electron/local-update-check.cjs`; the last announced version persists in `userData/local-update.json`). Nothing is downloaded or installed. To update, commit or pull, then run the script again. `--no-build` reinstalls the last `dist/` AppImage.
 
-## Settings → Obsidian
+## Settings → Connections → Knowledge folder
 
-One switch turns on both directions. Settings (section `obsidian` in `settings.json`):
+Any folder of Markdown notes works — an Obsidian vault or a plain folder. One switch turns on both directions. Settings (section `obsidian` in `settings.json`; the key kept its historical name, and so did `vaultPath`, `src/server/vault.ts` and `/api/vault`):
 
 ```json
-{ "enabled": true, "vaultPath": "/home/me/Obsidian/MyVault", "folders": ["Areas/Mathematics"] }
+{ "enabled": true, "vaultPath": "/home/me/Notes", "folders": ["Areas/Mathematics"], "obsidianFormat": false }
 ```
 
-There is no default vault: while `vaultPath` is empty the sync stays idle and the section asks you to choose the vault folder. Folders start unchecked. The section shows how many notes the selection holds, because every new or changed note costs one extraction run.
+**Obsidian format** (`obsidianFormat`, owner 2026-11-04) picks the link style of every note the app writes: on = `[[path|label]]` wikilinks, off = relative Markdown links (`[Límite](../Conceptos/L%C3%ADmite.md)`, every segment URL-encoded, parentheses included). `aliases:` is written in both modes. When the field is absent it is derived (`resolveObsidianFormat`): ON if a `vaultPath` was already saved (installs from before the switch keep their wikilinks), OFF otherwise. `PUT /api/settings/obsidian` pins the derived value into the record on the first write that lacks it, so a fresh install stays OFF after it chooses a folder. Changing it regenerates every app note; summary notes keep the model's prose and only get their «Conceptos» / «Transcripción» link lists rebuilt (`refreshSummaries`, no model call).
+
+In this document "vault" means the chosen folder.
+
+There is no default folder: while `vaultPath` is empty the sync stays idle and the section asks you to choose the vault folder. Folders start unchecked. The section shows how many notes the selection holds, because every new or changed note costs one extraction run.
 
 ## Vault → graph (`src/server/vault.ts`)
 
@@ -39,14 +43,14 @@ There is no default vault: while `vaultPath` is empty the sync stays idle and th
 
 ## App → vault
 
-The output folder is `003 - 📋 RECURSOS/007 - NAIPES 🎓/`, with these subfolders:
+The output folder (default `Naipes/`, configurable) has these subfolders:
 
 | Subfolder | Content | Updated |
 |---|---|---|
 | `Transcripciones/` | each teaching session (`sessionMarkdown`) and the concepts extracted from it | after every turn |
 | `Prácticas/` | each practice session: problems, answers and verdicts | after every turn |
-| `Conceptos/` | one note per proposition: statement, aliases (also Obsidian `aliases`), «Se sigue de», «Permite concluir», sources | when the graph changes |
-| `Sesiones/` | model-written prose summary | **Summarize to Obsidian** in the session menu (`POST /api/chats/:id/vault-summary`; one call on the extractor's model) |
+| `Conceptos/` | one note per proposition: statement, aliases (also the `aliases` frontmatter key), «Se sigue de», «Permite concluir», sources | when the graph changes |
+| `Sesiones/` | model-written prose summary | **Summarize to your folder** in the session menu (`POST /api/chats/:id/vault-summary`; one call on the extractor's model) |
 
 Note format (`src/core/vault-notes.ts`):
 

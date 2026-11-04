@@ -393,7 +393,7 @@ export function parseDictationSettingsBody(body: unknown): SettingsBodyResult<Di
 
 /** obsidian (owner, 2026-11-01): { enabled?: boolean, vaultPath?: absolute
  *  path string, folders?: vault-relative folders, outputFolder?: vault-relative
- *  folder }. Strict write side: a
+ *  folder, obsidianFormat?: boolean }. Strict write side: a
  *  bad type or an escaping/relative folder is a 400, never a silent drop. */
 export function parseObsidianSettingsBody(body: unknown): SettingsBodyResult<ObsidianSettings> {
 	const raw = asRecord(body);
@@ -423,6 +423,10 @@ export function parseObsidianSettingsBody(body: unknown): SettingsBodyResult<Obs
 		const outputFolder = normalizeVaultFolder(raw.outputFolder);
 		if (outputFolder === null) return { ok: false, error: `invalid output folder: ${JSON.stringify(raw.outputFolder)}` };
 		settings.outputFolder = outputFolder;
+	}
+	if (raw.obsidianFormat !== undefined) {
+		if (typeof raw.obsidianFormat !== "boolean") return { ok: false, error: "obsidianFormat must be a boolean" };
+		settings.obsidianFormat = raw.obsidianFormat;
 	}
 	return { ok: true, settings };
 }

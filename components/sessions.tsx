@@ -394,7 +394,7 @@ export function SessionsPage() {
 				const body = (await res.json().catch(() => ({}))) as { file?: string; error?: string };
 				setVaultNotice(
 					res.ok
-						? { text: t("sessions.summarySaved", { file: body.file?.split("/").pop() ?? "Obsidian" }) }
+						? { text: t("sessions.summarySaved", { file: body.file?.split("/").pop() ?? "" }) }
 						: { text: body.error ?? t("sessions.summaryFailed", { status: res.status }), error: true },
 				);
 			} catch (err) {

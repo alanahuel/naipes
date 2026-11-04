@@ -30,7 +30,7 @@
  * lands here.
  */
 
-import type { AgentSettings, ChatSettings, ModelsSettings } from "@/src/core";
+import { resolveObsidianFormat, type AgentSettings, type ChatSettings, type ModelsSettings, type ObsidianSettings } from "@/src/core";
 import {
 	SETTINGS_SECTIONS,
 	allSegmentPaths,
@@ -124,7 +124,12 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 				? clampModelsLevels(parsed.settings as ModelsSettings)
 				: section === "agent" && agentHealed
 					? agentHealed
-					: parsed.settings;
+					: section === "obsidian" && (parsed.settings as ObsidianSettings).obsidianFormat === undefined
+						? // Pin the derived Obsidian-format switch on the first write that
+							// lacks it (owner, 2026-11-04): a fresh install stays OFF even
+							// after it chooses a folder; a pre-switch vault stays ON.
+							{ ...(parsed.settings as ObsidianSettings), obsidianFormat: resolveObsidianFormat(record.obsidian) }
+						: parsed.settings;
 
 	// Read-modify-write ONE section of the record; everything else rides
 	// along untouched (other sections, unknown keys — sanitize preserves).

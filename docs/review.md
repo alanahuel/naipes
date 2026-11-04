@@ -22,7 +22,7 @@ Predictions (`questionType: "predict"`) and dismissed answers never count. Only 
 
 ## What is enrolled
 
-Ideas with provenance in a teach session, ideas of activated Obsidian areas (`area:<two folder levels>`), and anything practiced — minus pauses (origin session, origin area, single idea). An idea's group is its first teach session, else its area.
+Ideas with provenance in a teach session, ideas of activated knowledge-folder areas (`area:<two folder levels>`), and anything practiced — minus pauses (origin session, origin area, single idea). An idea's group is its first teach session, else its area.
 
 **Shared daily intake** (`review.newPerDay`, 15): history already overdue when review was first computed (`activatedAt`) is released most-forgotten-first, then new area ideas, oldest first. Released lines persist in `review/intake.jsonl`, so the order never reshuffles. Days roll over at 04:00 local; Again schedules another day (no short-term steps); FSRS fuzz is on.
 

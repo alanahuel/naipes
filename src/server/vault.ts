@@ -1,6 +1,9 @@
 /**
- * THE OBSIDIAN CONNECTION (owner, 2026-11-01) — both directions between the
- * app and one Obsidian vault, behind the settings' `obsidian` section.
+ * THE KNOWLEDGE-FOLDER CONNECTION (owner, 2026-11-01 as "Obsidian";
+ * generalized to any folder 2026-11-04) — both directions between the app
+ * and one folder of notes (an Obsidian vault or any plain folder), behind
+ * the settings' `obsidian` section. Its `obsidianFormat` switch picks the
+ * link style the app writes: `[[wikilinks]]` on, relative Markdown links off.
  *
  * VAULT → GRAPH. The chosen folders are read at server start and watched
  * live (fs.watch, recursive). A note is processed once it has been quiet
@@ -41,8 +44,11 @@ import {
 	conceptNoteBody,
 	isInOutputFolder,
 	restampManagedNote,
+	managedZoneOf,
+	noteLink,
 	safeNoteName,
-	wikilink,
+	summaryNoteBody,
+	summaryProseOf,
 	type FrontmatterFields,
 } from "../core/vault-notes.ts";
 import type { ChatRecord, GraphNode } from "../core/contracts.ts";
@@ -63,7 +69,7 @@ const CHAT_EXPORT_DELAY_MS = 3_000;
 const CONCEPT_EXPORT_DELAY_MS = 5_000;
 
 /** The configured vault root, or null when none is set (there is no default:
- *  the vault is chosen once in Settings → Obsidian). */
+ *  the folder is chosen once in Settings → Knowledge folder). */
 function configuredRoot(vaultPath: string | undefined): string | null {
 	return vaultPath ? path.resolve(vaultPath) : null;
 }
@@ -118,6 +124,8 @@ interface VaultConfig {
 	root: string;
 	folders: string[];
 	outputFolder: string;
+	/** Link style of every note the app writes (see the header). */
+	obsidianFormat: boolean;
 }
 
 interface VaultRuntime {
@@ -169,7 +177,12 @@ function currentConfig(): VaultConfig | null {
 		return null;
 	}
 	const { outputFolder } = obsidian;
-	return { root, folders: obsidian.folders.filter((f) => !isInOutputFolder(f, outputFolder)), outputFolder };
+	return {
+		root,
+		folders: obsidian.folders.filter((f) => !isInOutputFolder(f, outputFolder)),
+		outputFolder,
+		obsidianFormat: obsidian.obsidianFormat,
+	};
 }
 
 function state(): VaultState | null {
@@ -431,15 +444,20 @@ function relocate(root: string, from: string | undefined, to: string): void {
 	}
 }
 
-function conceptLinkOf(s: VaultState, nodeId: string, fallback: string): string {
-	const rel = Object.entries(s.concepts).find(([, id]) => id === nodeId)?.[0];
-	return rel ? wikilink(rel, fallback) : fallback;
+/** A link written into the note at `fromRel`, in the configured style. */
+function linkFrom(fromRel: string, toRel: string, label?: string): string {
+	return noteLink(runtime().config?.obsidianFormat ?? false, fromRel, toRel, label);
 }
 
-function chatConcepts(s: VaultState, chatId: string, nodes: GraphNode[]): string[] {
+function conceptLinkOf(s: VaultState, fromRel: string, nodeId: string, fallback: string): string {
+	const rel = Object.entries(s.concepts).find(([, id]) => id === nodeId)?.[0];
+	return rel ? linkFrom(fromRel, rel, fallback) : fallback;
+}
+
+function chatConcepts(s: VaultState, fromRel: string, chatId: string, nodes: GraphNode[]): string[] {
 	return nodes
 		.filter((node) => node.provenance.some((pt) => pt.chatId === chatId))
-		.map((node) => conceptLinkOf(s, node.id, node.name));
+		.map((node) => conceptLinkOf(s, fromRel, node.id, node.name));
 }
 
 function exportChat(chatId: string): void {
@@ -453,10 +471,10 @@ function exportChat(chatId: string): void {
 	const rel = claimPath(practice ? VAULT_SUBFOLDERS.practice : VAULT_SUBFOLDERS.transcripts, record.title, chatId, owners);
 	relocate(config.root, s.chats[chatId], rel);
 	const abs = path.join(config.root, rel);
-	const concepts = chatConcepts(s, chatId, getGraph(stores.graphStore).nodes);
+	const concepts = chatConcepts(s, rel, chatId, getGraph(stores.graphStore).nodes);
 	const body = [
 		`# ${record.title}`,
-		...(s.summaries[chatId] ? ["", `Resumen: ${wikilink(s.summaries[chatId], "resumen de la sesión")}`] : []),
+		...(s.summaries[chatId] ? ["", `Resumen: ${linkFrom(rel, s.summaries[chatId], "resumen de la sesión")}`] : []),
 		...(concepts.length > 0 ? ["", "## Conceptos", "", ...concepts.map((c) => `- ${c}`)] : []),
 		"",
 		"## Transcripción",
@@ -527,19 +545,15 @@ function exportConcepts(): void {
 	}
 	const previous = s.concepts;
 	s.concepts = next;
-	const link = (nodeId: string) => {
-		const node = graph.nodes.find((n) => n.id === nodeId);
-		return conceptLinkOf(s, nodeId, node?.name ?? nodeId);
-	};
-
 	// 2. Write every live concept.
 	for (const [rel, nodeId] of Object.entries(next)) {
 		const node = graph.nodes.find((n) => n.id === nodeId)!;
+		const link = (id: string) => conceptLinkOf(s, rel, id, graph.nodes.find((n) => n.id === id)?.name ?? id);
 		const sources: string[] = [];
 		for (const chatId of new Set(node.provenance.map((pt) => pt.chatId))) {
 			const vaultRel = vaultSources.get(chatId);
-			if (vaultRel) sources.push(wikilink(vaultRel));
-			else if (s.chats[chatId]) sources.push(wikilink(s.chats[chatId], titles.get(chatId)));
+			if (vaultRel) sources.push(linkFrom(rel, vaultRel));
+			else if (s.chats[chatId]) sources.push(linkFrom(rel, s.chats[chatId], titles.get(chatId)));
 			else if (sourcePath.has(chatId)) sources.push(sourcePath.get(chatId)!);
 			else if (titles.has(chatId)) sources.push(titles.get(chatId)!);
 		}
@@ -669,6 +683,36 @@ export function reconfigureVault(): void {
 		for (const chat of stores.chatStore.listChats()) exportChat(chat.id);
 	});
 	guard("reconcile chats", reconcileChats);
+	guard("refresh summaries", refreshSummaries);
+}
+
+/** Rebuild the link lists of every summary note of a live session (owner,
+ *  2026-11-04): the model's prose is kept byte for byte, only the concept
+ *  and transcript links follow the current link style and paths. No model
+ *  call; a note the user took over (markers removed) is left alone. */
+function refreshSummaries(): void {
+	const config = runtime().config;
+	const s = state();
+	if (!config || !s) return;
+	const nodes = getGraph(stores.graphStore).nodes;
+	for (const [chatId, rel] of Object.entries(s.summaries)) {
+		const record = stores.chatStore.getChat(chatId);
+		if (!record) continue;
+		const abs = path.join(config.root, rel);
+		const current = readOrNull(abs);
+		const zone = current === null ? null : managedZoneOf(current);
+		if (current === null || zone === null) continue;
+		const newline = zone.indexOf("\n");
+		const title = zone.startsWith("# ") ? zone.slice(2, newline === -1 ? undefined : newline) : record.title;
+		const body = summaryNoteBody(
+			title,
+			summaryProseOf(zone),
+			chatConcepts(s, rel, chatId, nodes),
+			s.chats[chatId] ? linkFrom(rel, s.chats[chatId], record.title) : null,
+		);
+		const next = composeManagedNote(current, [], body);
+		if (next !== null) writeIfChanged(abs, next);
+	}
 }
 
 // ─── settings UI support ──────────────────────────────────────────────────────
@@ -736,7 +780,7 @@ export function vaultOverview(requestedRoot?: string): VaultOverview {
 
 // ─── the «Resumir» button ─────────────────────────────────────────────────────
 
-const SUMMARY_SYSTEM_PROMPT = `You write the summary note a learner keeps in their Obsidian vault after a learning session.
+const SUMMARY_SYSTEM_PROMPT = `You write the summary note a learner keeps in their notes folder after a learning session.
 Write it in the language the session itself is held in. Plain prose paragraphs, no title (the note
 already has one): what the session set out to understand, the core ideas that were built and how
 they connect, where the learner struggled or changed their mind, and what remains open. Be faithful
@@ -751,7 +795,7 @@ export async function summarizeChatToVault(chatId: string): Promise<VaultSummary
 	if (!rt.config) rt.config = currentConfig();
 	const config = rt.config;
 	const s = state();
-	if (!config || !s) return { ok: false, status: 409, error: "The Obsidian connection is off (Settings → Obsidian)." };
+	if (!config || !s) return { ok: false, status: 409, error: "The knowledge-folder connection is off (Settings → Connections → Knowledge folder)." };
 	const record = stores.chatStore.getChat(chatId);
 	if (!record) return { ok: false, status: 404, error: "Unknown chat" };
 
@@ -776,14 +820,8 @@ export async function summarizeChatToVault(chatId: string): Promise<VaultSummary
 	const owners = Object.fromEntries(Object.entries(s.summaries).map(([id, rel]) => [rel, id]));
 	const rel = claimPath(VAULT_SUBFOLDERS.sessions, record.title, chatId, owners);
 	relocate(config.root, s.summaries[chatId], rel);
-	const concepts = chatConcepts(s, chatId, getGraph(stores.graphStore).nodes);
-	const body = [
-		`# ${record.title}`,
-		"",
-		summary,
-		...(concepts.length > 0 ? ["", "## Conceptos", "", ...concepts.map((c) => `- ${c}`)] : []),
-		...(s.chats[chatId] ? ["", "## Transcripción", "", `- ${wikilink(s.chats[chatId], record.title)}`] : []),
-	].join("\n");
+	const concepts = chatConcepts(s, rel, chatId, getGraph(stores.graphStore).nodes);
+	const body = summaryNoteBody(record.title, summary, concepts, s.chats[chatId] ? linkFrom(rel, s.chats[chatId], record.title) : null);
 	const abs = path.join(config.root, rel);
 	const fields: FrontmatterFields = [
 		["tipo", "resumen-sesion"],
