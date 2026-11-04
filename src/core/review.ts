@@ -525,9 +525,12 @@ export function dueToday(items: readonly ReviewItem[], now: number): ReviewItem[
 	return items.filter((i) => isActive(i) && i.due !== null && i.due < end);
 }
 
-/** Mean probability of recall over active, already-graded ideas. */
+/** Mean probability of recall over enrolled, already-graded ideas that are
+ *  not paused. Ideas still waiting for the daily intake COUNT — they are in
+ *  your memory and fading whether or not today's cap reached them (the
+ *  intake gates scheduling, not what you know). */
 export function meanRetention(items: readonly ReviewItem[]): number | null {
-	const rs = items.filter((i) => isActive(i) && i.retrievability !== null).map((i) => i.retrievability!);
+	const rs = items.filter((i) => !i.paused && i.retrievability !== null).map((i) => i.retrievability!);
 	return rs.length ? rs.reduce((s, r) => s + r, 0) / rs.length : null;
 }
 
@@ -664,4 +667,68 @@ export function shouldSendNotice(input: {
 	const evening = clockMinutes(input.eveningTime);
 	if (input.kind === "digest") return minutes >= digest && minutes < evening;
 	return minutes >= evening && !input.reviewStartedToday;
+}
+
+// ─── review batch progress (stage 3, the session's end-of-batch buttons) ────
+
+/** A review session's batch: the picked ideas (the graph-context marker)
+ *  and which of them already had a cleanly concluded problem (dismissals
+ *  count — the learner moved on). `done` = every pick covered. Pure. */
+export function reviewBatchProgress(messages: readonly NpMessage[]): { picks: string[]; covered: string[]; done: boolean } {
+	const marker = messages.find(
+		(m) => roleOf(m) === "custom" && (m as { customType?: string }).customType === "graph-context",
+	) as { details?: { propositions?: Array<{ id?: unknown }> } } | undefined;
+	const picks = (marker?.details?.propositions ?? []).map((p) => p.id).filter((id): id is string => typeof id === "string");
+	const clean = cleanCallIds(messages);
+	const covered = new Set<string>();
+	for (const m of messages) {
+		for (const call of toolCallsOf(m)) {
+			if (call.name !== PRACTICE_CONCLUDE_TOOL || !clean.has(call.id)) continue;
+			const target = problemInputForConclude(messages, call.id)?.target;
+			if (Array.isArray(target)) for (const t of target) if (typeof t === "string") covered.add(t);
+		}
+	}
+	const coveredPicks = picks.filter((p) => covered.has(p));
+	return { picks, covered: coveredPicks, done: picks.length > 0 && coveredPicks.length === picks.length };
+}
+
+// ─── API shapes (GET /api/review; shared by server and components) ──────────
+
+/** An Obsidian area the learner can switch on (from the graph's notes). */
+export interface ReviewArea {
+	id: string;
+	label: string;
+	/** Propositions born in this area. */
+	count: number;
+	active: boolean;
+	paused: boolean;
+}
+
+export interface ReviewGroupView {
+	group: ReviewGroup;
+	label: string;
+}
+
+export interface ReviewSummary {
+	today: string;
+	due: Array<ReviewGroupView & { nodeIds: string[] }>;
+	dueCount: number;
+	retention: { overall: number | null; byGroup: Array<ReviewGroupView & { retention: number | null; count: number }> };
+	forecast7: number[];
+	forecast30: number[];
+	enrolled: number;
+	waitingIntake: number;
+	reviewedToday: boolean;
+}
+
+/** The API's per-idea view (no event log; it can be long). */
+export type ReviewItemView = Omit<ReviewItem, "events"> & { label: string };
+
+/** GET /api/review's body. */
+export interface ReviewApiResponse {
+	summary: ReviewSummary;
+	items: ReviewItemView[];
+	areas: ReviewArea[];
+	sources: ReviewSources;
+	settings: { targetRetention: number; newPerDay: number };
 }

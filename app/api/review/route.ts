@@ -18,6 +18,7 @@ export async function GET() {
 			items: reviewItemViews(state, locale),
 			areas: state.areas,
 			sources: state.sources,
+			settings: { targetRetention: effectiveSettings().review.targetRetention, newPerDay: effectiveSettings().review.newPerDay },
 		});
 	} catch (err) {
 		// A newer-version sources.json refuses instead of being rewritten.

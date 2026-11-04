@@ -91,17 +91,19 @@ export function ShellProvider({ children }: { children: React.ReactNode }) {
 	return <>{children}</>;
 }
 
-/** The three tabs, in order. `match` decides the active tab for a path. */
+/** The four tabs, in order. `match` decides the active tab for a path. */
 export const TABS: ReadonlyArray<{ href: string; label: MessageKey; testid: string; match: (path: string) => boolean }> = [
 	{ href: "/", label: "shell.tabs.home", testid: "tab-home", match: (p) => p === "/" },
 	{ href: "/sessions", label: "shell.tabs.sessions", testid: "tab-sessions", match: (p) => p.startsWith("/sessions") || p.startsWith("/chat") },
 	{ href: "/knowledge", label: "shell.tabs.knowledge", testid: "tab-knowledge", match: (p) => p.startsWith("/knowledge") },
+	{ href: "/review", label: "shell.tabs.review", testid: "tab-review", match: (p) => p.startsWith("/review") },
 ];
 
 /** The settings pages the profile menu opens (route segment → copy). */
 export const SETTINGS_PAGES: ReadonlyArray<{ id: string; label: MessageKey; hint?: MessageKey }> = [
 	{ id: "ai", label: "shell.profile.ai", hint: "shell.profile.aiHint" },
 	{ id: "connections", label: "shell.profile.connections", hint: "shell.profile.connectionsHint" },
+	{ id: "review", label: "shell.profile.review", hint: "shell.profile.reviewHint" },
 	{ id: "appearance", label: "shell.profile.appearance", hint: "shell.profile.appearanceHint" },
 	{ id: "shortcuts", label: "shell.profile.shortcuts" },
 	{ id: "advanced", label: "shell.profile.advanced", hint: "shell.profile.advancedHint" },

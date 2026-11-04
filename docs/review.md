@@ -49,3 +49,12 @@ Review sessions are practice chats with `review: { day }`; the practice agent ge
 ## Desktop shell
 
 `electron/review-desktop.cjs` + `main.cjs`: tray (Abrir · Repasar ahora (N) · Salir; click opens the window), closing the window keeps Naipes resident while the tray exists, login autostart with `--hidden` (Linux: our own `~/.config/autostart/naipes.desktop`, marked `X-Naipes-Autostart=true`; Windows/macOS: the login item; packaged builds only). A notification click — or the tray's review item — navigates to `/review` through the allow-listed `np:navigate` channel.
+
+## Interface (stage 3)
+
+- **Repaso tab** (`/review`, `components/review.tsx`) — one page: *Hoy* (due by topic + «Empezar repaso»), *Tu memoria* (average recall vs the target, per-topic meters weakest first), *Próximos días* (reviews due per day, 7/30), *Fuentes* (sessions and Obsidian areas with their switches; a row expands into its ideas with recall, next review and a per-idea switch; the shared daily intake line).
+- **Inicio** — «Para repasar hoy» after the composer, only when something is due.
+- **Settings → Repaso** (`components/settings/review-section.tsx`) — target recall, new ideas a day, ideas per batch, confidence for «Bien», digest/evening times, and (desktop app only) tray and autostart.
+- **Batch end** — in a review session, once every picked idea had a concluded problem (`reviewBatchProgress`), the composer's next-problem morph becomes «Parar» / «Siguiente tanda (N)» (`ReviewBatchActions`), or «Volver a Repaso» when nothing is left; Enter no longer asks for another problem.
+- **Recall averages** count every enrolled, graded, unpaused idea — including those still waiting for the daily intake (the cap gates scheduling, not what you know).
+- **Charts** use the single data hue `--np-data` (`#2a78d6` light / `#3987e5` dark, validated with the dataviz palette script against both surfaces) and its lighter track step; text stays in text tokens; every bar has a hover/focus tooltip and the values live in sr-only tables too.

@@ -41,6 +41,7 @@ import {
 	messageAnchorId,
 	textPartMessageId,
 	kbdEventForAction as kbdEventForChat,
+	reviewBatchProgress,
 	type ChatInput,
 	type ChatSettings,
 	type NpMessage,
@@ -70,6 +71,7 @@ import {
 	type CompactionDividerData,
 } from "@/components/compaction-divider";
 import { CoverageRing } from "@/components/extraction-coverage";
+import { ReviewBatchActions } from "@/components/review";
 import { Button } from "@/components/ui/button";
 import {
 	derivePlanStatuses,
@@ -222,6 +224,7 @@ export function Chat({
 	initiallyCompacting = false,
 	initialConfigured = false,
 	kind = "teach",
+	review = false,
 }: {
 	chatId: string;
 	title: string;
@@ -232,6 +235,10 @@ export function Chat({
 	 *  renders no phase chip (no probe→teach arc applies) and a Practice
 	 *  tag rides the header instead. */
 	kind?: "teach" | "practice";
+	/** A spaced-review session («Repaso», 2026-11-04): once every picked
+	 *  idea had its problem, the composer offers «Siguiente tanda» /
+	 *  «Parar» instead of the next problem. */
+	review?: boolean;
 	initialPrompt?: string;
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
@@ -766,10 +773,15 @@ export function Chat({
 					(b) => b.type === "toolCall" && b.name === "problem",
 				),
 		);
+	/* THE REVIEW BATCH END («Repaso», owner 2026-11-04): in a review
+	 * session, once every picked idea had a concluded problem, the pause
+	 * stops offering the next problem (the batch is the whole job — no new
+	 * material) and offers the next batch / stop instead. */
+	const batchDone = review && nextReady && reviewBatchProgress(nativeMessages).done;
 	const sendNext = useCallback(() => {
-		if (!nextReady) return;
+		if (!nextReady || batchDone) return;
 		void send({ type: "next" });
-	}, [nextReady, send]);
+	}, [nextReady, batchDone, send]);
 
 	/* ENTER FROM ANYWHERE (owner round 16 refinement, 2026-10-06 —
 	 * keyboard-first): the move-on must not require composer focus. The
@@ -1757,9 +1769,10 @@ export function Chat({
 							// The pause affordance (owner round 16): the placeholder
 							// IS the hint — empty state, exactly where Enter-on-empty
 							// applies.
-							nextProblem={nextReady}
+							nextProblem={nextReady && !batchDone}
 							onNext={sendNext}
-							placeholder={nextReady ? t("session.composer.nextPlaceholder") : undefined}
+							placeholder={nextReady && !batchDone ? t("session.composer.nextPlaceholder") : undefined}
+							endActions={batchDone ? <ReviewBatchActions /> : undefined}
 						/>
 					}
 					onSubmitAnswer={(output) => {

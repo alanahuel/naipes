@@ -6,6 +6,7 @@
  *
  *   /settings/ai           Tu IA        — model keys, subscriptions, models, tools
  *   /settings/connections  Conexiones   — Obsidian, dictation, search
+ *   /settings/review       Repaso       — recall target, notices, tray (2026-11-04)
  *   /settings/appearance   Apariencia
  *   /settings/shortcuts    Atajos
  *   /settings/advanced     Avanzado     — graph, context/compaction, prompts, updates
@@ -26,6 +27,8 @@ import {
 	type MessageKey,
 	type ModelsSettings,
 	type ObsidianSettings,
+	type DesktopSettings,
+	type ReviewSettings,
 	type UserSettings,
 } from "@/src/core";
 import { MENU_CLOSE_EVENT, MENU_OPEN_EVENT } from "@/components/menu-shell";
@@ -38,12 +41,13 @@ import { KeyboardSection } from "./keyboard-section.tsx";
 import { KeysSection } from "./keys-section.tsx";
 import { LanguageSetting } from "./language-setting.tsx";
 import { ObsidianSection } from "./obsidian-section.tsx";
+import { ReviewSettingsSection } from "./review-section.tsx";
 import { UpdateSettings } from "./update-settings.tsx";
 import type { SettingsPageId } from "./pages.ts";
 
 export { SETTINGS_PAGE_IDS, isSettingsPage, pageForSection, type SettingsPageId } from "./pages.ts";
 
-type WritableSection = "general" | "agent" | "models" | "appearance" | "graph" | "compaction" | "obsidian";
+type WritableSection = "general" | "agent" | "models" | "appearance" | "graph" | "compaction" | "obsidian" | "review" | "desktop";
 
 /** The settings record + its one writer. */
 export function useSettingsRecord() {
@@ -82,6 +86,7 @@ export function useSettingsRecord() {
 const PAGE_COPY: Record<SettingsPageId, { title: MessageKey; subtitle: MessageKey }> = {
 	ai: { title: "settings.page.ai.title", subtitle: "settings.page.ai.subtitle" },
 	connections: { title: "settings.page.connections.title", subtitle: "settings.page.connections.subtitle" },
+	review: { title: "settings.page.review.title", subtitle: "settings.page.review.subtitle" },
 	appearance: { title: "settings.page.appearance.title", subtitle: "settings.page.appearance.subtitle" },
 	shortcuts: { title: "settings.page.shortcuts.title", subtitle: "settings.page.shortcuts.subtitle" },
 	advanced: { title: "settings.page.advanced.title", subtitle: "settings.page.advanced.subtitle" },
@@ -175,6 +180,13 @@ export function SettingsPage({ page, initialRow }: { page: SettingsPageId; initi
 							<KeysSection initialRow={initialRow} groups={["dictation", "search"]} />
 						</Block>
 					</>
+				) : page === "review" ? (
+					<ReviewSettingsSection
+						review={record.review}
+						desktop={record.desktop}
+						onReviewChange={(next: ReviewSettings) => void write("review", next)}
+						onDesktopChange={(next: DesktopSettings) => void write("desktop", next)}
+					/>
 				) : page === "appearance" ? (
 					<Block testid="section-appearance">
 						<AppearanceSection appearance={record.appearance} onSectionChange={(next: AppearanceSettings) => void write("appearance", next)} />

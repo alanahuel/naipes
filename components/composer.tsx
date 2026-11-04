@@ -50,6 +50,7 @@ export function Composer({
 	placeholder,
 	nextProblem = false,
 	onNext,
+	endActions,
 }: {
 	busy: boolean;
 	value: string;
@@ -75,6 +76,9 @@ export function Composer({
 	/** The signal's dispatcher (send({type:"next"})) — the chip and the
 	 *  empty-Enter share it. */
 	onNext?: () => void;
+	/** Buttons that replace the send button on an idle, empty composer
+	 *  (a review session's batch end: «Parar» / «Siguiente tanda»). */
+	endActions?: React.ReactNode;
 }) {
 	const t = useT();
 	const act = () => {
@@ -134,7 +138,9 @@ export function Composer({
 				 (click and Enter share one lane), and typing anything
 				 returns the regular send. The ok tone is the app's correct-
 				 answer register (answered-card's text-ok). */}
-				{nextProblem && !busy && !canSend ? (
+				{endActions && !busy && !canSend ? (
+					endActions
+				) : nextProblem && !busy && !canSend ? (
 					<button
 						type="submit"
 						data-testid="next-problem-button"

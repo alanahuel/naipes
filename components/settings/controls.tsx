@@ -225,7 +225,7 @@ export function CommitInput({
 	onCommit: (next: string) => void;
 	ariaLabel: string;
 	testid?: string;
-	type?: "text" | "number";
+	type?: "text" | "number" | "time";
 }) {
 	// The draft exists only while editing; a blur shows the record's value
 	// again — commit-on-blur/Enter (owner ruling), the field honest about

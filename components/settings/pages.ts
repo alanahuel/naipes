@@ -3,8 +3,8 @@
  * (no "use client"), so server routes (app/settings/[page]) can call it.
  */
 
-export type SettingsPageId = "ai" | "connections" | "appearance" | "shortcuts" | "advanced" | "language";
-export const SETTINGS_PAGE_IDS: readonly SettingsPageId[] = ["ai", "connections", "appearance", "shortcuts", "advanced", "language"];
+export type SettingsPageId = "ai" | "connections" | "review" | "appearance" | "shortcuts" | "advanced" | "language";
+export const SETTINGS_PAGE_IDS: readonly SettingsPageId[] = ["ai", "connections", "review", "appearance", "shortcuts", "advanced", "language"];
 export function isSettingsPage(value: unknown): value is SettingsPageId {
 	return typeof value === "string" && (SETTINGS_PAGE_IDS as readonly string[]).includes(value);
 }
@@ -16,6 +16,9 @@ export function pageForSection(section?: string, row?: string): SettingsPageId {
 	switch (section) {
 		case "obsidian":
 			return "connections";
+		case "review":
+		case "desktop":
+			return "review";
 		case "appearance":
 			return "appearance";
 		case "keyboard":

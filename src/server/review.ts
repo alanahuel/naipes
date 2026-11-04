@@ -33,6 +33,9 @@ import {
 	type ReviewModel,
 	type ReviewNoticeKind,
 	type ReviewSources,
+	type ReviewArea,
+	type ReviewItemView,
+	type ReviewSummary,
 } from "../core/review.ts";
 import {
 	appendIntake,
@@ -93,15 +96,6 @@ export function ensureReviewSources(now = Date.now()): ReviewSources {
 	return fresh;
 }
 
-/** An Obsidian area the learner can switch on (from the graph's notes). */
-export interface ReviewArea {
-	id: string;
-	label: string;
-	/** Propositions born in this area. */
-	count: number;
-	active: boolean;
-	paused: boolean;
-}
 
 export interface ReviewState {
 	model: ReviewModel;
@@ -178,22 +172,6 @@ export function getReviewModel(now = Date.now()): ReviewModel {
 
 // ─── summary (GET /api/review, the tray count, notices) ─────────────────────
 
-export interface ReviewGroupView {
-	group: ReviewGroup;
-	label: string;
-}
-
-export interface ReviewSummary {
-	today: string;
-	due: Array<ReviewGroupView & { nodeIds: string[] }>;
-	dueCount: number;
-	retention: { overall: number | null; byGroup: Array<ReviewGroupView & { retention: number | null; count: number }> };
-	forecast7: number[];
-	forecast30: number[];
-	enrolled: number;
-	waitingIntake: number;
-	reviewedToday: boolean;
-}
 
 function labelOf(labels: Record<string, string>, group: ReviewGroup, locale: Locale): string {
 	if (group.kind === "area" && group.id === SESSIONS_AREA_ID) return t(locale, "review.group.sessions");
@@ -224,8 +202,6 @@ export function summarizeReview(state: Pick<ReviewState, "model" | "labels" | "r
 	};
 }
 
-/** The API's per-idea view (no event log; it can be long). */
-export type ReviewItemView = Omit<ReviewItem, "events"> & { label: string };
 
 export function reviewItemViews(state: ReviewState, locale: Locale = "es"): ReviewItemView[] {
 	return state.model.items.map(({ events: _events, ...item }) => ({ ...item, label: labelOf(state.labels, item.group, locale) }));
