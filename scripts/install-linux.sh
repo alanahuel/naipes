@@ -22,13 +22,13 @@ DESKTOP_FILE="$HOME/.local/share/applications/naipes.desktop"
 if [[ "${1:-}" != "--no-build" ]]; then
 	echo "==> Compilando Next (standalone)"
 	rm -rf dist .next/standalone
-	npm run build
+	pnpm run build
 	echo "==> Preparando el servidor empaquetado"
 	node scripts/build-server.mjs
 	echo "==> Prueba de arranque del servidor"
 	node scripts/smoke-server.mjs --electron
 	echo "==> Empaquetando AppImage (sin auto-update)"
-	npx electron-builder --linux AppImage --x64 --publish never -c.extraMetadata.npLocalBuild=true
+	pnpm exec electron-builder --linux AppImage --x64 --publish never -c.extraMetadata.npLocalBuild=true
 fi
 
 BUILT="$(ls -t dist/Naipes-*.AppImage 2>/dev/null | head -1 || true)"

@@ -88,9 +88,9 @@ Añade la API key de tu proveedor (o conecta una suscripción) y elige tus model
 ## Desarrollo
 
 ```bash
-npm install
-npm run dev        # http://localhost:3000
-npm test           # determinista, sin LLM ni red
+pnpm install
+pnpm run dev  # http://localhost:3000
+pnpm test     # determinista, sin LLM ni red
 ```
 
 Consulta la [guía de desarrollo](docs/development.md), la [arquitectura](docs/architecture.md) y la [guía de releases de escritorio](docs/desktop-release.md); la documentación técnica está en inglés.

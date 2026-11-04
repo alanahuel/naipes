@@ -13,24 +13,24 @@ Not a chat app with a graph bolted on: sessions are probe→teach lessons, the p
 ## Commands
 
 ```bash
-npm install          # once
+pnpm install  # once
 
-npm run dev          # http://localhost:3000
-npm run build        # production build (standalone output)
-npm start            # serve the production build
+pnpm run dev    # http://localhost:3000
+pnpm run build  # production build (standalone output)
+pnpm start      # serve the production build
 
-npm test             # the full suite (node:test via tsx; deterministic, no LLM, no network)
-npm run lint         # eslint — includes the import law (architecture §2)
-npm run typecheck    # tsc --noEmit
+pnpm test           # the full suite (node:test via tsx; deterministic, no LLM, no network)
+pnpm run lint       # eslint — includes the import law (architecture §2)
+pnpm run typecheck  # tsc --noEmit
 node scripts/smoke-web-subscriptions.mjs # after build: offline Next start/dev + reload gate
 
-npm run desktop:dev    # next dev + Electron shell pointed at it
-npm run desktop:dist   # local unsigned macOS arm64 build
+pnpm run desktop:dev   # next dev + Electron shell pointed at it
+pnpm run desktop:dist  # local unsigned macOS arm64 build
 
 # one-shot data scripts (run from the master tree only — data never crosses trees)
-npx tsx --env-file=.env.local scripts/import-notes.ts <dir>   # bulk-import notes → graph
-npx tsx --env-file=.env.local scripts/backfill-graph.ts       # wipe + re-extract every chat
-npx tsx --env-file=.env.local scripts/replay-layout.ts        # re-derive layout from the ledgers
+pnpm exec tsx --env-file=.env.local scripts/import-notes.ts <dir>  # bulk-import notes → graph
+pnpm exec tsx --env-file=.env.local scripts/backfill-graph.ts      # wipe + re-extract every chat
+pnpm exec tsx --env-file=.env.local scripts/replay-layout.ts       # re-derive layout from the ledgers
 ```
 
 For Windows/Linux packages and the three-OS CI/release flow, see [`docs/desktop-release.md`](desktop-release.md). Native renderer binaries are traced per platform, so release builds run on the target OS, not as cross-builds from macOS.
@@ -50,7 +50,7 @@ The packaged desktop app takes keys from `userData/auth.json` (BYOK, mode 0600, 
 
 ### Subscription connections in web/dev
 
-Ordinary `npm run dev` and `npm start` support the existing **ChatGPT, GitHub Copilot and Grok** connections in Settings → Providers. No separate launcher or change to Next's listening/LAN behavior is required. `npm run desktop:dev` uses these same dev-server connections; the packaged desktop app keeps its separate main-process credentials and private IPC transport.
+Ordinary `pnpm run dev` and `pnpm start` support the existing **ChatGPT, GitHub Copilot and Grok** connections in Settings → Providers. No separate launcher or change to Next's listening/LAN behavior is required. `pnpm run desktop:dev` uses these same dev-server connections; the packaged desktop app keeps its separate main-process credentials and private IPC transport.
 
 Web/dev saves `chatgpt-credentials.json`, `github-copilot-credentials.json` and `xai-credentials.json` **beside the configured API-key `auth.json`**: the project directory by default, or the directory containing `NP_AUTH_FILE`. These are owner-only plaintext files, not files under `data/`, desktop Application Support, or a global Pi profile. Git and standalone-build exclusions cover both the files and atomic-write temporary files. Run only one server process per credential directory: refresh serialization is process-local, not a cross-process lock.
 

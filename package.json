@@ -82,9 +82,6 @@
 		"use-stick-to-bottom": "^1.1.6",
 		"zod": "^4.4.3"
 	},
-	"overrides": {
-		"katex": "$katex"
-	},
 	"devDependencies": {
 		"@next/eslint-plugin-next": "^16.3.3",
 		"@tailwindcss/postcss": "^4.3.3",
@@ -102,5 +99,6 @@
 		"tailwindcss": "^4.3.3",
 		"tsx": "^4.19.0",
 		"typescript": "^5.6.0"
-	}
+	},
+	"packageManager": "pnpm@12.17.0"
 }

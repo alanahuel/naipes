@@ -88,9 +88,9 @@ Add your provider API key (or connect a subscription) and choose your models, th
 ## Development
 
 ```bash
-npm install
-npm run dev        # http://localhost:3000
-npm test           # deterministic, no LLM, no network
+pnpm install
+pnpm run dev  # http://localhost:3000
+pnpm test     # deterministic, no LLM, no network
 ```
 
 See the [development guide](docs/development.md), [architecture](docs/architecture.md), and [desktop release guide](docs/desktop-release.md).

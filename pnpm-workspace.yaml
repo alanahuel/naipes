@@ -1,0 +1,24 @@
+# pnpm settings for Naipes (the repo moved from npm to pnpm, 2026-11-04).
+#
+# nodeLinker hoisted: a flat node_modules exactly like npm's — the Next
+# standalone trace globs (next.config.ts outputFileTracingIncludes, e.g.
+# node_modules/@napi-rs/canvas-*) and electron-builder.yml's file list
+# assume that layout.
+nodeLinker: hoisted
+
+# Security: one KaTeX across every renderer (93017d7 — was npm's
+# `"overrides": { "katex": "$katex" }`).
+overrides:
+  katex: 0.18.2
+
+# Dependency install scripts: NONE run (owner, 2026-11-04 — security).
+# esbuild/unrs-resolver get their native binaries as optional deps; the
+# rest are no-ops for us (genai: echo; protobufjs: CLI version check;
+# electron-winstaller: Squirrel.Windows 7z, we ship NSIS). Electron 44
+# downloads its binary lazily on first run (node_modules/electron/index.js).
+allowBuilds:
+  '@google/genai': false
+  electron-winstaller: false
+  esbuild: false
+  protobufjs: false
+  unrs-resolver: false
