@@ -29,7 +29,7 @@ Any folder of Markdown notes works — an Obsidian vault or a plain folder. One 
 
 In this document "vault" means the chosen folder.
 
-There is no default folder: while `vaultPath` is empty the sync stays idle and the section asks you to choose the vault folder. Folders start unchecked. The section shows how many notes the selection holds, because every new or changed note costs one extraction run.
+There is no default folder: while `vaultPath` is empty the sync stays idle and the section asks you to choose the vault folder. Folders start unchecked. The section shows how many files the selection holds, because every new or changed file costs at least one extraction run.
 
 ## Vault → graph (`src/server/vault.ts`)
 
@@ -38,8 +38,28 @@ There is no default folder: while `vaultPath` is empty the sync stays idle and t
 - **Live:** `fs.watch` (recursive) on the vault root; a note is processed after 30 s without changes. Up to 3 notes are processed at once.
 - **Clean replace:** a note maps to the notes source `notesSourceId(<vault-relative path>)`. That is the same id the importer derives from a file path. Before re-extraction, its contribution leaves the graph through `deleteSourceTraces` (`deleteChatTraces(…, "delete-nodes")` plus `graphStore.deleteSource`). Concepts shared with other sources survive. A deleted note only has its contribution removed. A rename counts as a delete plus an add.
 - **Legacy imports:** a manual import whose recorded file name matches a newly synced note's base name is replaced the first time that note syncs. It is removed only after the new extraction succeeds, so a failed run keeps it.
-- **Ignored:** dotfiles and dot-folders (`.obsidian`, `.trash`), non-`.md` files, and the output folder. Deselecting a folder stops reading it but removes nothing.
+- **Ignored:** dotfiles and dot-folders (`.obsidian`, `.trash`), files that are not `.md`, `.txt`, `.pdf`, `.docx` or `.epub`, and the output folder. Deselecting a folder stops reading it but removes nothing.
 - **Language:** the extraction prompt (`EXTRACTION_CORE`) writes ideas in the language of their source.
+
+## Documents: PDF, epub, docx, txt (phase 2, owner 2026-11-04)
+
+`src/server/doc-text.ts` turns a document into ordered **segments** (`src/core/doc-chunks.ts`); the notes pipeline extracts them like a note. The hash in `state.json` is over the file's bytes (identical to the old text hash for UTF-8 Markdown).
+
+| Format | Conversion |
+|---|---|
+| PDF | `pdfjs-dist`, one segment per page (`hasEOL` line breaks). Pages with under 10 characters are scans: with a `tesseract` binary installed they are rendered (pdfjs + `@napi-rs/canvas`, 200 dpi) and OCR'd locally with `spa`/`eng` (whichever is installed); OCR only replaces the text when it reads more. Without tesseract they are skipped and the bell says so (`vault-notice` kind `ocr-missing`). |
+| docx | `fflate` opens the zip; `word/document.xml` → Markdown with linkedom (heading styles `Heading1`/`Título1`/`Title` → `#`, numbered/bulleted → `- `, tables as `| a | b |` rows). |
+| epub | `fflate` + the OPF spine order; each chapter's XHTML → Markdown with turndown; chapter title = first heading, else `<title>`, else the file name. |
+| txt | verbatim. |
+
+- **Cache:** `data/vault/text/<sha256><ext>.json`. A cached PDF whose OCR was unavailable is converted again once tesseract exists.
+- **Chunks and location:** `chunkSegments` packs segments under `graph.extractionChunkTokens` without crossing a page/chapter (an over-budget page splits by line). Each chunk's label — `p. 7`, `pp. 45–52`, `cap. «Título»` — is stamped by `mergeFindings` on the provenance of every idea that chunk creates or touches (`ProvenancePoint.loc`). The extractor prompt is unchanged.
+- **Big documents:** when the estimate (`estimateRuns` = number of chunks) exceeds `obsidian.confirmAboveRuns` (factory **6** ≈ 24k tokens ≈ 50 pages), the file is not extracted and keeps any previous contribution. `state.pending[path]` records the hash and estimate; the bell gets a `vault-notice` (kind `pending`) with **Leer** / **Ahora no**, and Settings → Knowledge folder lists every waiting file. `POST /api/vault/pending { path, decision }`: `read` stores `state.confirmed[path] = hash` and extracts that exact content; `later` sets `deferred` (no new notice until the file changes).
+- **Concept notes:** a document source is written once per location, `[libro.pdf, pp. 45–52](…/libro.pdf#page=45)` (or `[[…/libro.pdf#page=45|…]]` in Obsidian format, which opens that page).
+- **Conocimiento:** the idea card shows `libro.pdf, pp. 45–52`; in the desktop app clicking it opens the file with the system viewer through `np:open-source` (`electron/knowledge-source.cjs`: only a regular readable file inside the folder, realpath-checked). Whether the viewer jumps to the page depends on it.
+- **Manual import** (`POST /api/graph/import`) accepts the same formats. A document over the threshold returns `outcome: "needs_confirmation"` with `runs`/`pages`; the import row shows **Leer** / **Ahora no**, and «Leer» resends that file with a `confirm` field. Manual imports show the location but cannot be opened (the file is not in the folder).
+
+Tests: `tests/documents.test.ts`, `tests/documents-import-route.test.ts`, the document cases in `tests/vault.test.ts` and `tests/graph.test.ts`.
 
 ## App → vault
 

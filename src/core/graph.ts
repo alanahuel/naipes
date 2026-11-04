@@ -110,6 +110,9 @@ export interface MergeSource {
 	 *  extracted batch — undefined (notes path / coverage-less callers) →
 	 *  the legacy whole-chat checkpoint is written instead. */
 	coverage?: CoverageEntry[];
+	/** The document chunk's location (notes path, phase 2 — 2026-11-04):
+	 *  stamped on every node point this job writes. */
+	loc?: string;
 }
 
 /** The run's provenance point. Chat-level by default (submit-schema slim,
@@ -118,12 +121,12 @@ export interface MergeSource {
  *  message id — the extractor-copied messageId, validated at the submit
  *  seam against the current batch. Chains, notes imports, and
  *  legacy/core callers lacking an anchor keep "" (chat-level). */
-function pointOf(chatId: string, messageId?: string): ProvenancePoint[] {
-	return [{ chatId, messageId: messageId ?? "" }];
+function pointOf(chatId: string, messageId?: string, loc?: string): ProvenancePoint[] {
+	return [{ chatId, messageId: messageId ?? "", ...(loc ? { loc } : {}) }];
 }
 
 const samePoint = (a: ProvenancePoint, b: ProvenancePoint): boolean =>
-	a.chatId === b.chatId && a.messageId === b.messageId;
+	a.chatId === b.chatId && a.messageId === b.messageId && (a.loc ?? "") === (b.loc ?? "");
 
 // ─── the merger (extraction pipeline stage 3 — deterministic) ────────────────
 
@@ -176,7 +179,7 @@ export function mergeFindings(
 		// passage's messageId — it rides BOTH the create and the link-append
 		// line (each re-encounter anchors to ITS passage); absent (notes,
 		// legacy/core callers) → "", chat-level as before.
-		const points = pointOf(chatId, p.messageId);
+		const points = pointOf(chatId, p.messageId, source.loc);
 		const linkTo = linkOf.get(p.id);
 		let graphNodeId: string;
 		if (linkTo !== undefined && existingIds.has(linkTo)) {

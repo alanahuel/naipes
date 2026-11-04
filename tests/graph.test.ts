@@ -651,6 +651,28 @@ describe("graph ledger store", () => {
 		assert.ok(merged.aliases.includes("Phrasing m2"), "later phrasings join the aliases");
 		assert.deepEqual(merged.provenance.map((p) => p.messageId), ["m1", "m2"]);
 	});
+
+	it("stamps a document chunk's location on its provenance (phase 2)", () => {
+		const first = mergeFindings(
+			"src_locfixture",
+			{ propositions: [{ id: "p1", name: "Located idea", statement: "Located statement", aliases: [] }], chains: [] },
+			{ links: [] },
+			graphDeps,
+			{ foldedAt: "2026-11-04T00:00:00.000Z", loc: "pp. 3–4" },
+		);
+		assert.equal(first.nodes, 1);
+		const node = getGraph(graphStore).nodes.find((n) => n.name === "Located idea")!;
+		assert.deepEqual(node.provenance, [{ chatId: "src_locfixture", messageId: "", loc: "pp. 3–4" }]);
+		mergeFindings(
+			"src_locfixture",
+			{ propositions: [{ id: "p1", name: "Located idea", statement: "Located again", aliases: [] }], chains: [] },
+			{ links: [{ id: "p1", linkTo: node.id }] },
+			graphDeps,
+			{ foldedAt: "2026-11-04T00:00:00.000Z", loc: "p. 9" },
+		);
+		const again = getGraph(graphStore).nodes.find((n) => n.id === node.id)!;
+		assert.deepEqual(again.provenance.map((p) => p.loc), ["pp. 3–4", "p. 9"], "each chunk's location joins the union");
+	});
 });
 
 // ─── session deletion (wave 6 — the first destructive ledger operation) ─────

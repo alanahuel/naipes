@@ -31,7 +31,7 @@ Instead of just giving you an explanation, it uses your answers and thinking to 
 ## What Naipes adds
 
 - **Claude Code subscription as a provider.** Use the models in your Claude Code subscription through the local `claude` CLI, with no API key.
-- **Two-way knowledge-folder connection.** Pick any folder of Markdown notes (an Obsidian vault or a plain folder): the subfolders you check feed the knowledge graph. Transcripts, practice results, concepts and session summaries are written back to a configurable output folder, with standard Markdown links or, with the Obsidian format on, `[[wikilinks]]`. Details in [docs/obsidian.md](docs/obsidian.md).
+- **Two-way knowledge-folder connection.** Pick any folder of notes (an Obsidian vault or a plain folder): the subfolders you check feed the knowledge graph. It reads Markdown, text, PDF (with local OCR when Tesseract is installed), Word (.docx) and epub, and every idea remembers the page it came from. Transcripts, practice results, concepts and session summaries are written back to a configurable output folder, with standard Markdown links or, with the Obsidian format on, `[[wikilinks]]`. Details in [docs/obsidian.md](docs/obsidian.md).
 - **Local Linux install.** `scripts/install-linux.sh` builds your checkout into an AppImage and installs it with a launcher and icon.
 - **A redesigned interface:**
   - Home · My sessions · Knowledge tabs on a single sheet;

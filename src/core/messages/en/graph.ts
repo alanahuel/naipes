@@ -16,6 +16,7 @@ export default {
 	"graph.view.emptyBody": "Start a session or import notes to build your graph.",
 	"graph.view.noMatch": "No matching nodes.",
 	"graph.view.sessions": "Sessions",
+	"graph.view.openSource": "Open the file",
 	"graph.view.noSessions": "No sessions recorded.",
 	"graph.view.delete": "Delete",
 	"graph.view.costHint": "Graph costs — click for details",
@@ -110,6 +111,10 @@ export default {
 	"graph.import.hint": "Import notes into the graph",
 	"graph.import.button": "Import notes…",
 	"graph.import.importing": "Importing…",
+	"graph.import.confirmPages": "{file}: {pages} pages, about {runs} extraction runs. Read it?",
+	"graph.import.confirmRuns": "{file}: about {runs} extraction runs. Read it?",
+	"graph.import.read": "Read",
+	"graph.import.notNow": "Not now",
 	"graph.import.invalidResponse": "Invalid import response. Please retry the file.",
 	"graph.import.requestFailed": "Import request failed (HTTP {status}){detail}. Please retry the file.",
 

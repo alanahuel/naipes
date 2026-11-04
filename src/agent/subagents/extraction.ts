@@ -28,6 +28,7 @@ import type { GraphStore } from "../../core/ports.ts";
 import { emit } from "../../core/events.ts";
 import { settleGraphLayout } from "../../core/layout-settle.ts";
 import { batchRuns, coverageOf, messageViewLines } from "../../core/coverage.ts";
+import { chunkSegments, type DocChunk, type DocSegment } from "../../core/doc-chunks.ts";
 import { failedOutputCallIds, type NpMessage } from "../../core/native-messages.ts";
 import { auditorGraphTools } from "../tools/graph.ts";
 import { runSubmitAgent, healStringifiedArrays } from "./submit-agent.ts";
@@ -754,6 +755,12 @@ export interface NotesImportInput {
 	filePath: string;
 	/** The file's raw content, VERBATIM — any format. */
 	text: string;
+	/** A converted DOCUMENT's ordered segments (PDF pages, epub chapters;
+	 *  knowledge folder phase 2, 2026-11-04). When present, chunking packs
+	 *  segments without crossing their boundaries and each chunk's location
+	 *  ("pp. 45–52") rides its ideas' provenance; `text` is then the joined
+	 *  segments, kept for logs and callers that only read text. */
+	segments?: DocSegment[];
 }
 
 /** A notes import did not finish. Earlier graph writes and billed usage are
@@ -1313,7 +1320,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	// The notes auditor is the SAME identity-linker as the chat one (one
 	// schema now that attribution is gone) — audit() above, verbatim.
 
-	async function runNotesExtraction(input: { id: string; filePath: string; text: string; importedAt: string }): Promise<EmissionStats> {
+	async function runNotesExtraction(input: { id: string; filePath: string; text: string; segments?: DocSegment[]; importedAt: string }): Promise<EmissionStats> {
 		const { id } = input;
 		// importNotes owns the source exclusion, including metadata and cleanup.
 		const t0 = performance.now();
@@ -1328,7 +1335,9 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			// whole large file. Abort mid-run keeps earlier chunks merged
 			// (same doctrine as chat batches).
 			const chunkTokens = deps.getChunkTokens?.() ?? FACTORY_SETTINGS.graph.extractionChunkTokens;
-			const chunks = chunkNotes(input.text, chunkTokens);
+			const chunks: DocChunk[] = input.segments
+				? chunkSegments(input.segments, chunkTokens)
+				: chunkNotes(input.text, chunkTokens).map((text) => ({ text }));
 			console.info(
 				`[extraction ${id}] notes pipeline start (${input.filePath}) — ${chunks.length} chunk(s) of ≤${chunkTokens} tok`,
 			);
@@ -1341,7 +1350,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			// part rides the registry entry (feed suffix "· i/N") only when
 			// the file actually chunked.
 			const settled: PromiseSettledResult<EmissionStats>[] = [];
-			for (const [chunkIndex, chunk] of chunks.entries()) {
+			for (const [chunkIndex, { text: chunk, loc }] of chunks.entries()) {
 				const part = chunks.length > 1 ? { i: chunkIndex + 1, n: chunks.length } : undefined;
 				// Keep the actual signal after runJob tears down its registry row:
 				// usage persistence can throw and mask the body's AbortError.
@@ -1369,7 +1378,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 									findings,
 									auditResult,
 									{ chatStore, graphStore },
-									{ foldedAt: input.importedAt },
+									{ foldedAt: input.importedAt, ...(loc ? { loc } : {}) },
 								);
 								// Capture the committed merge BEFORE layout/usage can fail.
 								mergedStats.nodes += merged.nodes;

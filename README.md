@@ -31,7 +31,7 @@ En lugar de limitarse a explicarte algo, usa tus respuestas y tu forma de pensar
 ## Qué añade Naipes
 
 - **Suscripción de Claude Code como proveedor.** Usa los modelos de tu suscripción de Claude Code a través del CLI `claude` instalado en tu equipo, sin API key.
-- **Conexión bidireccional con tu carpeta de conocimiento.** Elige cualquier carpeta de notas Markdown (un vault de Obsidian o una carpeta normal): las subcarpetas que marques alimentan el grafo de conocimiento. Las transcripciones, las prácticas, los conceptos y los resúmenes de sesión se escriben de vuelta en una carpeta de salida configurable, con enlaces Markdown estándar o, con el formato Obsidian activado, con `[[wikilinks]]`. Más detalles en [docs/obsidian.md](docs/obsidian.md).
+- **Conexión bidireccional con tu carpeta de conocimiento.** Elige cualquier carpeta de notas (un vault de Obsidian o una carpeta normal): las subcarpetas que marques alimentan el grafo de conocimiento. Lee Markdown, texto, PDF (con OCR local si tienes Tesseract), Word (.docx) y epub, y cada idea recuerda la página de la que salió. Las transcripciones, las prácticas, los conceptos y los resúmenes de sesión se escriben de vuelta en una carpeta de salida configurable, con enlaces Markdown estándar o, con el formato Obsidian activado, con `[[wikilinks]]`. Más detalles en [docs/obsidian.md](docs/obsidian.md).
 - **Instalación local en Linux.** `scripts/install-linux.sh` compila tu copia del repositorio como AppImage y la instala con lanzador e icono.
 - **Una interfaz rediseñada:**
   - pestañas Inicio · Mis sesiones · Conocimiento sobre una sola hoja;

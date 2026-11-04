@@ -291,7 +291,14 @@ export interface ObsidianSettings {
 	 *  resolveObsidianFormat (on for a record that already had a vault
 	 *  before the switch existed, off for a fresh install). */
 	obsidianFormat?: boolean;
+	/** Documents estimated above this many extraction runs wait for the
+	 *  user's «Leer» before any extraction (phase 2, owner 2026-11-04).
+	 *  Factory 6 ≈ 24k tokens ≈ 50 PDF pages. Integer ≥ 1. */
+	confirmAboveRuns?: number;
 }
+
+/** The smallest confirmation threshold the settings accept. */
+export const CONFIRM_ABOVE_RUNS_MIN = 1;
 
 /** The effective Obsidian-format switch of a stored `obsidian` section: the
  *  explicit value, else ON when a vault path was already saved (an install
@@ -496,7 +503,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 	},
 	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096 },
 	compaction: { thresholdTokens: 150_000 },
-	obsidian: { enabled: false, vaultPath: "", folders: [], outputFolder: DEFAULT_VAULT_OUTPUT_FOLDER, obsidianFormat: false },
+	obsidian: { enabled: false, vaultPath: "", folders: [], outputFolder: DEFAULT_VAULT_OUTPUT_FOLDER, obsidianFormat: false, confirmAboveRuns: 6 },
 	review: { targetRetention: 0.9, digestTime: "09:00", eveningTime: "19:00", newPerDay: 15, batchSize: 10, confidenceThreshold: 70 },
 	desktop: { tray: true, autostart: true },
 };
@@ -716,6 +723,9 @@ function sanitizeObsidian(raw: Record<string, unknown>): ObsidianSettings {
 	if (outputFolder !== null) out.outputFolder = outputFolder;
 	const obsidianFormat = boolOrDrop(raw.obsidianFormat);
 	if (obsidianFormat !== undefined) out.obsidianFormat = obsidianFormat;
+	if (typeof raw.confirmAboveRuns === "number" && Number.isFinite(raw.confirmAboveRuns)) {
+		out.confirmAboveRuns = Math.max(CONFIRM_ABOVE_RUNS_MIN, Math.round(raw.confirmAboveRuns));
+	}
 	return out;
 }
 

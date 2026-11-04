@@ -64,7 +64,7 @@
  */
 
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
+import { NOTES_IMPORT_ACCEPT, NotesImportConfirm, NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
 import Link from "next/link";
 import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, UploadIcon, WaypointsIcon } from "lucide-react";
 import { getStoredItem, incrementalLayout, noteDisplayName, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
@@ -1001,7 +1001,7 @@ export function GraphChromeRow({
 					ref={fileInputRef}
 					type="file"
 					multiple
-					accept=".md,.markdown,.txt"
+					accept={NOTES_IMPORT_ACCEPT}
 					className="hidden"
 					onChange={(e) => {
 						onImportFiles(e.target.files);
@@ -1060,6 +1060,9 @@ export function GraphView({
 	// Canvas colors resolve from CSS tokens: re-resolve when the theme flips.
 	const t = useT();
 	const { theme } = useAppearance();
+	// Document sources open with the system viewer — desktop app only.
+	const [canOpenSource, setCanOpenSource] = useState(false);
+	useEffect(() => setCanOpenSource(typeof window !== "undefined" && !!window.np?.openSource), []);
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const cardRef = useRef<HTMLDivElement | null>(null);
@@ -1724,6 +1727,7 @@ export function GraphView({
 			</div>
 
 			<NotesImportErrors errors={notesImport.errors} />
+			<NotesImportConfirm notesImport={notesImport} />
 			{/* Top-right tail (owner, 2026-09-20): the pipeline cost number —
 			    just a number, hover-highlighted, dropdown breakdown — then
 			    the running-pipeline pills under it. Lives BELOW the actions
@@ -1761,15 +1765,29 @@ export function GraphView({
 						<div className="mt-3 flex flex-col gap-1">
 							<div className="text-xs text-muted-foreground">{t("graph.view.sessions")}</div>
 							{selected.sourceIds.map((sourceId) => {
-								// An imported-notes file: a STATIC entry — the path,
-								// plain text, never a link (no session to open).
+								// A notes / document file: its path plus where in it the
+								// idea came from ("pp. 45–52"; phase 2). In the desktop
+								// app a knowledge-folder file opens with the system
+								// viewer; elsewhere (or a manual import) it is plain text.
 								if (snapshot?.fileSources?.[sourceId] !== undefined) {
+									const file = snapshot.fileSources[sourceId];
+									const locs = [...new Set(selected.node.provenance.filter((pt) => pt.chatId === sourceId && pt.loc).map((pt) => pt.loc!))];
+									const label = locs.length > 0 ? `${file}, ${locs.join(" · ")}` : file;
 									return (
 										<div key={sourceId} className="flex items-center gap-1.5">
 											<FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
-											<span className="min-w-0 flex-1 truncate px-2 py-1.5 text-sm text-muted-foreground">
-												{snapshot.fileSources[sourceId]}
-											</span>
+											{canOpenSource ? (
+												<button
+													type="button"
+													title={t("graph.view.openSource")}
+													onClick={() => void window.np?.openSource?.(file)}
+													className="min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent"
+												>
+													{label}
+												</button>
+											) : (
+												<span className="min-w-0 flex-1 truncate px-2 py-1.5 text-sm text-muted-foreground">{label}</span>
+											)}
 										</div>
 									);
 								}

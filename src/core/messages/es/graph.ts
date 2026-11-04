@@ -16,6 +16,7 @@ export default {
 	"graph.view.emptyBody": "Empieza una sesión o importa notas para construir tu grafo.",
 	"graph.view.noMatch": "Ninguna idea coincide. Prueba con otras palabras.",
 	"graph.view.sessions": "Sesiones",
+	"graph.view.openSource": "Abrir el archivo",
 	"graph.view.noSessions": "Ninguna sesión registrada.",
 	"graph.view.delete": "Eliminar…",
 	"graph.view.costHint": "Coste del grafo · haz clic para ver el detalle",
@@ -114,6 +115,10 @@ export default {
 	"graph.import.hint": "Importa notas a tu grafo",
 	"graph.import.button": "Importar notas…",
 	"graph.import.importing": "Importando…",
+	"graph.import.confirmPages": "{file}: {pages} páginas, unas {runs} extracciones. ¿Leerlo?",
+	"graph.import.confirmRuns": "{file}: unas {runs} extracciones. ¿Leerlo?",
+	"graph.import.read": "Leer",
+	"graph.import.notNow": "Ahora no",
 	"graph.import.invalidResponse": "No entendí la respuesta de la importación. Prueba otra vez con el archivo.",
 	"graph.import.requestFailed": "No pude importar el archivo (error {status}){detail}. Prueba otra vez.",
 

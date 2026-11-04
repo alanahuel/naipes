@@ -94,6 +94,7 @@ contextBridge.exposeInMainWorld("np", {
 	setTheme: (theme) => ipcRenderer.send("np:set-theme", theme),
 	openDataFolder: () => ipcRenderer.send("np:open-data-folder"),
 	pickFolder: (defaultPath) => ipcRenderer.invoke("np:pick-folder", defaultPath),
+	openSource: (relPath) => ipcRenderer.invoke("np:open-source", relPath),
 	onUpdateStatus: (cb) => {
 		const listener = (_event, status) => cb(status);
 		ipcRenderer.on("np:update-status", listener);

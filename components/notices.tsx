@@ -12,6 +12,9 @@
  *     (a vault sync) coalesce into one notice;
  *   - spaced review: the daily digest or the evening reminder went out
  *     (server event "review-notice"; opens Repaso);
+ *   - a knowledge-folder document is waiting for «Leer» / «Ahora no»
+ *     (server event "vault-notice", kind pending — the notice carries the
+ *     two buttons), or had scanned pages skipped for lack of tesseract;
  *   - a newer Naipes release exists (LOCAL builds only — they never update
  *     themselves; owner 2026-11-04). Once per version; opens the release
  *     page in the browser.
@@ -43,6 +46,10 @@ export interface Notice {
 	href?: string;
 	tone: "ok" | "warn";
 	read: boolean;
+	/** A document waiting for confirmation (phase 2): the notice shows
+	 *  «Leer» / «Ahora no»; `decided` once either was pressed. */
+	pendingPath?: string;
+	decided?: boolean;
 }
 
 export const NOTICES_KEY = "np:notices";
@@ -84,6 +91,35 @@ export function reviewNotice(event: { kind: "digest" | "evening"; count: number 
 		href: "/review",
 		tone: "ok",
 		read: false,
+	};
+}
+
+/** The bell notice for a knowledge-folder document event. Pure. */
+export function vaultNotice(
+	event: { kind: "pending"; path: string; runs: number; pages?: number } | { kind: "ocr-missing"; path: string; count: number },
+	now = new Date(),
+): Notice {
+	const file = event.path.split("/").pop() ?? event.path;
+	if (event.kind === "ocr-missing") {
+		return {
+			id: `vault-ocr:${event.path}:${now.getTime()}`,
+			at: now.toISOString(),
+			message: "notices.vaultOcrMissing",
+			vars: { file, n: event.count },
+			href: "/settings/connections",
+			tone: "warn",
+			read: false,
+		};
+	}
+	return {
+		id: `vault-pending:${event.path}:${now.getTime()}`,
+		at: now.toISOString(),
+		message: event.pages !== undefined ? "notices.vaultPendingPages" : "notices.vaultPending",
+		vars: { file, runs: event.runs, ...(event.pages !== undefined ? { pages: event.pages } : {}) },
+		href: "/settings/connections",
+		tone: "ok",
+		read: false,
+		pendingPath: event.path,
 	};
 }
 
@@ -155,10 +191,16 @@ function loadNotices(): Notice[] {
 
 // ─── the provider ───────────────────────────────────────────────────────────
 
-const NoticesContext = createContext<{ notices: Notice[]; markAllRead: () => void; markRead: (id: string) => void }>({
+const NoticesContext = createContext<{
+	notices: Notice[];
+	markAllRead: () => void;
+	markRead: (id: string) => void;
+	decide: (id: string, path: string, decision: "read" | "later") => Promise<void>;
+}>({
 	notices: [],
 	markAllRead: () => {},
 	markRead: () => {},
+	decide: async () => {},
 });
 
 export function useNotices() {
@@ -247,6 +289,11 @@ export function NoticesProvider({ children }: { children: React.ReactNode }) {
 		push([reviewNotice({ kind: event.kind, count: event.count })]);
 	});
 
+	// A knowledge-folder document needs a decision (or lost scanned pages).
+	useServerEvent("vault-notice", (event) => {
+		push([vaultNotice(event)]);
+	});
+
 	// A newer release, seen by a local build (once per version).
 	const { state: updateState } = useUpdateState();
 	useEffect(() => {
@@ -269,7 +316,19 @@ export function NoticesProvider({ children }: { children: React.ReactNode }) {
 
 	const markAllRead = useCallback(() => setNotices((list) => list.map((n) => (n.read ? n : { ...n, read: true }))), []);
 	const markRead = useCallback((id: string) => setNotices((list) => list.map((n) => (n.id === id && !n.read ? { ...n, read: true } : n))), []);
-	const value = useMemo(() => ({ notices, markAllRead, markRead }), [notices, markAllRead, markRead]);
+	/** «Leer» / «Ahora no» on a pending-document notice. */
+	const decide = useCallback(async (id: string, path: string, decision: "read" | "later") => {
+		const res = await fetch("/api/vault/pending", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ path, decision }),
+		}).catch(() => null);
+		// 404 = already decided elsewhere (Settings): the buttons go either way.
+		if (res && (res.ok || res.status === 404)) {
+			setNotices((list) => list.map((n) => (n.id === id ? { ...n, read: true, decided: true } : n)));
+		}
+	}, []);
+	const value = useMemo(() => ({ notices, markAllRead, markRead, decide }), [notices, markAllRead, markRead, decide]);
 	return <NoticesContext.Provider value={value}>{children}</NoticesContext.Provider>;
 }
 
@@ -278,7 +337,7 @@ export function NoticesProvider({ children }: { children: React.ReactNode }) {
 export function NoticesBell() {
 	const t = useT();
 	const router = useRouter();
-	const { notices, markAllRead, markRead } = useNotices();
+	const { notices, markAllRead, markRead, decide } = useNotices();
 	const [open, setOpen] = useState(false);
 	const rootRef = useRef<HTMLDivElement>(null);
 	const unread = unreadCount(notices);
@@ -357,6 +416,16 @@ export function NoticesBell() {
 											<span className="block text-xs text-muted-foreground">{timeAgo(n.at, new Date(), t)}</span>
 										</span>
 									</button>
+									{n.pendingPath && !n.decided && (
+										<div className="flex gap-2 px-3 pb-2.5 pl-[30px]" data-testid="notice-pending-actions">
+											<button type="button" className="rounded-sm border border-border px-2 py-0.5 text-xs hover:border-muted-foreground/50" onClick={() => void decide(n.id, n.pendingPath!, "read")}>
+												{t("notices.vaultRead")}
+											</button>
+											<button type="button" className="rounded-sm px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => void decide(n.id, n.pendingPath!, "later")}>
+												{t("notices.vaultNotNow")}
+											</button>
+										</div>
+									)}
 								</li>
 							))}
 						</ul>

@@ -22,7 +22,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ListTreeIcon, UploadIcon } from "lucide-react";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { GraphCostControl } from "@/components/graph-view.tsx";
-import { NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
+import { NOTES_IMPORT_ACCEPT, NotesImportConfirm, NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
 import { Hint } from "@/components/ui/hint";
 import { useT } from "@/components/i18n";
 import type { ChatSummary, GraphCostSummary, GraphSnapshot } from "@/src/core";
@@ -139,7 +139,7 @@ export function MinimalHome({
 				ref={fileInputRef}
 				type="file"
 				multiple
-				accept=".md,.markdown,.txt"
+				accept={NOTES_IMPORT_ACCEPT}
 				className="hidden"
 				onChange={(e) => {
 					onImportFiles(e.target.files);
@@ -198,6 +198,7 @@ export function MinimalHome({
 					</div>
 				</div>
 				<NotesImportErrors errors={notesImport.errors} />
+				<NotesImportConfirm notesImport={notesImport} />
 				{costs && costs.runs.length > 0 && <GraphCostControl costs={costs} />}
 			</div>
 

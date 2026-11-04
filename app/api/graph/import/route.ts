@@ -13,7 +13,8 @@
  * healthy. The dock's chips + graph refetch track progress live through
  * /api/graph/status, as with session runs.
  */
-import { extraction, NotesImportError } from "@/src/server";
+import { documentText, effectiveSettings, extraction, isDocumentFile, joinedText, NotesImportError } from "@/src/server";
+import { estimateRuns } from "@/src/core";
 import {
 	ModelsNotConfiguredError,
 	PROVIDER_KEY_MISSING_CODE,
@@ -25,8 +26,11 @@ export const dynamic = "force-dynamic";
 
 interface ImportResult {
 	requestIndex: number;
-	outcome: "completed" | "failed" | "partial" | "aborted" | "busy";
+	outcome: "completed" | "failed" | "partial" | "aborted" | "busy" | "needs_confirmation";
 	filePath: string;
+	/** needs_confirmation (documents, phase 2): the estimate the dialog shows. */
+	runs?: number;
+	pages?: number;
 	ok: boolean;
 	stats?: EmissionStats;
 	error?: string;
@@ -47,6 +51,10 @@ export async function POST(request: Request) {
 		return Response.json({ results: [] as ImportResult[], error: "no files" }, { status: 400 });
 	}
 
+	// Documents over the confirmation threshold come back as
+	// needs_confirmation unless their name is in a "confirm" field (the
+	// dialog's «Leer» resends them; phase 2, owner 2026-11-04).
+	const confirmed = new Set(form.getAll("confirm").filter((v): v is string => typeof v === "string"));
 	const results: ImportResult[] = [];
 	const queue = files.map((file, requestIndex) => ({ file, requestIndex }));
 	const workers = Array.from({ length: Math.min(3, files.length) }, async () => {
@@ -55,8 +63,22 @@ export async function POST(request: Request) {
 			if (!next) return;
 			const { file, requestIndex } = next;
 			try {
-				const text = await file.text();
-				const stats = await extraction.importNotes({ filePath: file.name, text });
+				let stats: EmissionStats;
+				if (isDocumentFile(file.name)) {
+					const doc = await documentText(file.name, new Uint8Array(await file.arrayBuffer()));
+					const runs = estimateRuns(doc.segments, effectiveSettings().graph.extractionChunkTokens);
+					if (runs > effectiveSettings().obsidian.confirmAboveRuns && !confirmed.has(file.name)) {
+						results.push({
+							filePath: file.name, requestIndex, outcome: "needs_confirmation", ok: false, runs,
+							...(doc.pages !== undefined ? { pages: doc.pages } : {}),
+							error: `About ${runs} extraction runs — confirm to read it.`,
+						});
+						continue;
+					}
+					stats = await extraction.importNotes({ filePath: file.name, text: joinedText(doc), segments: doc.segments });
+				} else {
+					stats = await extraction.importNotes({ filePath: file.name, text: await file.text() });
+				}
 				results.push({ filePath: file.name, requestIndex, outcome: "completed", ok: true, stats });
 			} catch (err) {
 				if (err instanceof ModelsNotConfiguredError) {

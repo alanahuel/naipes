@@ -32,7 +32,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { PATHS } from "../../config.ts";
-import { subscribe } from "../core/events.ts";
+import { emit, subscribe } from "../core/events.ts";
 import { getGraph } from "../core/graph.ts";
 import { deleteChatTraces } from "../core/graph-deletion.ts";
 import { sessionMarkdown } from "../core/session-markdown.ts";
@@ -51,6 +51,8 @@ import {
 	summaryProseOf,
 	type FrontmatterFields,
 } from "../core/vault-notes.ts";
+import { estimateRuns, firstPageOf, type DocSegment } from "../core/doc-chunks.ts";
+import { documentText, isDocumentFile, isNoteFile, joinedText } from "./doc-text.ts";
 import type { ChatRecord, GraphNode } from "../core/contracts.ts";
 import { piEngineForSpec } from "../agent/models.ts";
 import { notesSourceId } from "../agent/subagents/extraction.ts";
@@ -90,10 +92,26 @@ export interface VaultState {
 	summaries: Record<string, string>;
 	/** Concept note path → node id. */
 	concepts: Record<string, string>;
+	/** Documents waiting for the user's «Leer» (over the confirmation
+	 *  threshold; phase 2, 2026-11-04): path → the content it was estimated
+	 *  for. `deferred` = «Ahora no» (no new notice until the file changes). */
+	pending: Record<string, PendingDocument>;
+	/** Path → content hash the user said «Leer» for (bypasses the threshold
+	 *  for exactly that content). */
+	confirmed: Record<string, string>;
+}
+
+export interface PendingDocument {
+	hash: string;
+	/** Estimated extraction runs. */
+	runs: number;
+	/** PDF page count, when known. */
+	pages?: number;
+	deferred?: boolean;
 }
 
 function emptyState(root: string): VaultState {
-	return { version: 1, root, notes: {}, chats: {}, summaries: {}, concepts: {} };
+	return { version: 1, root, notes: {}, chats: {}, summaries: {}, concepts: {}, pending: {}, confirmed: {} };
 }
 
 function readState(root: string): VaultState {
@@ -207,9 +225,10 @@ function outputFolder(): string {
 
 const toPosix = (p: string) => p.split(path.sep).join("/");
 
-/** Is this vault-relative path a note the sync reads? */
+/** Is this vault-relative path a note the sync reads (Markdown or a
+ *  document: .txt, .pdf, .docx, .epub)? */
 export function isWatchedNote(relPath: string, folders: readonly string[], outputFolder: string): boolean {
-	if (!/\.md$/i.test(relPath)) return false;
+	if (!isNoteFile(relPath)) return false;
 	if (relPath.split("/").some((segment) => segment.startsWith("."))) return false;
 	if (isInOutputFolder(relPath, outputFolder)) return false;
 	return folders.some((folder) => relPath.startsWith(`${folder}/`));
@@ -228,13 +247,15 @@ function scanFolder(root: string, folder: string, outputFolder: string, out: str
 			const child = `${rel}/${entry.name}`;
 			if (isInOutputFolder(child, outputFolder)) continue;
 			if (entry.isDirectory()) walk(child);
-			else if (entry.isFile() && /\.md$/i.test(entry.name)) out.push(child);
+			else if (entry.isFile() && isNoteFile(entry.name)) out.push(child);
 		}
 	};
 	walk(folder);
 }
 
-const hashOf = (text: string) => crypto.createHash("sha256").update(text).digest("hex");
+/** Content hash over the file's BYTES (equal to the former UTF-8 text hash
+ *  for every valid Markdown note, so existing state entries stay valid). */
+const hashOf = (bytes: Uint8Array) => crypto.createHash("sha256").update(bytes).digest("hex");
 
 // ─── vault → graph ────────────────────────────────────────────────────────────
 
@@ -285,27 +306,58 @@ async function processNote(rel: string): Promise<void> {
 	if (!config || !s) return;
 	const abs = path.join(config.root, rel);
 	const sourceId = notesSourceId(rel);
-	let text: string | null = null;
+	let bytes: Buffer | null = null;
 	try {
-		text = fs.readFileSync(abs, "utf-8");
+		bytes = fs.readFileSync(abs);
 	} catch {
-		text = null;
+		bytes = null;
 	}
 
-	if (text === null) {
+	if (bytes === null) {
 		// Deleted (or moved away): its contribution leaves the graph.
+		const hadPending = s.pending[rel] !== undefined || s.confirmed[rel] !== undefined;
+		delete s.pending[rel];
+		delete s.confirmed[rel];
 		if (s.notes[rel]) {
 			deleteSourceTraces(s.notes[rel].sourceId);
 			delete s.notes[rel];
 			saveState();
 			console.info(`[vault] removed ${rel}`);
 			scheduleConceptExport();
-		}
+		} else if (hadPending) saveState();
 		return;
 	}
 
-	const hash = hashOf(text);
+	const hash = hashOf(bytes);
 	if (s.notes[rel]?.hash === hash) return; // unchanged — costs nothing
+
+	// Documents are converted (cached by hash) and gated by the
+	// confirmation threshold BEFORE anything leaves the graph: a big file
+	// waiting for «Leer» keeps its previous contribution.
+	let text: string;
+	let segments: DocSegment[] | undefined;
+	if (isDocumentFile(rel)) {
+		const doc = await documentText(rel, bytes, hash);
+		segments = doc.segments;
+		text = joinedText(doc);
+		if (doc.ocr === "unavailable" && doc.imagePages.length > 0) {
+			emit("vault-notice", { kind: "ocr-missing", path: rel, count: doc.imagePages.length });
+		}
+		const runs = estimateRuns(segments, effectiveSettings().graph.extractionChunkTokens);
+		const threshold = effectiveSettings().obsidian.confirmAboveRuns;
+		if (runs > threshold && s.confirmed[rel] !== hash) {
+			if (s.pending[rel]?.hash !== hash) {
+				s.pending[rel] = { hash, runs, ...(doc.pages !== undefined ? { pages: doc.pages } : {}) };
+				saveState();
+				emit("vault-notice", { kind: "pending", path: rel, runs, ...(doc.pages !== undefined ? { pages: doc.pages } : {}) });
+				console.info(`[vault] ${rel}: ~${runs} runs — waiting for confirmation`);
+			}
+			return;
+		}
+	} else {
+		text = bytes.toString("utf-8");
+	}
+	delete s.pending[rel];
 
 	// Replace cleanly: whatever this path contributed before goes first.
 	// A legacy manual import of the same file (imported by bare file name
@@ -330,11 +382,39 @@ async function processNote(rel: string): Promise<void> {
 		return;
 	}
 	console.info(`[vault] extracting ${rel}`);
-	await extraction.importNotes({ filePath: rel, text });
+	await extraction.importNotes({ filePath: rel, text, ...(segments ? { segments } : {}) });
 	adoptLegacy();
 	s.notes[rel] = { hash, sourceId };
+	delete s.confirmed[rel];
 	saveState();
 	scheduleConceptExport();
+}
+
+/** Documents waiting for «Leer» (Settings list; deferred ones included). */
+export function pendingDocuments(): Array<{ path: string } & PendingDocument> {
+	const s = state();
+	if (!s) return [];
+	return Object.entries(s.pending)
+		.map(([rel, entry]) => ({ path: rel, ...entry }))
+		.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/** «Leer» (extract it now, whatever its size) or «Ahora no» (park it until
+ *  the file changes). False = no such pending document. */
+export function decidePendingDocument(rel: string, decision: "read" | "later"): boolean {
+	const s = state();
+	const entry = s?.pending[rel];
+	if (!s || !entry) return false;
+	if (decision === "later") {
+		entry.deferred = true;
+		saveState();
+		return true;
+	}
+	s.confirmed[rel] = entry.hash;
+	delete s.pending[rel];
+	saveState();
+	enqueue(rel);
+	return true;
 }
 
 /** Compare the selected folders against the state file and queue every
@@ -348,15 +428,17 @@ function reconcileVault(): void {
 	for (const folder of config.folders) scanFolder(config.root, folder, config.outputFolder, present);
 	const presentSet = new Set(present);
 	for (const rel of present) {
-		let text: string;
+		let bytes: Buffer;
 		try {
-			text = fs.readFileSync(path.join(config.root, rel), "utf-8");
+			bytes = fs.readFileSync(path.join(config.root, rel));
 		} catch {
 			continue;
 		}
-		if (s.notes[rel]?.hash !== hashOf(text)) enqueue(rel);
+		const hash = hashOf(bytes);
+		// A document already waiting for «Leer» with this content stays put.
+		if (s.notes[rel]?.hash !== hash && s.pending[rel]?.hash !== hash) enqueue(rel);
 	}
-	for (const rel of Object.keys(s.notes)) {
+	for (const rel of [...Object.keys(s.notes), ...Object.keys(s.pending)]) {
 		if (isWatchedNote(rel, config.folders, config.outputFolder) && !presentSet.has(rel)) enqueue(rel);
 	}
 }
@@ -445,8 +527,8 @@ function relocate(root: string, from: string | undefined, to: string): void {
 }
 
 /** A link written into the note at `fromRel`, in the configured style. */
-function linkFrom(fromRel: string, toRel: string, label?: string): string {
-	return noteLink(runtime().config?.obsidianFormat ?? false, fromRel, toRel, label);
+function linkFrom(fromRel: string, toRel: string, label?: string, anchor?: string): string {
+	return noteLink(runtime().config?.obsidianFormat ?? false, fromRel, toRel, label, anchor);
 }
 
 function conceptLinkOf(s: VaultState, fromRel: string, nodeId: string, fallback: string): string {
@@ -552,9 +634,22 @@ function exportConcepts(): void {
 		const sources: string[] = [];
 		for (const chatId of new Set(node.provenance.map((pt) => pt.chatId))) {
 			const vaultRel = vaultSources.get(chatId);
-			if (vaultRel) sources.push(linkFrom(rel, vaultRel));
+			// Document locations (phase 2): one source line per page range /
+			// chapter, linked to the first page where the file is a PDF.
+			const locs = [...new Set(node.provenance.filter((pt) => pt.chatId === chatId && pt.loc).map((pt) => pt.loc!))];
+			if (vaultRel && locs.length > 0) {
+				const name = vaultRel.split("/").pop()!;
+				for (const loc of locs) {
+					const page = /\.pdf$/i.test(vaultRel) ? firstPageOf(loc) : null;
+					sources.push(linkFrom(rel, vaultRel, `${name}, ${loc}`, page !== null ? `page=${page}` : undefined));
+				}
+			} else if (vaultRel) sources.push(linkFrom(rel, vaultRel));
 			else if (s.chats[chatId]) sources.push(linkFrom(rel, s.chats[chatId], titles.get(chatId)));
-			else if (sourcePath.has(chatId)) sources.push(sourcePath.get(chatId)!);
+			else if (sourcePath.has(chatId)) {
+				const file = sourcePath.get(chatId)!;
+				if (locs.length > 0) for (const loc of locs) sources.push(`${file}, ${loc}`);
+				else sources.push(file);
+			}
 			else if (titles.has(chatId)) sources.push(titles.get(chatId)!);
 		}
 		const body = conceptNoteBody({
@@ -720,7 +815,8 @@ function refreshSummaries(): void {
 export interface VaultFolder {
 	/** Vault-relative POSIX path. */
 	path: string;
-	/** Markdown notes inside (recursive, output folder excluded). */
+	/** Readable files inside — notes and documents (recursive, output
+	 *  folder excluded). */
 	notes: number;
 	children: VaultFolder[];
 }
@@ -731,6 +827,8 @@ export interface VaultOverview {
 	folders: VaultFolder[];
 	outputFolder: string;
 	status: { enabled: boolean; watching: boolean; queued: number; running: number; synced: number; lastError: string | null };
+	/** Documents waiting for «Leer». */
+	pending: Array<{ path: string } & PendingDocument>;
 }
 
 /** The vault's folder tree two levels deep (for the folder checkboxes). */
@@ -775,6 +873,7 @@ export function vaultOverview(requestedRoot?: string): VaultOverview {
 			synced: rt.config ? Object.keys(state()?.notes ?? {}).length : 0,
 			lastError: rt.lastError,
 		},
+		pending: rt.config ? pendingDocuments() : [],
 	};
 }
 

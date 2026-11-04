@@ -81,6 +81,10 @@ export interface ProvenancePoint {
 	 *  recorded through the mapping line + the source record). */
 	chatId: string;
 	messageId: string;
+	/** Where in a DOCUMENT source the point came from — the extraction
+	 *  chunk's page range or chapter ("pp. 45–52", "cap. «X»"; knowledge
+	 *  folder phase 2, 2026-11-04). Absent for chats and plain notes. */
+	loc?: string;
 }
 
 /** One imported notes file — the format-agnostic front door's bookkeeping

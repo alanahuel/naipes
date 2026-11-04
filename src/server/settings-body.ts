@@ -25,7 +25,7 @@ import type {
 	RoleModelOverride,
 } from "../core/settings.ts";
 import { isLocale } from "../core/i18n.ts";
-import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, REVIEW_RETENTION_MAX, REVIEW_RETENTION_MIN, normalizeClockTime, normalizeVaultFolder, isThemeMode, type DesktopSettings, type ObsidianSettings, type ReviewSettings } from "../core/settings.ts";
+import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, CONFIRM_ABOVE_RUNS_MIN, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, REVIEW_RETENTION_MAX, REVIEW_RETENTION_MIN, normalizeClockTime, normalizeVaultFolder, isThemeMode, type DesktopSettings, type ObsidianSettings, type ReviewSettings } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
 
@@ -427,6 +427,12 @@ export function parseObsidianSettingsBody(body: unknown): SettingsBodyResult<Obs
 	if (raw.obsidianFormat !== undefined) {
 		if (typeof raw.obsidianFormat !== "boolean") return { ok: false, error: "obsidianFormat must be a boolean" };
 		settings.obsidianFormat = raw.obsidianFormat;
+	}
+	if (raw.confirmAboveRuns !== undefined) {
+		if (!Number.isInteger(raw.confirmAboveRuns) || (raw.confirmAboveRuns as number) < CONFIRM_ABOVE_RUNS_MIN) {
+			return { ok: false, error: `confirmAboveRuns must be an integer ≥ ${CONFIRM_ABOVE_RUNS_MIN}` };
+		}
+		settings.confirmAboveRuns = raw.confirmAboveRuns as number;
 	}
 	return { ok: true, settings };
 }

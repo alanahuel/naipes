@@ -72,10 +72,10 @@ export function safeNoteName(title: string): string {
 
 /** `[[path/without/ext|label]]` — path links resolve even when another
  *  vault note shares the base name. */
-export function wikilink(relPath: string, label?: string): string {
+export function wikilink(relPath: string, label?: string, anchor?: string): string {
 	const target = relPath.replace(/\.md$/i, "");
 	const text = label ?? target.split("/").pop() ?? target;
-	return `[[${target}|${text.replace(/[[\]|]/g, " ")}]]`;
+	return `[[${target}${anchor ? `#${anchor}` : ""}|${text.replace(/[[\]|]/g, " ")}]]`;
 }
 
 /** The POSIX relative path from folder `fromDir` to `to` (both
@@ -92,21 +92,21 @@ function relativePath(fromDir: string, to: string): string {
  *  `toRel` (both folder-relative): relative path, every segment
  *  URL-encoded (spaces, accents, parentheses), the label's brackets
  *  escaped. Works in any Markdown editor (knowledge folder, 2026-11-04). */
-export function markdownLink(fromRel: string, toRel: string, label?: string): string {
+export function markdownLink(fromRel: string, toRel: string, label?: string, anchor?: string): string {
 	const fromDir = fromRel.includes("/") ? fromRel.slice(0, fromRel.lastIndexOf("/")) : "";
 	const href = relativePath(fromDir, toRel)
 		.split("/")
 		.map((segment) => (segment === ".." ? segment : encodeURIComponent(segment).replace(/\(/g, "%28").replace(/\)/g, "%29")))
 		.join("/");
 	const text = label ?? toRel.replace(/\.md$/i, "").split("/").pop() ?? toRel;
-	return `[${text.replace(/([[\]\\])/g, "\\$1")}](${href})`;
+	return `[${text.replace(/([[\]\\])/g, "\\$1")}](${href}${anchor ? `#${anchor}` : ""})`;
 }
 
 /** The link the app writes from note `fromRel` to note `toRel`: a
  *  `[[wikilink]]` with the Obsidian format on, a relative Markdown link
  *  otherwise (owner, 2026-11-04). */
-export function noteLink(obsidianFormat: boolean, fromRel: string, toRel: string, label?: string): string {
-	return obsidianFormat ? wikilink(toRel, label) : markdownLink(fromRel, toRel, label);
+export function noteLink(obsidianFormat: boolean, fromRel: string, toRel: string, label?: string, anchor?: string): string {
+	return obsidianFormat ? wikilink(toRel, label, anchor) : markdownLink(fromRel, toRel, label, anchor);
 }
 
 function yamlScalar(value: string): string {

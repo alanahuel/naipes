@@ -54,6 +54,13 @@ export interface ServerEvents {
 	 *  the bell adds it. `count` = ideas due at send time. Not chat-scoped
 	 *  (`chatId` stays absent — listeners read it off any event). */
 	"review-notice": { kind: "digest" | "evening"; count: number; chatId?: undefined };
+	/** A knowledge-folder document needs the user (phase 2, 2026-11-04):
+	 *  `pending` = over the confirmation threshold, waiting for «Leer» /
+	 *  «Ahora no» (`runs` estimated, `pages` for a PDF); `ocr-missing` =
+	 *  `count` scanned pages were skipped because no tesseract is installed. */
+	"vault-notice":
+		| { kind: "pending"; path: string; runs: number; pages?: number; chatId?: undefined }
+		| { kind: "ocr-missing"; path: string; count: number; chatId?: undefined };
 }
 
 export type ServerEventType = keyof ServerEvents;
@@ -71,6 +78,7 @@ export const SERVER_EVENT_TYPES = [
 	"record-changed",
 	"compaction-changed",
 	"review-notice",
+	"vault-notice",
 ] as const satisfies readonly ServerEventType[];
 
 /** One notification: the type discriminates the payload. */

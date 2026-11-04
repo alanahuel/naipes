@@ -149,7 +149,7 @@ describe("obsidian settings section", () => {
 type VaultModule = typeof import("../src/server/vault.ts");
 let vault: VaultModule;
 let stores: typeof import("../src/server/stores.ts").stores;
-let imports: Array<{ filePath: string; text: string }>;
+let imports: Array<{ filePath: string; text: string; segments?: Array<{ text: string; page?: number }> }>;
 
 function write(rel: string, text: string): void {
 	const abs = path.join(VAULT, rel);
@@ -167,8 +167,10 @@ before(async () => {
 	stores = (await import("../src/server/stores.ts")).stores;
 	vault = await import("../src/server/vault.ts");
 	// The fake pipeline: one node per heading line, provenance = the source.
-	handler.extraction.importNotes = async ({ filePath, text }) => {
-		imports.push({ filePath, text });
+	const { locLabel } = await import("../src/core/doc-chunks.ts");
+	handler.extraction.importNotes = async ({ filePath, text, segments }) => {
+		imports.push({ filePath, text, ...(segments ? { segments } : {}) });
+		const loc = segments ? locLabel(segments) : undefined;
 		const id = notesSourceId(filePath);
 		stores.graphStore.upsertSource({ id, filePath, importedAt: new Date().toISOString() });
 		let nodes = 0;
@@ -180,7 +182,7 @@ before(async () => {
 				statement: `${line.slice(2)} es verdad.`,
 				aliases: [],
 				createdAt: new Date().toISOString(),
-				provenance: [{ chatId: id, messageId: "" }],
+				provenance: [{ chatId: id, messageId: "", ...(loc ? { loc } : {}) }],
 			});
 		}
 		return { nodes, chains: 0 };
@@ -329,5 +331,61 @@ describe("vault sync", () => {
 		writeSettingsRecord({ ...readSettingsRecord()!, obsidian: { enabled: false } });
 		assert.equal((await put(section)).status, 200);
 		assert.equal(readSettingsRecord()?.obsidian?.obsidianFormat, false);
+	});
+
+	it("reads a PDF page by page and links its ideas to the page", async () => {
+		const { makePdf } = await import("./doc-fixtures.ts");
+		fs.writeFileSync(path.join(VAULT, "Notas", "optica.pdf"), makePdf(["# Refraccion", "# Reflexion"]));
+		vault.reconfigureVault();
+		await vault.whenVaultIdle();
+		const pdf = imports.find((i) => i.filePath === "Notas/optica.pdf");
+		assert.ok(pdf, "the PDF was extracted");
+		assert.deepEqual(pdf!.segments?.map((seg) => seg.page), [1, 2]);
+		assert.ok(nodeNames().includes("Refraccion"));
+		vault.exportVaultNow();
+		const concept = fs.readFileSync(path.join(VAULT, OUT, "Conceptos", "Refraccion.md"), "utf-8");
+		assert.ok(concept.includes("[optica.pdf, pp. 1–2](../../../Notas/optica.pdf#page=1)"), concept);
+	});
+
+	it("holds a big document for confirmation: notice, «Ahora no», «Leer»", async () => {
+		const { PUT } = await import("../app/api/settings/[section]/route.ts");
+		const { subscribe } = await import("../src/core/events.ts");
+		const { makePdf } = await import("./doc-fixtures.ts");
+		const section = { enabled: true, vaultPath: VAULT, folders: ["Notas", "Recursos"], outputFolder: OUT, obsidianFormat: false, confirmAboveRuns: 1 };
+		const res = await PUT(new Request("http://localhost/api/settings/obsidian", { method: "PUT", body: JSON.stringify(section) }), {
+			params: Promise.resolve({ section: "obsidian" }),
+		});
+		assert.equal(res.status, 200);
+		await vault.whenVaultIdle();
+		imports.length = 0;
+		const notices: unknown[] = [];
+		const unsubscribe = subscribe((event) => {
+			if (event.type === "vault-notice") notices.push(event);
+		});
+		try {
+			// Two pages of ~5k tokens each: each page splits in two → 4 runs > 1.
+			const long = (word: string) => `# ${word} ${"palabra ".repeat(2500)}`;
+			fs.writeFileSync(path.join(VAULT, "Notas", "libro.pdf"), makePdf([long("Grande"), long("Enorme")]));
+			vault.reconfigureVault();
+			await vault.whenVaultIdle();
+			assert.equal(imports.length, 0, "nothing extracted while waiting");
+			assert.deepEqual(notices, [{ type: "vault-notice", kind: "pending", path: "Notas/libro.pdf", runs: 4, pages: 2 }]);
+			assert.deepEqual(vault.pendingDocuments().map((d) => [d.path, d.runs, d.pages]), [["Notas/libro.pdf", 4, 2]]);
+
+			assert.equal(vault.decidePendingDocument("Notas/libro.pdf", "later"), true);
+			vault.reconfigureVault();
+			await vault.whenVaultIdle();
+			assert.equal(imports.length, 0, "«Ahora no» keeps it parked");
+			assert.equal(notices.length, 1, "no second notice for the same content");
+			assert.equal(vault.pendingDocuments()[0]?.deferred, true);
+
+			assert.equal(vault.decidePendingDocument("Notas/libro.pdf", "read"), true);
+			await vault.whenVaultIdle();
+			assert.deepEqual(imports.map((i) => i.filePath), ["Notas/libro.pdf"]);
+			assert.deepEqual(vault.pendingDocuments(), []);
+			assert.equal(vault.decidePendingDocument("Notas/libro.pdf", "read"), false, "nothing left to decide");
+		} finally {
+			unsubscribe();
+		}
 	});
 });

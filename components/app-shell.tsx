@@ -49,6 +49,9 @@ declare global {
 			getZoom?: () => Promise<number>;
 			/** Native folder picker (Settings → Knowledge folder); null = cancelled. */
 			pickFolder?: (defaultPath?: string) => Promise<string | null>;
+			/** Opens a knowledge-folder file (folder-relative) with the system
+			 *  viewer; false when it is not a file inside the folder. */
+			openSource?: (relPath: string) => Promise<boolean>;
 			/** Opens the app's data folder in the system file manager. */
 			openDataFolder?: () => void;
 			/** Repaints the native window chrome for the effective theme. */

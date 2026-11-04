@@ -36,6 +36,7 @@ const localUpdates = require("./local-update-check.cjs");
 const { randomBytes } = require("node:crypto");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
+const { knowledgeSourcePath } = require("./knowledge-source.cjs");
 const http = require("node:http");
 const net = require("node:net");
 const path = require("node:path");
@@ -1046,6 +1047,15 @@ async function main() {
 			...(typeof defaultPath === "string" && defaultPath ? { defaultPath } : {}),
 		});
 		return result.canceled ? null : result.filePaths[0] ?? null;
+	});
+	// Conocimiento → an idea's document source (phase 2, 2026-11-04): open a
+	// knowledge-folder file with the system viewer. Only a regular file of a
+	// readable kind INSIDE the configured folder (realpath-checked, so no
+	// symlink or ".." escape); anything else answers false.
+	ipcMain.handle("np:open-source", async (event, relPath) => {
+		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted desktop request.");
+		const target = knowledgeSourcePath(DATA_DIR(), relPath);
+		return target ? (await shell.openPath(target)) === "" : false;
 	});
 	ipcMain.handle("np:zoom:get", (event) => BrowserWindow.fromWebContents(event.sender)?.webContents.getZoomFactor() ?? 1);
 	// The renderer's effective theme (light/dark): repaint the native

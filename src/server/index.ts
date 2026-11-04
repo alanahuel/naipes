@@ -49,4 +49,5 @@ export { claudeCodeControlsResponse } from "./claude-code-http.ts";
 export { sessionCost } from "./pricing.ts";
 // The Obsidian connection (owner, 2026-11-01): overview for the settings
 // section, settings-write reconfigure, and the «Resumir» button.
-export { vaultOverview, reconfigureVault, startVaultSync, summarizeChatToVault, type VaultOverview, type VaultFolder } from "./vault.ts";
+export { vaultOverview, reconfigureVault, startVaultSync, summarizeChatToVault, pendingDocuments, decidePendingDocument, type VaultOverview, type VaultFolder, type PendingDocument } from "./vault.ts";
+export { documentText, isNoteFile, isDocumentFile, joinedText, NOTE_EXTENSIONS, type ConvertedDocument } from "./doc-text.ts";

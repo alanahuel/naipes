@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { resolveObsidianFormat, type ObsidianSettings } from "@/src/core";
+import { CONFIRM_ABOVE_RUNS_MIN, FACTORY_SETTINGS, resolveObsidianFormat, type ObsidianSettings } from "@/src/core";
 import { useT } from "@/components/i18n";
 import { CommitInput, SettingsGroup, SettingsRow, Toggle } from "./controls.tsx";
 
@@ -27,6 +27,8 @@ interface VaultOverview {
 	folders: VaultFolder[];
 	outputFolder: string;
 	status: { enabled: boolean; watching: boolean; queued: number; running: number; synced: number; lastError: string | null };
+	/** Documents waiting for «Leer» (phase 2). */
+	pending?: Array<{ path: string; runs: number; pages?: number; deferred?: boolean }>;
 }
 
 const nameOf = (folder: string) => folder.split("/").pop() ?? folder;
@@ -61,6 +63,7 @@ export function ObsidianSection({
 	const folders = obsidian?.folders ?? [];
 	const vaultPath = obsidian?.vaultPath ?? "";
 	const obsidianFormat = resolveObsidianFormat(obsidian);
+	const confirmAboveRuns = obsidian?.confirmAboveRuns ?? FACTORY_SETTINGS.obsidian.confirmAboveRuns;
 
 	const refresh = useCallback(async () => {
 		try {
@@ -92,6 +95,15 @@ export function ObsidianSection({
 	const pick = async () => {
 		const chosen = await window.np?.pickFolder?.(overview?.root || vaultPath);
 		if (chosen) void write({ ...obsidian, vaultPath: chosen, folders: [] });
+	};
+
+	const decide = async (file: string, decision: "read" | "later") => {
+		await fetch("/api/vault/pending", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ path: file, decision }),
+		}).catch(() => null);
+		void refresh();
 	};
 
 	const selectedNotes = overview ? countSelected(overview.folders, folders) : 0;
@@ -162,6 +174,18 @@ export function ObsidianSection({
 			<SettingsRow label={t("settings.obsidian.format")} hint={t("settings.obsidian.formatHint")} testid="obsidian-row-format">
 				<Toggle checked={obsidianFormat} label={t("settings.obsidian.formatToggle")} testid="toggle-obsidian-format" onChange={(on) => void write({ ...obsidian, obsidianFormat: on })} />
 			</SettingsRow>
+			<SettingsRow label={t("settings.obsidian.confirmAbove")} hint={t("settings.obsidian.confirmAboveHint")} testid="obsidian-row-confirm">
+				<CommitInput
+					type="number"
+					value={String(confirmAboveRuns)}
+					ariaLabel={t("settings.obsidian.confirmAbove")}
+					testid="input-vault-confirm-above"
+					onCommit={(raw) => {
+						const n = Number(raw.trim());
+						if (Number.isInteger(n) && n >= CONFIRM_ABOVE_RUNS_MIN) void write({ ...obsidian, confirmAboveRuns: n });
+					}}
+				/>
+			</SettingsRow>
 			{status && enabled && (
 				<p className="text-xs text-muted-foreground" data-testid="obsidian-status">
 					{status.watching ? t("settings.obsidian.watching") : t("settings.obsidian.notWatching")} · {t("settings.obsidian.synced", { n: status.synced })}
@@ -170,6 +194,29 @@ export function ObsidianSection({
 				</p>
 			)}
 			{loadError && <p className="text-xs text-warn">{t("settings.obsidian.readError", { error: loadError })}</p>}
+
+			{overview?.pending && overview.pending.length > 0 && (
+				<SettingsGroup label={t("settings.obsidian.pending")} testid="obsidian-pending">
+					{overview.pending.map((doc) => (
+						<div key={doc.path} className="flex flex-wrap items-center gap-2 py-0.5 font-ui text-xs text-foreground" data-testid={`vault-pending-${doc.path}`}>
+							<span className="min-w-0 flex-1 truncate" title={doc.path}>
+								{doc.pages !== undefined
+									? t("settings.obsidian.pendingPages", { file: doc.path, pages: doc.pages, runs: doc.runs })
+									: t("settings.obsidian.pendingRuns", { file: doc.path, runs: doc.runs })}
+								{doc.deferred ? ` · ${t("settings.obsidian.deferred")}` : ""}
+							</span>
+							<button type="button" className="rounded-sm border border-border px-2 py-0.5 hover:border-muted-foreground/50" onClick={() => void decide(doc.path, "read")}>
+								{t("settings.obsidian.read")}
+							</button>
+							{!doc.deferred && (
+								<button type="button" className="rounded-sm px-2 py-0.5 text-muted-foreground hover:text-foreground" onClick={() => void decide(doc.path, "later")}>
+									{t("settings.obsidian.notNow")}
+								</button>
+							)}
+						</div>
+					))}
+				</SettingsGroup>
+			)}
 
 			<SettingsGroup label={t("settings.obsidian.folders")} testid="obsidian-folders">
 				<p className="text-xs text-muted-foreground">
