@@ -13,7 +13,7 @@ const mainFile = fileURLToPath(new URL("../electron/main.cjs", import.meta.url))
 const mainSource = readFileSync(mainFile, "utf8");
 const mainRequire = createRequire(mainFile);
 
-function fixture({ packaged = true, updaterMissing = false, localBuild = false } = {}) {
+function fixture({ packaged = true, updaterMissing = false, localBuild = false, argv = [] as string[] } = {}) {
 	let settings: string | Error = JSON.stringify({ version: 1, general: { autoUpdate: true } });
 	// Local builds (stage 0b): files main writes (local-update.json), the
 	// fake GitHub answer, desktop notifications shown, urls opened.
@@ -28,7 +28,24 @@ function fixture({ packaged = true, updaterMissing = false, localBuild = false }
 		constructor(opts: { title: string; body: string }) { super(); this.opts = opts; }
 		show() { notifications.push({ ...this.opts, click: () => this.emit("click") }); }
 	}
-	const fakeFetch = async (url: string) => {
+	// «Repaso» (stage 2): review notify answers per kind, tray instances.
+	const reviewAnswers: Record<string, unknown> = { digest: { notify: false, count: 0 }, evening: { notify: false, count: 0 } };
+	const reviewCalls: { url: string; headers: Record<string, string> }[] = [];
+	const trays: FakeTray[] = [];
+	class FakeTray extends EventEmitter {
+		tooltip = ""; menu: { label?: string; enabled?: boolean; click?: () => void }[] = []; destroyed = false;
+		constructor() { super(); trays.push(this); }
+		setToolTip(t: string) { this.tooltip = t; }
+		setContextMenu(m: typeof this.menu) { this.menu = m; }
+		destroy() { this.destroyed = true; }
+	}
+	const fakeFetch = async (url: string, init?: { headers?: Record<string, string> }) => {
+		if (url.includes("/api/review/notify")) {
+			reviewCalls.push({ url, headers: init?.headers ?? {} });
+			const kind = new URL(url).searchParams.get("kind")!;
+			const body = reviewAnswers[kind];
+			return { ok: true, status: 200, json: async () => body };
+		}
 		fetches.push(url);
 		if (release instanceof Error) throw release;
 		const body = release;
@@ -103,6 +120,8 @@ function fixture({ packaged = true, updaterMissing = false, localBuild = false }
 		ipcMain: { on() {}, handle: (channel: string, fn: (event: unknown) => unknown) => handles.set(channel, fn) },
 		session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
 		Notification: FakeNotification,
+		Tray: FakeTray,
+		nativeImage: { createFromPath: (p: string) => ({ path: p }) },
 		shell: { openExternal: async (target: string) => { opened.push(target); } },
 	};
 	const context = createContext({
@@ -129,18 +148,22 @@ function fixture({ packaged = true, updaterMissing = false, localBuild = false }
 			};
 			return mainRequire(id);
 		},
-		process: { argv: [], env: { NP_DEV_URL: "http://127.0.0.1:9000" }, platform: "darwin", on() {} },
+		process: { argv, env: { NP_DEV_URL: "http://127.0.0.1:9000" } as Record<string, string | undefined>, platform: "darwin", on() {} },
 		__dirname: path.dirname(mainFile), URL,
 		setInterval: (callback: () => void, delay: number) => intervals.push({ callback, delay }),
 		setTimeout() {},
 		fixtureChild: { kill: (signal: string) => order.push(signal) },
 		fetch: fakeFetch,
+		AbortSignal,
 	});
 	runInContext(mainSource, context, { filename: mainFile });
 	const run = (code: string) => runInContext(code, context);
 	return {
-		run, updater, windows, intervals, handles, settingsReads, order, app,
-		files, fetches, notifications, opened,
+		run, updater, windows, handles, settingsReads, order, app,
+		/** The updater's timers only (the review clock adds a 60s one). */
+		get intervals() { return intervals.filter((i) => i.delay === 24 * 60 * 60 * 1000); },
+		reviewIntervals: () => intervals.filter((i) => i.delay === 60_000),
+		files, fetches, notifications, opened, reviewAnswers, reviewCalls, trays,
 		setRelease: (value: typeof release) => { release = value; },
 		/** Let an async local check settle (fetch + json + report). */
 		settle: async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); },
@@ -428,5 +451,80 @@ describe("local builds: notice-only update checks (owner 2026-11-04, stage 0b)",
 		assert.equal(f.intervals.length, 1);
 		f.menuCheck(); await f.settle();
 		assert.equal(f.fetches.length, 2);
+	});
+});
+
+describe("«Repaso» desktop side (owner 2026-11-04, stage 2)", () => {
+	it("boot: tray with Abrir · Repasar ahora · Salir, a 60s review clock, and the window", async () => {
+		const f = fixture();
+		await f.run("main()"); await f.settle();
+		assert.equal(f.trays.length, 1);
+		assert.deepEqual(JSON.parse(JSON.stringify(f.trays[0]!.menu.filter((i) => i.label).map((i) => i.label))), ["Abrir Naipes", "Repasar ahora", "Salir"]);
+		assert.equal(f.reviewIntervals().length, 1);
+		assert.equal(f.windows.length, 1);
+		assert.deepEqual(f.reviewCalls.map((c) => new URL(c.url).search), ["?kind=digest", "?kind=evening"]);
+	});
+
+	it("a --hidden (autostart) launch keeps the window closed while the tray exists", async () => {
+		const f = fixture({ argv: ["--hidden"] });
+		await f.run("main()"); await f.settle();
+		assert.equal(f.windows.length, 0);
+		assert.equal(f.trays.length, 1);
+	});
+
+	it("the tray switch off: no tray, and --hidden still opens the window (never unreachable)", async () => {
+		const f = fixture({ argv: ["--hidden"] });
+		f.setSettings({ desktop: { tray: false } });
+		await f.run("main()"); await f.settle();
+		assert.equal(f.trays.length, 0);
+		assert.equal(f.windows.length, 1);
+	});
+
+	it("each tick shows what the server says, keeps the due count, and a click opens /review", async () => {
+		const f = fixture();
+		await f.run("main()"); await f.settle();
+		f.reviewAnswers.digest = { notify: true, count: 12, title: "Hoy toca repasar 12 ideas", body: "Estoicismo (6) y FÍSICA (6). Pulsa para empezar." };
+		f.reviewAnswers.evening = { notify: false, count: 12 };
+		f.reviewIntervals()[0]!.callback(); await f.settle();
+		const shown = f.notifications.filter((n) => n.title.startsWith("Hoy toca"));
+		assert.equal(shown.length, 1);
+		assert.equal(f.trays[0]!.menu.find((i) => i.label?.startsWith("Repasar"))!.label, "Repasar ahora (12)");
+		assert.equal(f.trays[0]!.menu.find((i) => i.label?.startsWith("Repasar"))!.enabled, true);
+		shown[0]!.click();
+		// The window is still loading: navigation waits for did-finish-load.
+		assert.equal(f.windows[0]!.webContents.messages.some((m) => m.channel === "np:navigate"), false);
+		f.windows[0]!.webContents.emit("did-finish-load");
+		const nav = f.windows[0]!.webContents.messages.filter((m) => m.channel === "np:navigate");
+		assert.deepEqual(nav.map((m) => m.value), ["/review"]);
+	});
+
+	it("closing every window quits only without a tray", async () => {
+		let quits = 0;
+		const f = fixture();
+		f.app.quit = () => { quits++; };
+		f.run("process.platform = 'linux'");
+		await f.run("main()"); await f.settle();
+		f.app.emit("window-all-closed");
+		assert.equal(quits, 0, "the tray keeps Naipes resident");
+		f.setSettings({ desktop: { tray: false } });
+		f.reviewIntervals()[0]!.callback(); await f.settle();
+		assert.equal(f.trays[0]!.destroyed, true);
+		f.app.emit("window-all-closed");
+		assert.equal(quits, 1);
+	});
+
+	it("Linux autostart: writes our XDG entry (hidden launch), removes only our own", async () => {
+		const f = fixture();
+		f.run("process.platform = 'linux'; process.env.NP_DEV_URL = undefined; process.env.APPIMAGE = '/opt/N/Naipes.AppImage'");
+		f.run("applyAutostart(true)");
+		const file = [...f.files.keys()].find((k) => k.endsWith("autostart/naipes.desktop"))!;
+		assert.ok(file);
+		assert.match(f.files.get(file)!, /^Exec=\/opt\/N\/Naipes.AppImage --hidden$/m);
+	});
+
+	it("a dev shell never registers autostart", async () => {
+		const f = fixture();
+		f.run("process.platform = 'linux'; applyAutostart(true)");
+		assert.equal([...f.files.keys()].some((k) => k.includes("autostart")), false);
 	});
 });

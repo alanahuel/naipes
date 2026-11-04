@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { REVIEW_FILES } from "../../config.ts";
-import { isIntakeLine, sanitizeReviewSources, type IntakeLine, type ReviewSources } from "../core/review.ts";
+import { isIntakeLine, isReviewNoticeLine, sanitizeReviewSources, type IntakeLine, type ReviewNoticeLine, type ReviewSources } from "../core/review.ts";
 
 /** sources.json, or null when absent/corrupt. Throws on a newer version. */
 export function readReviewSources(): ReviewSources | null {
@@ -84,4 +84,14 @@ export function reviewFilesRevision(): number {
 		}
 	}
 	return revision;
+}
+
+/** notices.jsonl — review notices sent (digest/evening), oldest first. */
+export function readReviewNotices(): ReviewNoticeLine[] {
+	return readLines(REVIEW_FILES.notices).filter(isReviewNoticeLine);
+}
+
+export function appendReviewNotice(line: ReviewNoticeLine): void {
+	fs.mkdirSync(path.dirname(REVIEW_FILES.notices), { recursive: true });
+	fs.appendFileSync(REVIEW_FILES.notices, `${JSON.stringify(line)}\n`, "utf-8");
 }

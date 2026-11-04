@@ -25,7 +25,7 @@ import type {
 	RoleModelOverride,
 } from "../core/settings.ts";
 import { isLocale } from "../core/i18n.ts";
-import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, normalizeVaultFolder, isThemeMode, type ObsidianSettings } from "../core/settings.ts";
+import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, REVIEW_RETENTION_MAX, REVIEW_RETENTION_MIN, normalizeClockTime, normalizeVaultFolder, isThemeMode, type DesktopSettings, type ObsidianSettings, type ReviewSettings } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
 
@@ -429,6 +429,55 @@ export function parseObsidianSettingsBody(body: unknown): SettingsBodyResult<Obs
 
 /** The section→parser map for PUT /api/settings/[section] (the route also
  *  carries the special prompts sub-resource). */
+/** review: every field optional; strict types and ranges (400 otherwise). */
+export function parseReviewSettingsBody(body: unknown): SettingsBodyResult<ReviewSettings> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	const settings: ReviewSettings = {};
+	if (raw.targetRetention !== undefined) {
+		if (typeof raw.targetRetention !== "number" || !(raw.targetRetention >= REVIEW_RETENTION_MIN && raw.targetRetention <= REVIEW_RETENTION_MAX)) {
+			return { ok: false, error: `targetRetention must be a number between ${REVIEW_RETENTION_MIN} and ${REVIEW_RETENTION_MAX}` };
+		}
+		settings.targetRetention = raw.targetRetention;
+	}
+	for (const field of ["digestTime", "eveningTime"] as const) {
+		if (raw[field] === undefined) continue;
+		const time = normalizeClockTime(raw[field]);
+		if (!time) return { ok: false, error: `${field} must be "HH:MM"` };
+		settings[field] = time;
+	}
+	const ints: Array<[keyof ReviewSettings & ("newPerDay" | "batchSize" | "confidenceThreshold"), number, number]> = [
+		["newPerDay", 0, 500],
+		["batchSize", 1, 50],
+		["confidenceThreshold", 0, 100],
+	];
+	for (const [field, min, max] of ints) {
+		const v = raw[field];
+		if (v === undefined) continue;
+		if (typeof v !== "number" || !Number.isInteger(v) || v < min || v > max) {
+			return { ok: false, error: `${field} must be an integer between ${min} and ${max}` };
+		}
+		settings[field] = v;
+	}
+	if (settings.digestTime && settings.eveningTime && settings.digestTime >= settings.eveningTime) {
+		return { ok: false, error: "digestTime must be earlier than eveningTime" };
+	}
+	return { ok: true, settings };
+}
+
+/** desktop: { tray?: boolean, autostart?: boolean } */
+export function parseDesktopSettingsBody(body: unknown): SettingsBodyResult<DesktopSettings> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	const settings: DesktopSettings = {};
+	for (const field of ["tray", "autostart"] as const) {
+		if (raw[field] === undefined) continue;
+		if (typeof raw[field] !== "boolean") return { ok: false, error: `${field} must be a boolean` };
+		settings[field] = raw[field];
+	}
+	return { ok: true, settings };
+}
+
 export const SETTINGS_SECTIONS = {
 	general: parseGeneralSettingsBody,
 	chat: parseSettingsBody,
@@ -439,6 +488,8 @@ export const SETTINGS_SECTIONS = {
 	models: parseModelsSettingsBody,
 	dictation: parseDictationSettingsBody,
 	obsidian: parseObsidianSettingsBody,
+	review: parseReviewSettingsBody,
+	desktop: parseDesktopSettingsBody,
 } as const;
 
 export type SettingsSectionName = keyof typeof SETTINGS_SECTIONS;

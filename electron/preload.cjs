@@ -27,6 +27,10 @@
  *   window.np.onOpenSettings(cb) — menu navigation, buffered until React
  *   subscribes after a window is reopened. Browser builds have no bridge.
  *
+ *   window.np.onNavigate(cb) — the shell asks the app to show a page (a
+ *   review notification or the tray's «Repasar ahora» → "/review"); same
+ *   buffering. Main allow-lists the paths (electron/review-desktop.cjs).
+ *
  * Channel names are mirrored in electron/main.cjs — keep them in sync.
  */
 const { contextBridge, ipcRenderer } = require("electron");
@@ -36,6 +40,13 @@ let pendingOpenSettings = null;
 ipcRenderer.on("np:open-settings", (_event, section) => {
 	if (openSettingsListener) openSettingsListener(section);
 	else pendingOpenSettings = section;
+});
+
+let navigateListener = null;
+let pendingNavigate = null;
+ipcRenderer.on("np:navigate", (_event, pathname) => {
+	if (navigateListener) navigateListener(pathname);
+	else pendingNavigate = pathname;
 });
 
 contextBridge.exposeInMainWorld("np", {
@@ -91,6 +102,17 @@ contextBridge.exposeInMainWorld("np", {
 	installUpdate: () => ipcRenderer.send("np:update-install"),
 	getUpdateState: () => ipcRenderer.invoke("np:update:get"),
 	checkForUpdates: () => ipcRenderer.invoke("np:update:check"),
+	onNavigate: (cb) => {
+		navigateListener = cb;
+		if (pendingNavigate !== null) {
+			const pathname = pendingNavigate;
+			pendingNavigate = null;
+			cb(pathname);
+		}
+		return () => {
+			if (navigateListener === cb) navigateListener = null;
+		};
+	},
 	onOpenSettings: (cb) => {
 		openSettingsListener = cb;
 		if (pendingOpenSettings !== null) {

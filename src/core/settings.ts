@@ -257,6 +257,15 @@ export interface ReviewSettings {
 	confidenceThreshold?: number;
 }
 
+/** The desktop shell (owner, 2026-11-04 — «Repaso» stage 2). Read by
+ *  electron/main.cjs straight from settings.json on its minute clock. */
+export interface DesktopSettings {
+	/** Closing the window keeps Naipes in the system tray (factory on). */
+	tray?: boolean;
+	/** Start minimized at login (factory on). */
+	autostart?: boolean;
+}
+
 export const REVIEW_RETENTION_MIN = 0.8;
 export const REVIEW_RETENTION_MAX = 0.97;
 
@@ -424,6 +433,7 @@ export interface UserSettings {
 	compaction?: CompactionSettings;
 	obsidian?: ObsidianSettings;
 	review?: ReviewSettings;
+	desktop?: DesktopSettings;
 	[key: string]: unknown;
 }
 
@@ -452,6 +462,7 @@ export interface FactorySettings {
 	compaction: Required<CompactionSettings>;
 	obsidian: Required<ObsidianSettings>;
 	review: Required<ReviewSettings>;
+	desktop: Required<DesktopSettings>;
 }
 
 export const FACTORY_SETTINGS: FactorySettings = {
@@ -470,6 +481,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 	compaction: { thresholdTokens: 150_000 },
 	obsidian: { enabled: false, vaultPath: "", folders: [], outputFolder: DEFAULT_VAULT_OUTPUT_FOLDER },
 	review: { targetRetention: 0.9, digestTime: "09:00", eveningTime: "19:00", newPerDay: 15, batchSize: 10, confidenceThreshold: 70 },
+	desktop: { tray: true, autostart: true },
 };
 
 /** The chunk budget's validated floor (GraphSettings.extractionChunkTokens
@@ -763,6 +775,15 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.review !== null && typeof r.review === "object" && !Array.isArray(r.review)) {
 		out.review = sanitizeReview(r.review as Record<string, unknown>);
+	}
+	if (r.desktop !== null && typeof r.desktop === "object" && !Array.isArray(r.desktop)) {
+		const raw = r.desktop as Record<string, unknown>;
+		const desktop: DesktopSettings = {};
+		const tray = boolOrDrop(raw.tray);
+		if (tray !== undefined) desktop.tray = tray;
+		const autostart = boolOrDrop(raw.autostart);
+		if (autostart !== undefined) desktop.autostart = autostart;
+		out.desktop = desktop;
 	}
 	// Unknown top-level keys ride along untouched (forward-compat). One
 	// known-DEAD key is stripped instead of riding: `chat` (the old

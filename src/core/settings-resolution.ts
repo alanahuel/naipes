@@ -39,6 +39,7 @@ import {
 	type CompactionSettings,
 	type ObsidianSettings,
 	type ReviewSettings,
+	type DesktopSettings,
 	type GraphSettings,
 	type ModelSlot,
 	type ModelSlotName,
@@ -101,6 +102,8 @@ export interface EffectiveSettings {
 	obsidian: Required<ObsidianSettings>;
 	/** Spaced review tunables, concrete (factory values fill gaps). */
 	review: Required<ReviewSettings>;
+	/** Desktop shell switches, concrete. */
+	desktop: Required<DesktopSettings>;
 }
 
 /** The conversation pair's chain (BYOK, owner 2026-09-22): the chat's own
@@ -235,6 +238,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			outputFolder: record?.obsidian?.outputFolder ?? FACTORY_SETTINGS.obsidian.outputFolder,
 		},
 		review: { ...FACTORY_SETTINGS.review, ...record?.review },
+		desktop: { ...FACTORY_SETTINGS.desktop, ...record?.desktop },
 	};
 }
 

@@ -50,6 +50,10 @@ export interface ServerEvents {
 	 *  the chat; the client mirrors it by disabling the composer/dock
 	 *  submit. */
 	"compaction-changed": { chatId: string; running: boolean };
+	/** A review notice went out (digest or evening, «Repaso» 2026-11-04):
+	 *  the bell adds it. `count` = ideas due at send time. Not chat-scoped
+	 *  (`chatId` stays absent — listeners read it off any event). */
+	"review-notice": { kind: "digest" | "evening"; count: number; chatId?: undefined };
 }
 
 export type ServerEventType = keyof ServerEvents;
@@ -66,6 +70,7 @@ export const SERVER_EVENT_TYPES = [
 	"subscriptions-changed",
 	"record-changed",
 	"compaction-changed",
+	"review-notice",
 ] as const satisfies readonly ServerEventType[];
 
 /** One notification: the type discriminates the payload. */

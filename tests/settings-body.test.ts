@@ -234,13 +234,14 @@ describe("parseCompactionSettingsBody (owner round 14)", () => {
 });
 
 describe("SETTINGS_SECTIONS (the route's section map)", () => {
-	it("maps exactly the nine record sections", () => {
+	it("maps exactly the eleven record sections", () => {
 		// compaction joined (owner round 14): its own section PUT — the
 		// threshold is engine behavior, not an agent-section key. obsidian
-		// joined with the vault connection (owner, 2026-11-01).
+		// joined with the vault connection (owner, 2026-11-01); review and
+		// desktop with «Repaso» (owner, 2026-11-04).
 		assert.deepEqual(
 			Object.keys(SETTINGS_SECTIONS),
-			["general", "chat", "agent", "appearance", "graph", "compaction", "models", "dictation", "obsidian"],
+			["general", "chat", "agent", "appearance", "graph", "compaction", "models", "dictation", "obsidian", "review", "desktop"],
 		);
 	});
 });

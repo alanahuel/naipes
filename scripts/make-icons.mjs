@@ -5,12 +5,14 @@
 //   build/icon.ico   — Windows (.ico with 16/24/32/48/64/128/256 PNG entries)
 //   build/icon.png   — Linux (512×512; AppImage/deb/desktop entry)
 //   build/icon.icns  — macOS (PNG entries 16→1024, incl. @2x variants)
+//   electron/assets/tray.png, tray@2x.png — the system-tray icon (32/64;
+//         under electron/ because only the shell is packed into the asar)
 //
 // Renders each size DIRECTLY from the SVG (resvg) — sharper squircle
 // edges than downsampling a raster. Committed outputs; rerun only when
 // the design changes: `node scripts/make-icons.mjs`.
 import { Resvg } from "@resvg/resvg-js";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -69,3 +71,11 @@ icnsHead.writeUInt32BE(8 + entries.reduce((n, e) => n + e.length, 0), 4);
 const icns = Buffer.concat([icnsHead, ...entries]);
 writeFileSync(path.join(root, "build", "icon.icns"), icns);
 console.log(`build/icon.icns 16→1024 — ${(icns.length / 1024).toFixed(1)} KB`);
+
+// ---- electron/assets/tray*.png: the tray icon («Repaso» stage 2) --------
+mkdirSync(path.join(root, "electron", "assets"), { recursive: true });
+for (const [name, size] of [["tray.png", 32], ["tray@2x.png", 64]]) {
+	const png = render(size);
+	writeFileSync(path.join(root, "electron", "assets", name), png);
+	console.log(`electron/assets/${name} ${size}×${size} — ${(png.length / 1024).toFixed(1)} KB`);
+}

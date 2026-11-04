@@ -586,3 +586,82 @@ export function isIntakeLine(v: unknown): v is IntakeLine {
 	const l = v as Record<string, unknown>;
 	return typeof l.nodeId === "string" && typeof l.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(l.day) && (l.reason === "backlog" || l.reason === "new");
 }
+
+// ─── review batches (stage 2, owner 2026-11-04) ─────────────────────────────
+
+/** The next review batch: due ideas, most forgotten first (new ideas —
+ *  never graded — after the graded ones), alternating groups round-robin
+ *  so topics interleave. Pure. */
+export function selectBatch(due: readonly ReviewItem[], size: number): ReviewItem[] {
+	const sorted = [...due].sort((a, b) => {
+		const ra = a.retrievability ?? Infinity;
+		const rb = b.retrievability ?? Infinity;
+		return ra - rb || (a.nodeId < b.nodeId ? -1 : 1);
+	});
+	const queues = groupItems(sorted).map((g) => [...g.items]);
+	const out: ReviewItem[] = [];
+	while (out.length < size && queues.some((q) => q.length > 0)) {
+		for (const q of queues) {
+			if (out.length >= size) break;
+			const next = q.shift();
+			if (next) out.push(next);
+		}
+	}
+	return out;
+}
+
+// ─── review notices (stage 2, owner-approved rules 2026-11-04) ──────────────
+
+export type ReviewNoticeKind = "digest" | "evening";
+
+/** One notices.jsonl line. */
+export interface ReviewNoticeLine {
+	day: string;
+	kind: ReviewNoticeKind;
+	/** ISO time it was sent. */
+	at: string;
+	count: number;
+}
+
+export function isReviewNoticeLine(v: unknown): v is ReviewNoticeLine {
+	if (v === null || typeof v !== "object") return false;
+	const l = v as Record<string, unknown>;
+	return typeof l.day === "string" && (l.kind === "digest" || l.kind === "evening") && typeof l.at === "string" && typeof l.count === "number";
+}
+
+/** Minutes since local midnight of a "HH:MM" clock time. */
+const clockMinutes = (hhmm: string): number => {
+	const [h, m] = hhmm.split(":").map(Number);
+	return h! * 60 + m!;
+};
+
+/**
+ * Should this notice go out now? (owner rules, 2026-11-04)
+ *   digest  — at/after digestTime, before eveningTime (a missed one goes
+ *             out at startup until then), once per review day, only with
+ *             something due.
+ *   evening — at/after eveningTime, once per day, only with something
+ *             due AND no review session started today.
+ * Times compare against the local wall clock of `now`.
+ */
+export function shouldSendNotice(input: {
+	kind: ReviewNoticeKind;
+	now: number;
+	digestTime: string;
+	eveningTime: string;
+	dueCount: number;
+	sent: readonly ReviewNoticeLine[];
+	reviewStartedToday: boolean;
+}): boolean {
+	const today = reviewDay(input.now);
+	if (input.dueCount <= 0) return false;
+	if (input.sent.some((l) => l.day === today && l.kind === input.kind)) return false;
+	const d = new Date(input.now);
+	const minutes = d.getHours() * 60 + d.getMinutes();
+	// Before 04:00 the review day is still yesterday — never notify then.
+	if (d.getHours() < DAY_ROLLOVER_HOUR) return false;
+	const digest = clockMinutes(input.digestTime);
+	const evening = clockMinutes(input.eveningTime);
+	if (input.kind === "digest") return minutes >= digest && minutes < evening;
+	return minutes >= evening && !input.reviewStartedToday;
+}

@@ -80,6 +80,8 @@ export default {
 	"notices.job.pdf": "Ya leí el PDF de «{title}»",
 	"notices.jobFailed": "Algo falló en un encargo de «{title}». Ábrela para ver qué pasó.",
 	"notices.extractedOne": "Pasé a tu grafo las ideas de «{title}»",
+	"notices.reviewDigest": { one: "Hoy toca repasar {n} idea", other: "Hoy toca repasar {n} ideas" },
+	"notices.reviewEvening": { one: "Te queda {n} idea por repasar", other: "Te quedan {n} ideas por repasar" },
 	"notices.updateAvailable": "Naipes {version} está disponible. Pulsa para ver las novedades.",
 	"notices.extractedMany": { one: "Pasé a tu grafo las ideas de {n} nota o sesión", other: "Pasé a tu grafo las ideas de {n} notas y sesiones" },
 	"now.title": "Ahora",

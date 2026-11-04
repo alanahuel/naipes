@@ -10,6 +10,8 @@
  *     visual or PDF — or it failed (read back from /api/jobs);
  *   - ideas went into your graph (an extraction run ended). Many at once
  *     (a vault sync) coalesce into one notice;
+ *   - spaced review: the daily digest or the evening reminder went out
+ *     (server event "review-notice"; opens Repaso);
  *   - a newer Naipes release exists (LOCAL builds only — they never update
  *     themselves; owner 2026-11-04). Once per version; opens the release
  *     page in the browser.
@@ -67,6 +69,19 @@ export function updateNotice(state: UpdateState | null, announced: string | null
 		message: "notices.updateAvailable",
 		vars: { version: state.version },
 		href: state.url,
+		tone: "ok",
+		read: false,
+	};
+}
+
+/** The bell notice for a review notice the server sent. Pure. */
+export function reviewNotice(event: { kind: "digest" | "evening"; count: number }, now = new Date()): Notice {
+	return {
+		id: `review:${event.kind}:${now.toISOString().slice(0, 10)}`,
+		at: now.toISOString(),
+		message: event.kind === "digest" ? "notices.reviewDigest" : "notices.reviewEvening",
+		vars: { n: event.count },
+		href: "/review",
 		tone: "ok",
 		read: false,
 	};
@@ -226,6 +241,11 @@ export function NoticesProvider({ children }: { children: React.ReactNode }) {
 	useEffect(() => () => {
 		if (flushTimer.current) clearTimeout(flushTimer.current);
 	}, []);
+
+	// Spaced review: the digest / evening reminder went out.
+	useServerEvent("review-notice", (event) => {
+		push([reviewNotice({ kind: event.kind, count: event.count })]);
+	});
 
 	// A newer release, seen by a local build (once per version).
 	const { state: updateState } = useUpdateState();

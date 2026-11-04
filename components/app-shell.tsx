@@ -60,6 +60,8 @@ declare global {
 			checkForUpdates?: () => Promise<void>;
 			installUpdate?: () => void;
 			onOpenSettings?: (cb: (section: string) => void) => () => void;
+			/** The shell asks to show a page (review notification, tray). */
+			onNavigate?: (cb: (pathname: string) => void) => () => void;
 		};
 	}
 }

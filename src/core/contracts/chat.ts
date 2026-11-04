@@ -35,6 +35,10 @@ export interface ChatRecord {
 	messages: NpMessage[];
 	/** The session's kind — absent = teach (pre-practice records). */
 	kind?: ChatKind;
+	/** A spaced-review session («Repaso», owner 2026-11-04): a practice
+	 *  session seeded with the ideas due on `day` (the review day,
+	 *  "YYYY-MM-DD"). The practice agent gets the review appendix. */
+	review?: { day: string };
 	/** When the learner archived it (Mis sesiones' circle); absent = active.
 	 *  Archiving hides a session from «Activas» and «Seguir con» — nothing
 	 *  is deleted, and it never reorders the list (updatedAt stays). */

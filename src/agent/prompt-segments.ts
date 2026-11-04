@@ -42,6 +42,23 @@ const PROMPTS_DIR = path.join(PATHS.root, "src", "agent", "prompts");
  *  (practice has no such tools). */
 const PRACTICE_SHARED_FRAGMENTS = ["10-voice.md", "15-accuracy.md", "16-mental-model.md", "40-formatting.md"];
 
+/** The REVIEW-SESSION appendix («Repaso», owner-approved text 2026-11-04):
+ *  composed after the practice agent's segments ONLY for sessions marked
+ *  `review` (chat-handler). Not a numbered fragment on purpose — it must
+ *  not compose into ordinary practice, and it is not a prompt-override
+ *  segment. Read once. */
+let reviewAppendix: string | null = null;
+export function reviewSessionAppendix(): string {
+	if (reviewAppendix === null) {
+		try {
+			reviewAppendix = fs.readFileSync(path.join(PROMPTS_DIR, "review-session.md"), "utf-8").trim();
+		} catch {
+			reviewAppendix = "";
+		}
+	}
+	return reviewAppendix;
+}
+
 /** Absolute path for an override file (unchecked — validate first). */
 function overrideFileFor(segmentPath: string): string {
 	return path.join(PROMPTS_OVERRIDE_DIR, ...segmentPath.split("/"));

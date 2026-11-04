@@ -3,6 +3,8 @@ import { isJobLive } from "../agent/subagents/aborts.ts";
 import { coverageOf } from "../core/coverage.ts";
 import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../core/graph-deletion.ts";
 import { titleFromPrompt } from "../core/contracts.ts";
+import { chainsForSelection, formatChainLine } from "../core/chains.ts";
+import { newGraphContextMessage, type GraphContextPick } from "../core/native-messages.ts";
 import { graphRevision } from "./graph.ts";
 import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
@@ -23,6 +25,31 @@ import { discardChatDeliveries } from "./jobs.ts";
 
 export const { createChat, getChat, listChats } = stores.chatStore;
 export { titleFromPrompt };
+
+/** Born with the strong slot's model (the server stamps settings at
+ *  birth — the same rule for every new session). */
+export function stampStrongModel(chatId: string): void {
+	const strong = stores.settingsStore.readSettings()?.models?.strong;
+	if (strong?.model) {
+		stores.chatStore.saveSettings(chatId, {
+			model: { provider: strong.model.provider, id: strong.model.id },
+			thinkingLevel: strong.thinkingLevel,
+		});
+	}
+}
+
+/** Seed a fresh session with the learner's map picks: the graph-context
+ *  marker (propositions + the chains among them). Shared by POST
+ *  /api/chats and review sessions. No-op without picks. */
+export function seedGraphContext(chatId: string, picks: readonly GraphContextPick[]): void {
+	if (picks.length === 0) return;
+	const byId = new Map(stores.graphStore.readNodes().map((n) => [n.id, n]));
+	const pickedNodes = picks.map((p) => byId.get(p.id)).filter((n) => n !== undefined);
+	const chainLines = chainsForSelection(pickedNodes, stores.graphStore.readChains()).map((c) =>
+		formatChainLine(c, Object.fromEntries(byId)),
+	);
+	stores.chatStore.saveMessages(chatId, [newGraphContextMessage(picks, chainLines)]);
+}
 export type { ChatDeleteMode, ChatDeletionStats } from "../core/graph-deletion.ts";
 
 /** How long the wind-down wait may take before the caller gets a retryable

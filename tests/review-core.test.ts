@@ -318,3 +318,44 @@ describe("review settings section", () => {
 		assert.deepEqual(s.review, { targetRetention: 0.97, digestTime: "07:30", newPerDay: 0, batchSize: 11, confidenceThreshold: 100 });
 	});
 });
+
+// ─── stage 2: batches and notice rules ──────────────────────────────────────
+
+import { selectBatch, shouldSendNotice, type ReviewItem } from "../src/core/review.ts";
+
+const item = (nodeId: string, group: string, retrievability: number | null): ReviewItem => ({
+	nodeId, name: nodeId, group: { kind: "session", id: group }, state: retrievability === null ? "new" : "review",
+	stability: null, difficulty: null, retrievability, due: 0, lastReview: null, reps: 0, lapses: 0, paused: false, released: true, events: [],
+});
+
+describe("selectBatch — most forgotten first, alternating topics", () => {
+	it("round-robins groups ordered by their most forgotten idea; new ideas last; capped", () => {
+		const due = [item("a1", "A", 0.5), item("a2", "A", 0.1), item("a3", "A", 0.3), item("b1", "B", 0.2), item("b2", "B", 0.9), item("c1", "C", null)];
+		assert.deepEqual(selectBatch(due, 10).map((i) => i.nodeId), ["a2", "b1", "c1", "a3", "b2", "a1"]);
+		assert.deepEqual(selectBatch(due, 3).map((i) => i.nodeId), ["a2", "b1", "c1"]);
+		assert.deepEqual(selectBatch([], 10), []);
+	});
+});
+
+describe("shouldSendNotice — the owner's notice rules", () => {
+	const at = (h: number, m = 0) => new Date(2026, 10, 4, h, m).getTime();
+	const base = { digestTime: "09:00", eveningTime: "19:00", dueCount: 5, sent: [], reviewStartedToday: false };
+	it("digest: from its time until the evening one (a missed one goes out at startup), never with nothing due", () => {
+		assert.equal(shouldSendNotice({ ...base, kind: "digest", now: at(8, 59) }), false);
+		assert.equal(shouldSendNotice({ ...base, kind: "digest", now: at(9) }), true);
+		assert.equal(shouldSendNotice({ ...base, kind: "digest", now: at(14) }), true);
+		assert.equal(shouldSendNotice({ ...base, kind: "digest", now: at(19) }), false);
+		assert.equal(shouldSendNotice({ ...base, kind: "digest", now: at(9), dueCount: 0 }), false);
+	});
+	it("once per review day", () => {
+		const sent = [{ day: "2026-11-04", kind: "digest" as const, at: "x", count: 5 }];
+		assert.equal(shouldSendNotice({ ...base, kind: "digest", now: at(10), sent }), false);
+		assert.equal(shouldSendNotice({ ...base, kind: "evening", now: at(20), sent }), true);
+	});
+	it("evening: only if nothing was started today; never before 04:00 (still yesterday)", () => {
+		assert.equal(shouldSendNotice({ ...base, kind: "evening", now: at(18, 59) }), false);
+		assert.equal(shouldSendNotice({ ...base, kind: "evening", now: at(19) }), true);
+		assert.equal(shouldSendNotice({ ...base, kind: "evening", now: at(23), reviewStartedToday: true }), false);
+		assert.equal(shouldSendNotice({ ...base, kind: "evening", now: new Date(2026, 10, 5, 2).getTime() }), false);
+	});
+});

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { MAX_NOTICES, addNotices, endedSince, extractionNotice, isExternalHref, jobNotice, unreadCount, updateNotice, type Notice } from "../components/notices.tsx";
+import { MAX_NOTICES, addNotices, endedSince, extractionNotice, isExternalHref, jobNotice, reviewNotice, unreadCount, updateNotice, type Notice } from "../components/notices.tsx";
 import type { ActivityFeed, FeedJob } from "../components/activity-dock.tsx";
 
 const job = (id: string, chatId = "chat_1", kind: FeedJob["kind"] = "research") =>
@@ -82,5 +82,16 @@ describe("updateNotice — a newer release seen by a local build (stage 0b)", ()
 	it("external hrefs open in the browser; app routes stay in the app", () => {
 		assert.equal(isExternalHref(available.url), true);
 		assert.equal(isExternalHref("/chat/chat_1"), false);
+	});
+});
+
+describe("reviewNotice — the bell side of review notices (stage 2)", () => {
+	it("digest and evening open Repaso, one notice id per kind and day", () => {
+		const d = reviewNotice({ kind: "digest", count: 12 }, new Date("2026-11-04T09:00:00.000Z"));
+		assert.equal(d.message, "notices.reviewDigest");
+		assert.deepEqual(d.vars, { n: 12 });
+		assert.equal(d.href, "/review");
+		assert.equal(d.id, "review:digest:2026-11-04");
+		assert.equal(reviewNotice({ kind: "evening", count: 3 }).message, "notices.reviewEvening");
 	});
 });

@@ -30,6 +30,11 @@ export function SettingsDialogProvider({ children }: { children: React.ReactNode
 	const router = useRouter();
 	const open = useCallback((section?: string, row?: string) => router.push(settingsHref(section, row)), [router]);
 	useEffect(() => window.np?.onOpenSettings?.((section) => open(section)), [open]);
+	// The shell's page requests (review notification, tray «Repasar
+	// ahora», «Repaso» 2026-11-04): main allow-lists the paths.
+	useEffect(() => window.np?.onNavigate?.((pathname) => {
+		if (pathname.startsWith("/")) router.push(pathname);
+	}), [router]);
 	return (
 		<ChatGPTUIProvider>
 			<NativeSubscriptionUIProvider>

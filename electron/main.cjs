@@ -24,12 +24,13 @@
  *     would shadow every settings-page key change until restart.
  */
 
-const { app, BrowserWindow, Menu, Notification, dialog, ipcMain, nativeTheme, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, nativeImage, nativeTheme, session, shell } = require("electron");
 const { createChatGPT, fileStore } = require("./chatgpt.cjs");
 const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt-ipc.cjs");
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
-const { desktopAPIHeaders } = require("./desktop-api.cjs");
+const { desktopAPIHeaders, HEADER: DESKTOP_API_HEADER } = require("./desktop-api.cjs");
+const reviewDesktop = require("./review-desktop.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
 const localUpdates = require("./local-update-check.cjs");
 const { randomBytes } = require("node:crypto");
@@ -160,11 +161,8 @@ if (process.argv.includes("--browser-service")) {
 	} else {
 		migrateLegacyUserData();
 		app.on("second-instance", () => {
-			const win = BrowserWindow.getAllWindows()[0];
-			if (win) {
-				if (win.isMinimized()) win.restore();
-				win.focus();
-			}
+			// With the window closed to the tray, a second launch reopens it.
+			showWindow();
 		});
 		main();
 	}
@@ -789,12 +787,159 @@ function installMenu() {
 	Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+/* ── «Repaso» desktop side (owner, 2026-11-04 — stage 2) ──────────────────
+ * Tray (Abrir · Repasar ahora (N) · Salir), close-to-tray, login autostart
+ * (--hidden: no window at boot) and the review notifications' minute clock.
+ * The server owns every review rule: each tick asks POST
+ * /api/review/notify for digest and evening, shows what it is told and
+ * keeps the tray's due counter. All of it reads settings.json each tick,
+ * so Settings changes apply within a minute. Failures are log lines. */
+const REVIEW_CLOCK_MS = 60_000;
+let tray = null;
+let reviewDueCount = 0;
+let appliedAutostart = null;
+let reviewServerOrigin = null;
+let reviewClockFailing = false;
+
+function readSettingsFile() {
+	try {
+		return JSON.parse(fs.readFileSync(path.join(DATA_DIR(), "settings.json"), "utf8"));
+	} catch {
+		return null;
+	}
+}
+
+/** Bring the app forward — reopening the window if it was closed to the
+ *  tray — and optionally navigate it (allow-listed paths only). */
+function showWindow(pathname) {
+	try {
+		const target = reviewDesktop.isNavigablePath(pathname) ? pathname : null;
+		let win = BrowserWindow.getAllWindows()[0];
+		if (!win) {
+			const base = reviewServerOrigin;
+			win = reopenWindow?.(target && base ? `${base}${target}` : undefined);
+			return;
+		}
+		if (win.isMinimized()) win.restore();
+		win.show();
+		win.focus();
+		if (target) {
+			const send = () => {
+				try { win.webContents.send("np:navigate", target); } catch { /* window closed */ }
+			};
+			if (win.webContents.isLoadingMainFrame()) win.webContents.once("did-finish-load", send);
+			else send();
+		}
+	} catch (err) {
+		log(`showWindow failed: ${err?.message ?? err}`);
+	}
+}
+
+function ensureTray(prefs) {
+	try {
+		if (!prefs.tray) {
+			tray?.destroy();
+			tray = null;
+			return;
+		}
+		if (!tray) {
+			const icon = nativeImage.createFromPath(path.join(__dirname, "assets", "tray.png"));
+			tray = new Tray(icon);
+			tray.on("click", () => showWindow());
+		}
+		const labels = reviewDesktop.trayLabels(prefs.language, reviewDueCount);
+		tray.setToolTip(labels.tooltip);
+		tray.setContextMenu(
+			Menu.buildFromTemplate([
+				{ label: labels.open, click: () => showWindow() },
+				{ label: labels.review, enabled: reviewDueCount > 0, click: () => showWindow("/review") },
+				{ type: "separator" },
+				{ label: labels.quit, click: () => app.quit() },
+			]),
+		);
+	} catch (err) {
+		// No tray support on this desktop: closing the window quits again.
+		log(`tray unavailable: ${err?.message ?? err}`);
+		tray = null;
+	}
+}
+
+/** Login autostart. Packaged builds only (dev never registers itself).
+ *  Linux: an XDG autostart entry we own (marker line); Windows/macOS: the
+ *  system login item. Re-applied at boot so a moved AppImage is followed. */
+function applyAutostart(enabled) {
+	if (!app.isPackaged || process.env.NP_DEV_URL || appliedAutostart === enabled) return;
+	appliedAutostart = enabled;
+	try {
+		if (process.platform === "linux") {
+			const file = path.join(app.getPath("appData"), "autostart", "naipes.desktop");
+			if (enabled) {
+				fs.mkdirSync(path.dirname(file), { recursive: true });
+				fs.writeFileSync(file, reviewDesktop.linuxAutostartEntry(process.env.APPIMAGE || process.execPath));
+			} else {
+				let content = null;
+				try { content = fs.readFileSync(file, "utf8"); } catch { /* absent */ }
+				if (reviewDesktop.isOwnAutostartEntry(content)) fs.unlinkSync(file);
+			}
+		} else {
+			app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: enabled, args: enabled ? [reviewDesktop.HIDDEN_FLAG] : [] });
+		}
+		log(`autostart ${enabled ? "on" : "off"}`);
+	} catch (err) {
+		log(`autostart could not be ${enabled ? "enabled" : "disabled"}: ${err?.message ?? err}`);
+	}
+}
+
+async function askReviewNotice(kind) {
+	const res = await fetch(`${reviewServerOrigin}/api/review/notify?kind=${kind}`, {
+		method: "POST",
+		headers: desktopAPISecret ? { [DESKTOP_API_HEADER]: desktopAPISecret } : {},
+		signal: AbortSignal.timeout(15_000),
+	});
+	if (!res.ok) throw new Error(`HTTP ${res.status}`);
+	return res.json();
+}
+
+function showReviewNotification(title, body) {
+	try {
+		if (!Notification?.isSupported?.()) return;
+		const notice = new Notification({ title, body });
+		notice.on("click", () => showWindow("/review"));
+		notice.show();
+	} catch (err) {
+		log(`review notification failed: ${err?.message ?? err}`);
+	}
+}
+
+async function reviewTick() {
+	const prefs = reviewDesktop.desktopPrefs(readSettingsFile());
+	applyAutostart(prefs.autostart);
+	if (reviewServerOrigin) {
+		try {
+			for (const kind of ["digest", "evening"]) {
+				const answer = await askReviewNotice(kind);
+				if (typeof answer?.count === "number") reviewDueCount = answer.count;
+				if (answer?.notify && typeof answer.title === "string") showReviewNotification(answer.title, answer.body ?? "");
+			}
+			if (reviewClockFailing) log("review clock: server reachable again");
+			reviewClockFailing = false;
+		} catch (err) {
+			// Log the first failure of a streak only (no minute-by-minute spam).
+			if (!reviewClockFailing) log(`review clock: ${err?.message ?? err}`);
+			reviewClockFailing = true;
+		}
+	}
+	ensureTray(prefs);
+}
+
 async function main() {
 	app.on("window-all-closed", () => {
 		chatgpt?.pause();
 		subscriptions?.pause();
 		// macOS convention: the app stays resident, reactivated from the Dock.
-		if (process.platform !== "darwin") app.quit();
+		// With the tray on (Repaso, 2026-11-04) it stays resident everywhere:
+		// the server keeps running for review notifications.
+		if (process.platform !== "darwin" && !tray) app.quit();
 	});
 
 	// The child must not outlive us — cover every quit path.
@@ -932,12 +1077,23 @@ async function main() {
 		const target = SIDEBAR_AUTOCLOSE;
 		if (width < target) win.setBounds({ x, y, width: target, height });
 	});
-	reopenWindow = () => { chatgpt?.resume(); subscriptions?.resume(); return createWindow(url); };
+	reopenWindow = (target = url) => { chatgpt?.resume(); subscriptions?.resume(); return createWindow(target); };
 	app.on("activate", () => {
 		if (BrowserWindow.getAllWindows().length === 0) reopenWindow();
 	});
-	createWindow(url);
-	log(`window open: ${url}`);
+	// Repaso: tray first (a --hidden autostart launch needs it to be
+	// reachable), then the window unless this is a hidden launch.
+	reviewServerOrigin = new URL(url).origin;
+	const startPrefs = reviewDesktop.desktopPrefs(readSettingsFile());
+	ensureTray(startPrefs);
+	if (process.argv.includes(reviewDesktop.HIDDEN_FLAG) && tray) {
+		log("hidden launch (autostart): window stays closed, Naipes waits in the tray");
+	} else {
+		createWindow(url);
+		log(`window open: ${url}`);
+	}
+	void reviewTick();
+	setInterval(() => void reviewTick(), REVIEW_CLOCK_MS);
 	// Startup + 24h checks stay main-owned and read the current preference.
 	// No renderer subscription is required; late loads retrieve the snapshot.
 	if (autoUpdater || localUpdateCheck) {
