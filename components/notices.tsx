@@ -9,7 +9,10 @@
  *   - a background task ended (it left the activity feed): research, demo,
  *     visual or PDF — or it failed (read back from /api/jobs);
  *   - ideas went into your graph (an extraction run ended). Many at once
- *     (a vault sync) coalesce into one notice.
+ *     (a vault sync) coalesce into one notice;
+ *   - a newer Naipes release exists (LOCAL builds only — they never update
+ *     themselves; owner 2026-11-04). Once per version; opens the release
+ *     page in the browser.
  *
  * Notices are stored on this device (localStorage, newest first, 50 max)
  * as message KEYS + vars, so they re-render in the current language.
@@ -23,6 +26,7 @@ import { useActivity, type ActivityFeed } from "@/components/activity-dock";
 import { useServerEvent } from "@/components/server-events";
 import { timeAgo } from "@/components/sessions";
 import { useT } from "@/components/i18n";
+import { useUpdateState, type UpdateState } from "@/components/settings/update-settings.tsx";
 import type { JobKind, JobRecord, MessageKey, MessageVars } from "@/src/core";
 
 // ─── the model (pure, tested) ───────────────────────────────────────────────
@@ -47,6 +51,30 @@ export const EXTRACTION_COALESCE_MS = 4000;
 /** Newest first, capped. Pure. */
 export function addNotices(list: readonly Notice[], incoming: readonly Notice[]): Notice[] {
 	return [...incoming, ...list].slice(0, MAX_NOTICES);
+}
+
+/** The last release version announced in the bell (this device). */
+export const UPDATE_ANNOUNCED_KEY = "np:update-announced";
+
+/** The bell notice for a newer release seen by a local build — null unless
+ *  the state is "available" with a version + https url not yet announced. Pure. */
+export function updateNotice(state: UpdateState | null, announced: string | null, now = new Date()): Notice | null {
+	if (state?.status !== "available" || !state.version || !state.url?.startsWith("https://")) return null;
+	if (state.version === announced) return null;
+	return {
+		id: `update:${state.version}`,
+		at: now.toISOString(),
+		message: "notices.updateAvailable",
+		vars: { version: state.version },
+		href: state.url,
+		tone: "ok",
+		read: false,
+	};
+}
+
+/** External notices (https) open in the browser; the rest are app routes. */
+export function isExternalHref(href: string): boolean {
+	return href.startsWith("https://");
 }
 
 export function unreadCount(list: readonly Notice[]): number {
@@ -199,6 +227,26 @@ export function NoticesProvider({ children }: { children: React.ReactNode }) {
 		if (flushTimer.current) clearTimeout(flushTimer.current);
 	}, []);
 
+	// A newer release, seen by a local build (once per version).
+	const { state: updateState } = useUpdateState();
+	useEffect(() => {
+		if (!hydrated) return;
+		let announced: string | null = null;
+		try {
+			announced = localStorage.getItem(UPDATE_ANNOUNCED_KEY);
+		} catch {
+			// Storage blocked: may repeat once per window — harmless.
+		}
+		const notice = updateNotice(updateState, announced);
+		if (!notice) return;
+		push([notice]);
+		try {
+			localStorage.setItem(UPDATE_ANNOUNCED_KEY, notice.vars.version as string);
+		} catch {
+			// see above
+		}
+	}, [updateState, hydrated, push]);
+
 	const markAllRead = useCallback(() => setNotices((list) => list.map((n) => (n.read ? n : { ...n, read: true }))), []);
 	const markRead = useCallback((id: string) => setNotices((list) => list.map((n) => (n.id === id && !n.read ? { ...n, read: true } : n))), []);
 	const value = useMemo(() => ({ notices, markAllRead, markRead }), [notices, markAllRead, markRead]);
@@ -278,7 +326,8 @@ export function NoticesBell() {
 										onClick={() => {
 											markRead(n.id);
 											setOpen(false);
-											if (n.href) router.push(n.href);
+											if (n.href && isExternalHref(n.href)) window.open(n.href, "_blank", "noopener,noreferrer");
+											else if (n.href) router.push(n.href);
 										}}
 										className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent"
 									>

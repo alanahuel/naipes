@@ -13,8 +13,27 @@ const mainFile = fileURLToPath(new URL("../electron/main.cjs", import.meta.url))
 const mainSource = readFileSync(mainFile, "utf8");
 const mainRequire = createRequire(mainFile);
 
-function fixture({ packaged = true, updaterMissing = false } = {}) {
+function fixture({ packaged = true, updaterMissing = false, localBuild = false } = {}) {
 	let settings: string | Error = JSON.stringify({ version: 1, general: { autoUpdate: true } });
+	// Local builds (stage 0b): files main writes (local-update.json), the
+	// fake GitHub answer, desktop notifications shown, urls opened.
+	const files = new Map<string, string>();
+	let release: { tag_name: string; html_url?: string } | Error = { tag_name: "v0.1.0" };
+	const fetches: string[] = [];
+	const notifications: { title: string; body: string; click: () => void }[] = [];
+	const opened: string[] = [];
+	class FakeNotification extends EventEmitter {
+		static isSupported() { return true; }
+		opts: { title: string; body: string };
+		constructor(opts: { title: string; body: string }) { super(); this.opts = opts; }
+		show() { notifications.push({ ...this.opts, click: () => this.emit("click") }); }
+	}
+	const fakeFetch = async (url: string) => {
+		fetches.push(url);
+		if (release instanceof Error) throw release;
+		const body = release;
+		return { ok: true, status: 200, json: async () => body };
+	};
 	const settingsReads: string[] = [];
 	const order: string[] = [];
 	const intervals: { callback: () => void; delay: number }[] = [];
@@ -83,6 +102,8 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 		Menu: { buildFromTemplate: (value: typeof menu) => value, setApplicationMenu: (value: typeof menu) => { menu = value; } },
 		ipcMain: { on() {}, handle: (channel: string, fn: (event: unknown) => unknown) => handles.set(channel, fn) },
 		session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
+		Notification: FakeNotification,
+		shell: { openExternal: async (target: string) => { opened.push(target); } },
 	};
 	const context = createContext({
 		require: (id: string) => {
@@ -91,12 +112,20 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 				if (updaterMissing) throw new Error("missing updater");
 				return { autoUpdater: updater };
 			}
+			if (id === "../package.json" && localBuild) {
+				return { ...mainRequire("../package.json"), version: "0.1.0", npLocalBuild: true };
+			}
 			if (id === "node:fs") return {
 				readFileSync: (file: string) => {
+					if (file.endsWith("local-update.json")) {
+						if (!files.has(file)) throw new Error("ENOENT");
+						return files.get(file);
+					}
 					settingsReads.push(file);
 					if (settings instanceof Error) throw settings;
 					return settings;
 				}, mkdirSync() {}, appendFileSync() {},
+				writeFileSync: (file: string, data: string) => { files.set(file, data); },
 			};
 			return mainRequire(id);
 		},
@@ -105,11 +134,16 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 		setInterval: (callback: () => void, delay: number) => intervals.push({ callback, delay }),
 		setTimeout() {},
 		fixtureChild: { kill: (signal: string) => order.push(signal) },
+		fetch: fakeFetch,
 	});
 	runInContext(mainSource, context, { filename: mainFile });
 	const run = (code: string) => runInContext(code, context);
 	return {
 		run, updater, windows, intervals, handles, settingsReads, order, app,
+		files, fetches, notifications, opened,
+		setRelease: (value: typeof release) => { release = value; },
+		/** Let an async local check settle (fetch + json + report). */
+		settle: async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); },
 		setSettings: (value: unknown) => { settings = JSON.stringify(value); },
 		setSettingsFailure: (value: string | Error) => { settings = value; },
 		setEnumerationFailure: (value: boolean) => { enumerationFails = value; },
@@ -295,5 +329,104 @@ describe("startup, timer, trusted IPC and menu wiring", () => {
 		const f = fixture(); f.setSettings({ general: { autoUpdate: false } }); await f.run("main()");
 		f.windows[0]!.webContents.fails = true; f.windows[0]!.webContents.loading = false;
 		f.menuCheck(); assert.equal(f.updater.checks, 1);
+	});
+});
+
+describe("local builds: notice-only update checks (owner 2026-11-04, stage 0b)", () => {
+	const newer = { tag_name: "v0.2.0", html_url: "https://github.com/alanahuel/naipes/releases/tag/v0.2.0" };
+
+	it("never touches electron-updater, asks GitHub's releases/latest instead", async () => {
+		const f = fixture({ localBuild: true });
+		f.run("setupAutoUpdater()");
+		assert.equal(f.state().status, "idle");
+		assert.equal(f.state().local, true);
+		await f.check(); await f.settle();
+		assert.equal(f.updater.checks, 0);
+		assert.deepEqual(f.fetches, ["https://api.github.com/repos/alanahuel/naipes/releases/latest"]);
+		assert.equal(f.state().status, "up-to-date");
+	});
+
+	it("a newer release becomes 'available' with its page, plus ONE desktop notification per version", async () => {
+		const f = fixture({ localBuild: true });
+		f.setRelease(newer);
+		f.run("setupAutoUpdater()");
+		await f.check(); await f.settle();
+		assert.equal(f.state().status, "available");
+		assert.equal(f.state().version, "0.2.0");
+		assert.equal(f.state().url, newer.html_url);
+		assert.equal(f.notifications.length, 1);
+		assert.match(f.notifications[0]!.title, /0\.2\.0 está disponible/);
+		f.notifications[0]!.click();
+		assert.deepEqual(f.opened, [newer.html_url]);
+		// Same version again (24h timer, manual check): no second notification.
+		await f.check(); await f.settle();
+		await f.check(true); await f.settle();
+		assert.equal(f.notifications.length, 1);
+		assert.equal(f.state().status, "available");
+		// A later version is announced once more.
+		f.setRelease({ tag_name: "v0.3.0" });
+		await f.check(); await f.settle();
+		assert.equal(f.notifications.length, 2);
+		assert.equal(f.state().url, "https://github.com/alanahuel/naipes/releases/tag/v0.3.0");
+	});
+
+	it("the announcement survives a restart (persisted in userData)", async () => {
+		const first = fixture({ localBuild: true });
+		first.setRelease(newer); first.run("setupAutoUpdater()");
+		await first.check(); await first.settle();
+		const second = fixture({ localBuild: true });
+		for (const [k, v] of first.files) second.files.set(k, v);
+		second.setRelease(newer); second.run("setupAutoUpdater()");
+		await second.check(); await second.settle();
+		assert.equal(second.state().status, "available");
+		assert.equal(second.notifications.length, 0);
+	});
+
+	it("notifies in English when the interface language is English", async () => {
+		const f = fixture({ localBuild: true });
+		f.setSettings({ general: { language: "en" } });
+		f.setRelease(newer); f.run("setupAutoUpdater()");
+		await f.check(); await f.settle();
+		assert.match(f.notifications[0]!.title, /0\.2\.0 is available/);
+	});
+
+	it("obeys the automatic-updates toggle; manual checks still run", async () => {
+		const f = fixture({ localBuild: true });
+		f.setSettings({ general: { autoUpdate: false } });
+		f.setRelease(newer); f.run("setupAutoUpdater()");
+		await f.check(); await f.settle();
+		assert.equal(f.fetches.length, 0);
+		await f.check(true); await f.settle();
+		assert.equal(f.fetches.length, 1);
+		assert.equal(f.state().status, "available");
+	});
+
+	it("offline / GitHub errors settle to a generic error, never a notification", async () => {
+		const f = fixture({ localBuild: true });
+		f.setRelease(new Error("getaddrinfo ENOTFOUND api.github.com"));
+		f.run("setupAutoUpdater()");
+		await f.check(); await f.settle();
+		assert.equal(f.state().status, "error");
+		assert.equal(f.notifications.length, 0);
+		f.setRelease(newer);
+		await f.check(); await f.settle();
+		assert.equal(f.state().status, "available");
+	});
+
+	it("an older or equal release is up to date", async () => {
+		const f = fixture({ localBuild: true });
+		f.setRelease({ tag_name: "v0.0.9" }); f.run("setupAutoUpdater()");
+		await f.check(); await f.settle();
+		assert.equal(f.state().status, "up-to-date");
+		assert.equal(f.notifications.length, 0);
+	});
+
+	it("boot checks and keeps the 24h timer; the menu offers a manual check", async () => {
+		const f = fixture({ localBuild: true });
+		await f.run("main()"); await f.settle();
+		assert.equal(f.fetches.length, 1);
+		assert.equal(f.intervals.length, 1);
+		f.menuCheck(); await f.settle();
+		assert.equal(f.fetches.length, 2);
 	});
 });

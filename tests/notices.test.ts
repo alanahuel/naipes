@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { MAX_NOTICES, addNotices, endedSince, extractionNotice, jobNotice, unreadCount, type Notice } from "../components/notices.tsx";
+import { MAX_NOTICES, addNotices, endedSince, extractionNotice, isExternalHref, jobNotice, unreadCount, updateNotice, type Notice } from "../components/notices.tsx";
 import type { ActivityFeed, FeedJob } from "../components/activity-dock.tsx";
 
 const job = (id: string, chatId = "chat_1", kind: FeedJob["kind"] = "research") =>
@@ -56,5 +56,31 @@ describe("the notice list", () => {
 		assert.equal(unreadCount(list), 1);
 		const many = addNotices([], Array.from({ length: MAX_NOTICES + 5 }, (_, i) => notice(`n${i}`)));
 		assert.equal(many.length, MAX_NOTICES);
+	});
+});
+
+describe("updateNotice — a newer release seen by a local build (stage 0b)", () => {
+	const available = { status: "available" as const, version: "0.2.0", url: "https://github.com/alanahuel/naipes/releases/tag/v0.2.0", local: true, revision: 3 };
+	it("one notice per version, linking to the release page", () => {
+		const n = updateNotice(available, null, new Date("2026-11-04T12:00:00.000Z"))!;
+		assert.equal(n.id, "update:0.2.0");
+		assert.equal(n.message, "notices.updateAvailable");
+		assert.deepEqual(n.vars, { version: "0.2.0" });
+		assert.equal(n.href, available.url);
+		assert.equal(updateNotice(available, "0.2.0"), null);
+		assert.ok(updateNotice({ ...available, version: "0.3.0" }, "0.2.0"));
+	});
+	it("nothing for other states, missing data or a non-https url", () => {
+		for (const status of ["idle", "checking", "up-to-date", "downloaded", "error", "disabled"] as const) {
+			assert.equal(updateNotice({ ...available, status }, null), null);
+		}
+		assert.equal(updateNotice(null, null), null);
+		assert.equal(updateNotice({ ...available, version: null }, null), null);
+		assert.equal(updateNotice({ ...available, url: null }, null), null);
+		assert.equal(updateNotice({ ...available, url: "javascript:alert(1)" }, null), null);
+	});
+	it("external hrefs open in the browser; app routes stay in the app", () => {
+		assert.equal(isExternalHref(available.url), true);
+		assert.equal(isExternalHref("/chat/chat_1"), false);
 	});
 });

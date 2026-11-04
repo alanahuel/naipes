@@ -24,13 +24,14 @@
  *     would shadow every settings-page key change until restart.
  */
 
-const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, Notification, dialog, ipcMain, nativeTheme, session, shell } = require("electron");
 const { createChatGPT, fileStore } = require("./chatgpt.cjs");
 const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt-ipc.cjs");
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
+const localUpdates = require("./local-update-check.cjs");
 const { randomBytes } = require("node:crypto");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -477,13 +478,21 @@ const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let autoUpdater = null; // electron-updater's, packaged builds only
 // Observational only: this snapshot NEVER gates a check, download or install.
 // The revision lets late subscribers reject an older in-flight IPC snapshot.
-let updateState = { status: "idle", version: null, revision: 0 };
+// `local` marks a local build (notice-only checks, see setupLocalUpdateCheck);
+// `url` is the release page of an "available" version (local builds only).
+let updateState = { status: "idle", version: null, url: null, local: false, revision: 0 };
 
-function reportUpdateStatus(status, version = null) {
+function reportUpdateStatus(status, version = null, url = null) {
 	try {
 		// A later check/error must not hide an update already staged for quit.
 		if (updateState.status === "downloaded" && status !== "downloaded") return;
-		updateState = { status, version: typeof version === "string" ? version : null, revision: updateState.revision + 1 };
+		updateState = {
+			status,
+			version: typeof version === "string" ? version : null,
+			url: typeof url === "string" ? url : null,
+			local: localUpdateCheck !== null,
+			revision: updateState.revision + 1,
+		};
 		for (const win of BrowserWindow.getAllWindows()) {
 			try {
 				win.webContents.send("np:update-status", updateState);
@@ -508,10 +517,25 @@ function automaticUpdatesEnabled() {
 	}
 }
 
+/** The interface language for main-process text (desktop notifications):
+ *  settings general.language, Spanish when absent/unreadable. */
+function interfaceLanguage() {
+	try {
+		const settings = JSON.parse(fs.readFileSync(path.join(DATA_DIR(), "settings.json"), "utf8"));
+		return settings?.general?.language === "en" ? "en" : "es";
+	} catch {
+		return "es";
+	}
+}
+
 function checkForUpdates({ manual = false } = {}) {
-	if (!autoUpdater) return;
+	if (!autoUpdater && !localUpdateCheck) return;
 	if (!manual && !automaticUpdatesEnabled()) {
 		log("auto-update: automatic check skipped (turned off in Settings)");
+		return;
+	}
+	if (localUpdateCheck) {
+		void checkLocalBuildForUpdates();
 		return;
 	}
 	// Do not gate on display state: a stale spinner/error must never disable
@@ -542,7 +566,9 @@ function installUpdateNow() {
 /** LOCAL BUILD (owner, 2026-11-01): scripts/install-linux.sh bakes
  *  `npLocalBuild: true` into the packaged package.json (electron-builder
  *  extraMetadata). A locally built copy carries the owner's own changes, so
- *  the upstream GitHub feed must never replace it: no updater, no menu item. */
+ *  the GitHub feed must never replace it: electron-updater stays off.
+ *  Since 2026-11-04 (Repaso plan, stage 0b) it still ASKS GitHub whether a
+ *  newer release exists and says so — see electron/local-update-check.cjs. */
 function isLocalBuild() {
 	try {
 		return require("../package.json").npLocalBuild === true;
@@ -551,10 +577,88 @@ function isLocalBuild() {
 	}
 }
 
+/* ── Local-build update notices (owner, 2026-11-04) ───────────────────────
+ * Same cadence and toggle as the real updater (startup + 24h + manual,
+ * Settings → automatic updates). A newer published release becomes status
+ * "available" (+ its release page url) for Settings and the bell, and ONE
+ * desktop notification per version (the last announced version persists in
+ * userData/local-update.json). Never downloads or installs anything; every
+ * failure is a log line + generic "error". */
+let localUpdateCheck = null; // { repo, current } on local builds only
+let localCheckInFlight = false;
+const LOCAL_UPDATE_FILE = () => path.join(app.getPath("userData"), "local-update.json");
+
+function setupLocalUpdateCheck() {
+	let pkg = {};
+	try {
+		pkg = require("../package.json");
+	} catch {
+		/* handled below: no repo → disabled */
+	}
+	const repo = localUpdates.githubRepoFromHomepage(pkg.homepage);
+	if (!repo || typeof pkg.version !== "string") {
+		log("auto-update: local build without a GitHub homepage/version — update notices disabled");
+		reportUpdateStatus("disabled");
+		return;
+	}
+	localUpdateCheck = { repo, current: pkg.version };
+	log(`auto-update: local build — notice-only checks against ${repo} (running ${pkg.version})`);
+	reportUpdateStatus("idle");
+}
+
+function lastAnnouncedVersion() {
+	try {
+		const saved = JSON.parse(fs.readFileSync(LOCAL_UPDATE_FILE(), "utf8"));
+		return typeof saved?.announcedVersion === "string" ? saved.announcedVersion : null;
+	} catch {
+		return null;
+	}
+}
+
+function announceLocalUpdate(version, url) {
+	if (!localUpdates.shouldAnnounce(version, lastAnnouncedVersion())) return;
+	try {
+		fs.writeFileSync(LOCAL_UPDATE_FILE(), JSON.stringify({ announcedVersion: version }));
+	} catch (err) {
+		// Unwritable: announce anyway; worst case it repeats on a later check.
+		log(`local update: could not record the announcement (${err?.message ?? err})`);
+	}
+	try {
+		if (!Notification?.isSupported?.()) return;
+		const { title, body } = localUpdates.announcementText(version, interfaceLanguage());
+		const notice = new Notification({ title, body });
+		notice.on("click", () => void shell.openExternal(url));
+		notice.show();
+		log(`local update: announced ${version}`);
+	} catch (err) {
+		log(`local update: desktop notification failed (${err?.message ?? err})`);
+	}
+}
+
+async function checkLocalBuildForUpdates() {
+	if (!localUpdateCheck || localCheckInFlight) return;
+	localCheckInFlight = true;
+	reportUpdateStatus("checking");
+	try {
+		const latest = await localUpdates.fetchLatestRelease({ repo: localUpdateCheck.repo, fetchImpl: fetch });
+		if (localUpdates.isNewer(latest.version, localUpdateCheck.current)) {
+			reportUpdateStatus("available", latest.version, latest.url);
+			announceLocalUpdate(latest.version, latest.url);
+		} else {
+			reportUpdateStatus("up-to-date");
+		}
+	} catch (err) {
+		log(`local update check failed: ${err?.message ?? err}`);
+		reportUpdateStatus("error");
+	} finally {
+		localCheckInFlight = false;
+	}
+}
+
 function setupAutoUpdater() {
 	if (isLocalBuild()) {
-		log("auto-update: local build — updater disabled");
-		reportUpdateStatus("disabled");
+		log("auto-update: local build — electron-updater disabled");
+		setupLocalUpdateCheck();
 		return;
 	}
 	if (!app.isPackaged) {
@@ -640,10 +744,10 @@ function installMenu() {
 			label: app.name,
 			submenu: [
 				{ role: "about" },
-				// Manual checks report their result in Settings → General.
-				...(isLocalBuild()
-					? []
-					: [{ label: "Check for Updates…", click: () => checkForUpdatesFromMenu() }, { type: "separator" }]),
+				// Manual checks report their result in Settings → General
+				// (local builds too: there they only look, never install).
+				{ label: "Check for Updates…", click: () => checkForUpdatesFromMenu() },
+				{ type: "separator" },
 				{ role: "hide" },
 				{ role: "hideOthers" },
 				{ type: "separator" },
@@ -836,7 +940,7 @@ async function main() {
 	log(`window open: ${url}`);
 	// Startup + 24h checks stay main-owned and read the current preference.
 	// No renderer subscription is required; late loads retrieve the snapshot.
-	if (autoUpdater) {
+	if (autoUpdater || localUpdateCheck) {
 		checkForUpdates();
 		setInterval(() => checkForUpdates(), UPDATE_CHECK_INTERVAL_MS);
 	}

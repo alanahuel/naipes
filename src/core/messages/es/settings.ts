@@ -266,4 +266,8 @@ export default {
 	"settings.update.check": "Buscar actualizaciones",
 	"settings.update.auto": "Actualizaciones automáticas",
 	"settings.update.autoToggle": "actualizaciones automáticas",
+	"settings.update.availableVersion": "Hay una versión nueva: {version}.",
+	"settings.update.seeVersion": "Ver la versión {version}",
+	"settings.update.localHint": "Tu copia es local: solo busco versiones nuevas y te aviso. Para actualizarla, usa git pull y scripts/install-linux.sh.",
+	"settings.update.localAutoHint": "Busco al abrir la app y cada 24 horas. Tu copia local nunca se actualiza sola.",
 } as const;

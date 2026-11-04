@@ -268,4 +268,8 @@ export default {
 	"settings.update.check": "Check for updates",
 	"settings.update.auto": "Automatic updates",
 	"settings.update.autoToggle": "auto update",
+	"settings.update.availableVersion": "A new version is out: {version}.",
+	"settings.update.seeVersion": "See version {version}",
+	"settings.update.localHint": "Your copy is a local build: I only look for new versions and let you know. To update it, use git pull and scripts/install-linux.sh.",
+	"settings.update.localAutoHint": "Check at startup and every 24 hours. Your local copy never updates itself.",
 } satisfies Record<keyof typeof es, Message>;

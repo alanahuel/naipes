@@ -15,7 +15,7 @@ Naipes additions (2026-11-01; generalized for publication 2026-11-03). Not part 
 | Keys | `~/.config/Naipes/auth.json` (0600) |
 | Shell log | `~/.config/Naipes/logs/main.log` |
 
-The build passes `-c.extraMetadata.npLocalBuild=true`. `electron/main.cjs` reads that flag from the packaged `package.json`: a local build never starts the GitHub updater and hides **Check for Updates…**, so a published release can never replace a build that carries uncommitted or unreleased changes. To update, commit or pull, then run the script again. `--no-build` reinstalls the last `dist/` AppImage.
+The build passes `-c.extraMetadata.npLocalBuild=true`. `electron/main.cjs` reads that flag from the packaged `package.json`: a local build never starts the GitHub updater, so a published release can never replace a build that carries uncommitted or unreleased changes. Instead it only *looks*: at startup, every 24 hours and from **Check for Updates…** / Settings (same automatic-updates toggle), it asks GitHub's `releases/latest` and, when a newer version exists, says so — Settings shows it with a link to the release page, the bell gets a notice, and one desktop notification fires per version (`electron/local-update-check.cjs`; the last announced version persists in `userData/local-update.json`). Nothing is downloaded or installed. To update, commit or pull, then run the script again. `--no-build` reinstalls the last `dist/` AppImage.
 
 ## Settings → Obsidian
 

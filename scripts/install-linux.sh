@@ -7,8 +7,10 @@
 #
 # The package is marked `npLocalBuild: true` (electron-builder extraMetadata),
 # which turns the GitHub auto-updater OFF: a local build carries the owner's
-# own changes and must never be replaced by an upstream release. To update,
-# pull/commit your changes and run this script again.
+# own changes and must never be replaced by an upstream release. It still
+# checks GitHub and announces newer releases (notice only, never installs —
+# electron/local-update-check.cjs). To update, pull/commit your changes and
+# run this script again.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

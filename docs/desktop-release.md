@@ -37,7 +37,7 @@ pnpm exec electron-builder --win --x64 --publish never
 pnpm exec electron-builder --linux --x64 --publish never
 ```
 
-For a personal Linux install of this checkout (AppImage, launcher, icon, auto-update off), use `bash scripts/install-linux.sh` — see [obsidian.md](obsidian.md).
+For a personal Linux install of this checkout (AppImage, launcher, icon; auto-update off, new-release notices on), use `bash scripts/install-linux.sh` — see [obsidian.md](obsidian.md).
 
 ## CI vs release
 

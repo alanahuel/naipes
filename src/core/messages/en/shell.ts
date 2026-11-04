@@ -82,6 +82,7 @@ export default {
 	"notices.job.pdf": "Finished reading the PDF for “{title}”",
 	"notices.jobFailed": "Something failed in a task for “{title}”. Open it to see what happened.",
 	"notices.extractedOne": "Added the ideas from “{title}” to your graph",
+	"notices.updateAvailable": "Naipes {version} is available. Click to see what’s new.",
 	"notices.extractedMany": { one: "Added the ideas from {n} note or session to your graph", other: "Added the ideas from {n} notes and sessions to your graph" },
 	"now.title": "Now",
 	"now.more": { one: "See {n} more", other: "See {n} more" },

@@ -219,3 +219,30 @@ describe("Settings integration", () => {
 		assert.equal(b.calls.check, 0);
 	});
 });
+
+describe("local builds: notice-only (owner 2026-11-04, stage 0b)", () => {
+	it("a local build keeps the check button and toggle, with its own honest copy", async () => {
+		const b = bridge(state({ local: true })); const host = await mount(<UpdateSettings {...props} />);
+		assert.ok(q(host, "update-check")); assert.ok(q(host, "row-auto-update"));
+		assert.ok(host.textContent!.includes("Your copy is a local build"));
+		assert.ok(host.textContent!.includes("never updates itself"));
+		assert.ok(!host.textContent!.includes(MANUAL_UPDATE_HINT));
+		await click(q(host, "update-check")); assert.equal(b.calls.check, 1);
+	});
+
+	it("an available version shows its number and links to its release page, never a Restart", async () => {
+		const url = "https://github.com/alanahuel/naipes/releases/tag/v0.4.0";
+		const b = bridge(state({ local: true })); const host = await mount(<UpdateSettings {...props} />);
+		await b.push(state({ status: "available", version: "0.4.0", url, local: true, revision: 1 }));
+		assert.equal(q(host, "update-status")!.textContent, "A new version is out: 0.4.0.");
+		assert.equal(q(host, "update-available-link")!.getAttribute("href"), url);
+		assert.equal(q(host, "update-restart"), null);
+		assert.ok(q(host, "update-check"));
+	});
+
+	it("the restart banner never appears for an available (not downloaded) version", async () => {
+		bridge(state({ status: "available", version: "0.4.0", url: "https://github.com/a/b/releases/tag/v0.4.0", local: true }));
+		const host = await mount(<UpdateBanner />);
+		assert.equal(q(host, "update-banner"), null);
+	});
+});
