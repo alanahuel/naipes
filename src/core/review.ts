@@ -43,7 +43,7 @@ import { createEmptyCard, fsrs, generatorParameters, Rating, State, type Card, t
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { GraphNode } from "./contracts/graph.ts";
 import type { NpMessage } from "./native-messages.ts";
-import { PRACTICE_CONCLUDE_TOOL, problemInputForConclude } from "./native-messages.ts";
+import { PRACTICE_CONCLUDE_TOOL, problemCallForConclude, problemInputForConclude } from "./native-messages.ts";
 import type { QuestionAnswerData } from "./question-core.ts";
 import { areaOfPath } from "./areas.ts";
 
@@ -61,6 +61,18 @@ const RATING: Record<ReviewGrade, Grade> = {
 /** Where one grade came from — for the review screen and for tests. */
 export type ReviewEventKind = "teach-check" | "teach-seen" | "practice";
 
+/** The demand modes of a practice problem — the exam ladder (owner,
+ *  2026-11-05: Recordar → Discriminar → Componer). */
+export type DemandMode = "recall" | "discrimination" | "composition";
+
+export const DEMAND_MODES: readonly DemandMode[] = ["recall", "discrimination", "composition"];
+
+/** What a graded event does to the idea's reached mode («Exámenes», owner
+ *  2026-11-05): up = clean (no hints, confident) at `mode`; stay = right
+ *  but shaky (low confidence or light hints); miss = wrong / heavy hints /
+ *  surrendered. Teach checks act at recall. */
+export type ModeStep = "up" | "stay" | "miss";
+
 export interface ReviewEvent {
 	nodeId: string;
 	/** Epoch ms. */
@@ -68,6 +80,10 @@ export interface ReviewEvent {
 	grade: ReviewGrade;
 	kind: ReviewEventKind;
 	chatId: string;
+	/** The problem's demand mode (practice), "recall" for teach checks. */
+	mode?: DemandMode;
+	/** Absent = no effect on the reached mode (teach-seen). */
+	step?: ModeStep;
 }
 
 /** A teach «check» answer → grade (null = does not count). */
@@ -80,10 +96,18 @@ export function gradeFromCheck(answer: Pick<QuestionAnswerData, "correct" | "con
 	return "good";
 }
 
-/** A practice conclude → grade (null = does not count). */
-export function gradeFromConclude(outcome: unknown, rung: unknown, mode: unknown): ReviewGrade | null {
+/** A teach check's grade → its mode step (always at recall). */
+export function stepFromCheckGrade(grade: ReviewGrade): ModeStep {
+	return grade === "good" || grade === "easy" ? "up" : grade === "hard" ? "stay" : "miss";
+}
+
+/** A practice conclude → grade (null = does not count). A solve the
+ *  learner declared low confidence in (below the threshold) is Hard — the
+ *  teach-check rule, extended to practice (owner, 2026-11-05). */
+export function gradeFromConclude(outcome: unknown, rung: unknown, mode: unknown, confidence?: number, confidenceThreshold = 70): ReviewGrade | null {
 	switch (outcome) {
 		case "solved":
+			if (typeof confidence === "number" && confidence < confidenceThreshold) return "hard";
 			return mode === "composition" || mode === "discrimination" ? "easy" : "good";
 		case "solvedWithHints":
 			return rung === "R3" || rung === "R4" || rung === "R5" ? "again" : "hard";
@@ -93,6 +117,22 @@ export function gradeFromConclude(outcome: unknown, rung: unknown, mode: unknown
 			return null; // movedOn, dismissed, garbage
 	}
 }
+
+/** A practice conclude → mode step (null = does not count). */
+export function stepFromConclude(outcome: unknown, rung: unknown, confidence?: number, confidenceThreshold = 70): ModeStep | null {
+	switch (outcome) {
+		case "solved":
+			return typeof confidence === "number" && confidence < confidenceThreshold ? "stay" : "up";
+		case "solvedWithHints":
+			return rung === "R3" || rung === "R4" || rung === "R5" ? "miss" : "stay";
+		case "surrendered":
+			return "miss";
+		default:
+			return null;
+	}
+}
+
+const asMode = (v: unknown): DemandMode | undefined => (DEMAND_MODES as readonly unknown[]).includes(v) ? (v as DemandMode) : undefined;
 
 // ─── reading the records ────────────────────────────────────────────────────
 
@@ -212,7 +252,7 @@ export function teachEvents(
 		for (const step of nodeSteps) {
 			const check = checks.get(step);
 			if (!check) continue;
-			events.push({ nodeId, at: check.at, grade: check.grade, kind: "teach-check", chatId: chat.id });
+			events.push({ nodeId, at: check.at, grade: check.grade, kind: "teach-check", chatId: chat.id, mode: "recall", step: stepFromCheckGrade(check.grade) });
 			graded = true;
 		}
 		if (!graded && Number.isFinite(seenAt)) {
@@ -222,8 +262,21 @@ export function teachEvents(
 	return events;
 }
 
+/** The learner's confidence on a problem: the LAST thinking submission's
+ *  (practice-thinking details.confidence, owner 2026-11-05); undefined
+ *  when none carried one (records before the slider). */
+export function problemConfidence(messages: readonly NpMessage[], problemCallId: string): number | undefined {
+	let out: number | undefined;
+	for (const m of messages) {
+		if (roleOf(m) !== "custom" || (m as { customType?: string }).customType !== "practice-thinking") continue;
+		const details = (m as { details?: { problemCallId?: unknown; confidence?: unknown } }).details;
+		if (details?.problemCallId === problemCallId && typeof details.confidence === "number") out = details.confidence;
+	}
+	return out;
+}
+
 /** One practice session's grade events (targets must be known nodes). */
-export function practiceEvents(chat: ReviewChat, knownNodes: ReadonlySet<string>): ReviewEvent[] {
+export function practiceEvents(chat: ReviewChat, knownNodes: ReadonlySet<string>, confidenceThreshold = 70): ReviewEvent[] {
 	const clean = cleanCallIds(chat.messages);
 	const resultTime = new Map<string, number>();
 	for (const m of chat.messages) {
@@ -234,13 +287,17 @@ export function practiceEvents(chat: ReviewChat, knownNodes: ReadonlySet<string>
 		for (const call of toolCallsOf(m)) {
 			if (call.name !== PRACTICE_CONCLUDE_TOOL || !clean.has(call.id)) continue;
 			const args = (call.arguments ?? {}) as { outcome?: unknown; rung?: unknown };
-			const problem = problemInputForConclude(chat.messages, call.id);
-			const grade = gradeFromConclude(args.outcome, args.rung, problem?.mode);
+			const posed = problemCallForConclude(chat.messages, call.id);
+			const problem = posed?.input;
+			const confidence = posed ? problemConfidence(chat.messages, posed.id) : undefined;
+			const grade = gradeFromConclude(args.outcome, args.rung, problem?.mode, confidence, confidenceThreshold);
 			if (!grade || !Array.isArray(problem?.target)) continue;
+			const mode = asMode(problem.mode);
+			const step = stepFromConclude(args.outcome, args.rung, confidence, confidenceThreshold);
 			const at = resultTime.get(call.id) ?? (m as { timestamp?: number }).timestamp ?? Date.parse(chat.createdAt);
 			for (const target of new Set(problem.target)) {
 				if (typeof target === "string" && knownNodes.has(target)) {
-					events.push({ nodeId: target, at, grade, kind: "practice", chatId: chat.id });
+					events.push({ nodeId: target, at, grade, kind: "practice", chatId: chat.id, ...(mode && step ? { mode, step } : {}) });
 				}
 			}
 		}
@@ -391,6 +448,14 @@ export interface ReviewInput {
 	sources: ReviewSources;
 	intake: readonly IntakeLine[];
 	settings: { targetRetention: number; newPerDay: number; confidenceThreshold: number };
+	/** Ideas of ACTIVE exams («Exámenes», owner 2026-11-05): enrolled,
+	 *  exempt from the daily cap (the study budget rules them), held out of
+	 *  review until first graded (the placement test grades them), and due
+	 *  per `due` (src/core/exams.ts deadlineDue, composed by the server). */
+	exams?: {
+		nodeIds: ReadonlySet<string>;
+		due: (nodeId: string, card: { due: number; stability: number; lastReview: number }) => number;
+	};
 }
 
 export interface ReviewModel {
@@ -432,7 +497,7 @@ export function computeReview(input: ReviewInput): ReviewModel {
 		}
 	}
 	for (const chat of input.chats) {
-		if ((chat.kind ?? "teach") === "practice") practiceEvents(chat, known).forEach(add);
+		if ((chat.kind ?? "teach") === "practice") practiceEvents(chat, known, settings.confidenceThreshold).forEach(add);
 		else {
 			const byMessage = nodesOfMessageByChat.get(chat.id);
 			if (byMessage) teachEvents(chat, byMessage, settings.confidenceThreshold).forEach(add);
@@ -446,7 +511,7 @@ export function computeReview(input: ReviewInput): ReviewModel {
 	const pausedNodes = new Set(sources.paused.nodes);
 	const intakeOf = new Map(input.intake.map((l) => [l.nodeId, l]));
 
-	interface Candidate { node: ReviewInput["nodes"][number]; group: ReviewGroup; events: ReviewEvent[]; card: Card | null; paused: boolean; areaId: string | null }
+	interface Candidate { node: ReviewInput["nodes"][number]; group: ReviewGroup; events: ReviewEvent[]; card: Card | null; paused: boolean; areaId: string | null; inExam: boolean }
 	const candidates: Candidate[] = [];
 	for (const node of input.nodes) {
 		const events = eventsOf.get(node.id) ?? [];
@@ -455,7 +520,8 @@ export function computeReview(input: ReviewInput): ReviewModel {
 		const path = birth ? input.sourcePaths[birth] : undefined;
 		const areaId = path !== undefined ? areaOfPath(path).id : null;
 		const inArea = areaId !== null && activeAreas.has(areaId);
-		if (!teachChat && !inArea && events.length === 0) continue;
+		const inExam = input.exams?.nodeIds.has(node.id) ?? false;
+		if (!teachChat && !inArea && !inExam && events.length === 0) continue;
 		const practiceChat = events.find((e) => e.kind === "practice")?.chatId ?? null;
 		const group: ReviewGroup = teachChat
 			? { kind: "session", id: teachChat }
@@ -463,13 +529,14 @@ export function computeReview(input: ReviewInput): ReviewModel {
 				? { kind: "area", id: areaId }
 				: { kind: "session", id: practiceChat ?? "" };
 		const paused = pausedNodes.has(node.id) || (group.kind === "session" ? pausedSessions.has(group.id) : pausedAreas.has(group.id));
-		candidates.push({ node, group, events, card: replayCard(events, scheduler), paused, areaId });
+		candidates.push({ node, group, events, card: replayCard(events, scheduler), paused, areaId, inExam });
 	}
 
 	// The shared daily intake: backlog (overdue at activation, nothing
 	// since) first, then new area ideas (never graded), oldest first.
 	const activationDayEnd = reviewDayEnd(activatedAt);
 	const isBacklog = (c: Candidate) =>
+		!c.inExam &&
 		c.events.length > 0 &&
 		c.events.every((e) => e.at < activatedAt) &&
 		c.card !== null &&
@@ -477,16 +544,19 @@ export function computeReview(input: ReviewInput): ReviewModel {
 	const backlog = candidates
 		.filter((c) => !c.paused && isBacklog(c))
 		.map((c) => ({ nodeId: c.node.id, retrievability: scheduler.get_retrievability(c.card!, new Date(activatedAt), false) }));
-	const fresh = candidates.filter((c) => !c.paused && c.events.length === 0).map((c) => c.node.id);
+	const fresh = candidates.filter((c) => !c.paused && !c.inExam && c.events.length === 0).map((c) => c.node.id);
 	const newIntake = planIntake({ today, existing: input.intake, backlog, fresh, cap: settings.newPerDay });
 	for (const line of newIntake) intakeOf.set(line.nodeId, line);
 
 	const items: ReviewItem[] = candidates.map((c) => {
-		const needsIntake = c.events.length === 0 || isBacklog(c);
+		const needsIntake = !c.inExam && (c.events.length === 0 || isBacklog(c));
 		const line = intakeOf.get(c.node.id);
-		const released = !needsIntake || line !== undefined;
+		const released = c.inExam ? c.events.length > 0 : !needsIntake || line !== undefined;
 		const card = c.card;
 		let due: number | null = card ? card.due.getTime() : null;
+		if (c.inExam && card && card.last_review && input.exams) {
+			due = input.exams.due(c.node.id, { due: card.due.getTime(), stability: card.stability, lastReview: card.last_review.getTime() });
+		}
 		if (line && needsIntake) {
 			const [y, m, d] = line.day.split("-").map(Number);
 			const releaseStart = new Date(y!, m! - 1, d!, DAY_ROLLOVER_HOUR).getTime();

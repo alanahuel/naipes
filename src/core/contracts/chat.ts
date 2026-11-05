@@ -39,6 +39,11 @@ export interface ChatRecord {
 	 *  session seeded with the ideas due on `day` (the review day,
 	 *  "YYYY-MM-DD"). The practice agent gets the review appendix. */
 	review?: { day: string };
+	/** A session the exam plan created («Exámenes», owner 2026-11-05):
+	 *  the exam's id and the block it serves — placement test, mode
+	 *  practice, dated review, teaching a syllabus point (`pointId`;
+	 *  `short` = the «afianzado» consolidation), or the mock exam. */
+	exam?: ChatExamLink;
 	/** When the learner archived it (Mis sesiones' circle); absent = active.
 	 *  Archiving hides a session from «Activas» and «Seguir con» — nothing
 	 *  is deleted, and it never reorders the list (updatedAt stays). */
@@ -66,6 +71,15 @@ export interface ChatRecord {
 	 *  (the downgrade scenario) is REFUSED on read: a read-modify-write
 	 *  store must never rewrite what it doesn't understand. */
 	version?: number;
+}
+
+export type ExamSessionKind = "placement" | "practice" | "review" | "teach" | "mock";
+
+export interface ChatExamLink {
+	id: string;
+	kind: ExamSessionKind;
+	pointId?: string;
+	short?: boolean;
 }
 
 /** The chat record format this build writes and understands. */
@@ -210,6 +224,10 @@ export const HANDOFF_TEXT =
  *  lane — whether a submission claims an answer is read from the text,
  *  not declared by a button. */
 export const THINKING_LABEL = "Your thinking";
+
+/** The confidence line appended to a thinking submission (owner,
+ *  2026-11-05): the learner's 0–100 stated confidence that it is right. */
+export const CONFIDENCE_LABEL = "Confidence";
 
 /** The conclude tool's ack — shared by the executed call (agent layer) and
  *  the dismissal-synthesized pair (input-events), so a concluded problem

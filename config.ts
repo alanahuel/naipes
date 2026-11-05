@@ -31,6 +31,8 @@ export const PATHS = {
 	debug: path.join(DATA_ROOT, "debug"),
 	/** Spaced review («Repaso», owner 2026-11-04): src/store/review.ts. */
 	review: path.join(DATA_ROOT, "review"),
+	/** Exams with a deadline («Exámenes», owner 2026-11-05): src/store/exams.ts. */
+	exams: path.join(DATA_ROOT, "exams"),
 } as const;
 
 // ─── Models ────────────────────────────────────────────────────────────────
@@ -109,6 +111,19 @@ export const REVIEW_FILES = {
 	sources: path.join(PATHS.review, "sources.json"),
 	intake: path.join(PATHS.review, "intake.jsonl"),
 	notices: path.join(PATHS.review, "notices.jsonl"),
+} as const;
+
+/**
+ * Exams with a deadline («Exámenes», owner 2026-11-05). Levels, recall and
+ * plans are never stored — they derive from the chat records and the
+ * graph (src/core/exams.ts). Stored:
+ *   <id>.json      read-modify-write: one exam (syllabus, mapping table,
+ *                  standard, date, status, priorities, real grade).
+ *   notices.jsonl  append-only: exam notices sent (level drop, 7 d, 1 d).
+ */
+export const EXAM_FILES = {
+	dir: PATHS.exams,
+	notices: path.join(PATHS.exams, "notices.jsonl"),
 } as const;
 
 /**

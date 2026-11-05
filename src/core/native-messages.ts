@@ -41,6 +41,7 @@ import {
 	HANDOFF_TEXT,
 	NEXT_PROBLEM_TEXT,
 	THINKING_LABEL,
+	CONFIDENCE_LABEL,
 } from "./contracts/chat.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
@@ -292,14 +293,18 @@ export function newGraphContextMessage(picks: readonly GraphContextPick[], chain
  *  content label is the single "Your thinking"; `details` keeps the raw
  *  payload for the transcript card. One problem may carry many
  *  submissions. */
-export function newThinkingMessage(problemCallId: string, text: string): NpMarkerMessage {
+export function newThinkingMessage(problemCallId: string, text: string, confidence?: number): NpMarkerMessage {
+	// The learner's stated confidence (owner, 2026-11-05 — «Exámenes»): the
+	// model reads it (the placement climbs on it) and the review/exam
+	// models fold it from details.
+	const stated = typeof confidence === "number" ? `\n\n${CONFIDENCE_LABEL}: ${confidence}%` : "";
 	return {
 		id: newMessageId(),
 		role: "custom",
 		customType: "practice-thinking",
-		content: `${THINKING_LABEL}:\n${text}`,
+		content: `${THINKING_LABEL}:\n${text}${stated}`,
 		display: true,
-		details: { problemCallId, text },
+		details: typeof confidence === "number" ? { problemCallId, text, confidence } : { problemCallId, text },
 		timestamp: Date.now(),
 	};
 }
@@ -432,6 +437,14 @@ export function problemInputForConclude(
 	messages: readonly NpMessage[],
 	concludeCallId: string,
 ): { statement?: unknown; mode?: unknown; target?: unknown; modelSolution?: unknown } | undefined {
+	return problemCallForConclude(messages, concludeCallId)?.input;
+}
+
+/** The pose a conclude ends: its tool-call id + arguments (same walk). */
+export function problemCallForConclude(
+	messages: readonly NpMessage[],
+	concludeCallId: string,
+): { id: string; input: { statement?: unknown; mode?: unknown; target?: unknown; modelSolution?: unknown; syllabusPoint?: unknown } | undefined } | undefined {
 	let mi = messages.findIndex(
 		(m) =>
 			(m as { role?: string }).role === "assistant" &&
@@ -449,9 +462,12 @@ export function problemInputForConclude(
 			const block = assistant.content[bi]!;
 			if (block.type !== "toolCall" || block.name !== PRACTICE_PROBLEM_TOOL) continue;
 			if (!clean.has(block.id)) continue; // a refused pose revealed nothing
-			return (block.arguments ?? undefined) as
-				| { statement?: unknown; mode?: unknown; target?: unknown; modelSolution?: unknown }
-				| undefined;
+			return {
+				id: block.id,
+				input: (block.arguments ?? undefined) as
+					| { statement?: unknown; mode?: unknown; target?: unknown; modelSolution?: unknown; syllabusPoint?: unknown }
+					| undefined,
+			};
 		}
 	}
 	return undefined;

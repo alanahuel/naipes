@@ -257,6 +257,28 @@ export interface ReviewSettings {
 	confidenceThreshold?: number;
 }
 
+/** Exams with a deadline («Exámenes», owner 2026-11-05). One GLOBAL
+ *  study budget shared by every exam; default activity durations, used
+ *  until the learner's own measured averages exist. */
+export interface ExamSettings {
+	/** Study minutes per weekday, Monday first (7 entries, 0–720). */
+	weeklyMinutes?: number[];
+	/** Teaching one syllabus point, minutes (factory 25). */
+	teachMinutes?: number;
+	/** A short «afianzado» consolidation session, minutes (factory 10). */
+	consolidateMinutes?: number;
+	/** One practice problem, minutes (factory 6). */
+	problemMinutes?: number;
+	/** One idea in review, minutes (factory 2). */
+	reviewMinutes?: number;
+	/** The final review window before the exam, days (factory 3). */
+	finalWindowDays?: number;
+	/** Ideas per placement-test session (factory 10). */
+	placementBatch?: number;
+}
+
+export const EXAM_WEEKDAYS = 7;
+
 /** The desktop shell (owner, 2026-11-04 — «Repaso» stage 2). Read by
  *  electron/main.cjs straight from settings.json on its minute clock. */
 export interface DesktopSettings {
@@ -463,6 +485,7 @@ export interface UserSettings {
 	compaction?: CompactionSettings;
 	obsidian?: ObsidianSettings;
 	review?: ReviewSettings;
+	exams?: ExamSettings;
 	desktop?: DesktopSettings;
 	[key: string]: unknown;
 }
@@ -492,6 +515,7 @@ export interface FactorySettings {
 	compaction: Required<CompactionSettings>;
 	obsidian: Required<ObsidianSettings>;
 	review: Required<ReviewSettings>;
+	exams: Required<ExamSettings>;
 	desktop: Required<DesktopSettings>;
 }
 
@@ -511,6 +535,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 	compaction: { thresholdTokens: 150_000 },
 	obsidian: { enabled: false, vaultPath: "", folders: [], outputFolder: DEFAULT_VAULT_OUTPUT_FOLDER, obsidianFormat: false, confirmAboveRuns: 6, suggestFolders: false, inboxFolder: "Bandeja" },
 	review: { targetRetention: 0.9, digestTime: "09:00", eveningTime: "19:00", newPerDay: 15, batchSize: 10, confidenceThreshold: 70 },
+	exams: { weeklyMinutes: [45, 45, 45, 45, 45, 90, 0], teachMinutes: 25, consolidateMinutes: 10, problemMinutes: 6, reviewMinutes: 2, finalWindowDays: 3, placementBatch: 10 },
 	desktop: { tray: true, autostart: true },
 };
 
@@ -771,6 +796,32 @@ function sanitizeReview(raw: Record<string, unknown>): ReviewSettings {
 	return out;
 }
 
+/** Integer-ish durations in minutes: 1–240. */
+const EXAM_INT_FIELDS: Array<[keyof ExamSettings & ("teachMinutes" | "consolidateMinutes" | "problemMinutes" | "reviewMinutes" | "finalWindowDays" | "placementBatch"), number, number]> = [
+	["teachMinutes", 1, 240],
+	["consolidateMinutes", 1, 240],
+	["problemMinutes", 1, 120],
+	["reviewMinutes", 1, 60],
+	["finalWindowDays", 1, 14],
+	["placementBatch", 1, 50],
+];
+
+export function isWeeklyMinutes(v: unknown): v is number[] {
+	return Array.isArray(v) && v.length === EXAM_WEEKDAYS && v.every((x) => typeof x === "number" && Number.isInteger(x) && x >= 0 && x <= 720);
+}
+
+export { EXAM_INT_FIELDS };
+
+function sanitizeExams(raw: Record<string, unknown>): ExamSettings {
+	const out: ExamSettings = {};
+	if (isWeeklyMinutes(raw.weeklyMinutes)) out.weeklyMinutes = [...raw.weeklyMinutes];
+	for (const [field, min, max] of EXAM_INT_FIELDS) {
+		const v = intIn(raw[field], min, max);
+		if (v !== undefined) out[field] = v;
+	}
+	return out;
+}
+
 /**
  * Coerce arbitrary JSON (disk file, network body) into a valid delta record:
  * known fields validated strictly (invalid ones drop/clamp per module doc),
@@ -814,6 +865,9 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.review !== null && typeof r.review === "object" && !Array.isArray(r.review)) {
 		out.review = sanitizeReview(r.review as Record<string, unknown>);
+	}
+	if (r.exams !== null && typeof r.exams === "object" && !Array.isArray(r.exams)) {
+		out.exams = sanitizeExams(r.exams as Record<string, unknown>);
 	}
 	if (r.desktop !== null && typeof r.desktop === "object" && !Array.isArray(r.desktop)) {
 		const raw = r.desktop as Record<string, unknown>;

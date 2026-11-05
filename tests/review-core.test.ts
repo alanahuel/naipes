@@ -149,7 +149,7 @@ describe("teach events", () => {
 			["m0", ["n_probe"]],
 		]);
 		const events = teachEvents(chat, byMessage, 70);
-		assert.deepEqual(events.find((e) => e.nodeId === "n_step2"), { nodeId: "n_step2", at: T0 + 6 * 60_000, grade: "again", kind: "teach-check", chatId: "chat_t" });
+		assert.deepEqual(events.find((e) => e.nodeId === "n_step2"), { nodeId: "n_step2", at: T0 + 6 * 60_000, grade: "again", kind: "teach-check", chatId: "chat_t", mode: "recall", step: "miss" });
 		assert.deepEqual(events.find((e) => e.nodeId === "n_probe"), { nodeId: "n_probe", at: T0, grade: "good", kind: "teach-seen", chatId: "chat_t" });
 	});
 	it("an idea spanning two checked steps gets both checks", () => {

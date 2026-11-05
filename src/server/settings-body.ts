@@ -25,7 +25,7 @@ import type {
 	RoleModelOverride,
 } from "../core/settings.ts";
 import { isLocale } from "../core/i18n.ts";
-import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, CONFIRM_ABOVE_RUNS_MIN, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, REVIEW_RETENTION_MAX, REVIEW_RETENTION_MIN, normalizeClockTime, normalizeVaultFolder, isThemeMode, type DesktopSettings, type ObsidianSettings, type ReviewSettings } from "../core/settings.ts";
+import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, CONFIRM_ABOVE_RUNS_MIN, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, REVIEW_RETENTION_MAX, REVIEW_RETENTION_MIN, normalizeClockTime, normalizeVaultFolder, isThemeMode, isWeeklyMinutes, EXAM_INT_FIELDS, type DesktopSettings, type ExamSettings, type ObsidianSettings, type ReviewSettings } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
 
@@ -502,6 +502,26 @@ export function parseDesktopSettingsBody(body: unknown): SettingsBodyResult<Desk
 	return { ok: true, settings };
 }
 
+/** exams: every field optional; strict types and ranges (400 otherwise). */
+export function parseExamSettingsBody(body: unknown): SettingsBodyResult<ExamSettings> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	const settings: ExamSettings = {};
+	if (raw.weeklyMinutes !== undefined) {
+		if (!isWeeklyMinutes(raw.weeklyMinutes)) return { ok: false, error: "weeklyMinutes must be 7 integers between 0 and 720 (Monday first)" };
+		settings.weeklyMinutes = [...raw.weeklyMinutes];
+	}
+	for (const [field, min, max] of EXAM_INT_FIELDS) {
+		const v = raw[field];
+		if (v === undefined) continue;
+		if (typeof v !== "number" || !Number.isInteger(v) || v < min || v > max) {
+			return { ok: false, error: `${field} must be an integer between ${min} and ${max}` };
+		}
+		settings[field] = v;
+	}
+	return { ok: true, settings };
+}
+
 export const SETTINGS_SECTIONS = {
 	general: parseGeneralSettingsBody,
 	chat: parseSettingsBody,
@@ -513,6 +533,7 @@ export const SETTINGS_SECTIONS = {
 	dictation: parseDictationSettingsBody,
 	obsidian: parseObsidianSettingsBody,
 	review: parseReviewSettingsBody,
+	exams: parseExamSettingsBody,
 	desktop: parseDesktopSettingsBody,
 } as const;
 

@@ -40,6 +40,7 @@ import {
 	type CompactionSettings,
 	type ObsidianSettings,
 	type ReviewSettings,
+	type ExamSettings,
 	type DesktopSettings,
 	type GraphSettings,
 	type ModelSlot,
@@ -103,6 +104,8 @@ export interface EffectiveSettings {
 	obsidian: Required<ObsidianSettings>;
 	/** Spaced review tunables, concrete (factory values fill gaps). */
 	review: Required<ReviewSettings>;
+	/** Exams with a deadline, concrete (factory values fill gaps). */
+	exams: Required<ExamSettings>;
 	/** Desktop shell switches, concrete. */
 	desktop: Required<DesktopSettings>;
 }
@@ -243,6 +246,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			inboxFolder: record?.obsidian?.inboxFolder ?? FACTORY_SETTINGS.obsidian.inboxFolder,
 		},
 		review: { ...FACTORY_SETTINGS.review, ...record?.review },
+		exams: { ...FACTORY_SETTINGS.exams, ...record?.exams },
 		desktop: { ...FACTORY_SETTINGS.desktop, ...record?.desktop },
 	};
 }
