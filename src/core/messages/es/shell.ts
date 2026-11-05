@@ -106,6 +106,7 @@ export default {
 	"notices.vaultOcrMissing": { one: "{file}: {n} página es una imagen y no la pude leer. Instala Tesseract para leerla.", other: "{file}: {n} páginas son imágenes y no las pude leer. Instala Tesseract para leerlas." },
 	"notices.vaultRead": "Leer",
 	"notices.vaultNotNow": "Ahora no",
+	"notices.vaultSuggestions": { one: "{n} nota de tu bandeja tiene sitio sugerido", other: "{n} notas de tu bandeja tienen sitio sugerido" },
 	"notices.updateAvailable": "Naipes {version} está disponible. Pulsa para ver las novedades.",
 	"notices.extractedMany": { one: "Pasé a tu grafo las ideas de {n} nota o sesión", other: "Pasé a tu grafo las ideas de {n} notas y sesiones" },
 	"now.title": "Ahora",

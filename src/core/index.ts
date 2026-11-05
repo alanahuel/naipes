@@ -72,6 +72,7 @@ export type { ChatDeleteMode, ChatDeletionStats } from "./graph-deletion.ts";
 export * from "./settings-resolution.ts";
 export * from "./vault-notes.ts";
 export * from "./doc-chunks.ts";
+export * from "./inbox.ts";
 export * from "./stored-item.ts";
 export * from "./theme.ts";
 export * from "./i18n.ts";

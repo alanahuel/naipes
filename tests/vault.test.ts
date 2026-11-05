@@ -141,6 +141,11 @@ describe("obsidian settings section", () => {
 		assert.deepEqual(parseObsidianSettingsBody({ enabled: true, folders: ["a/"] }), { ok: true, settings: { enabled: true, folders: ["a"] } });
 		assert.equal(parseObsidianSettingsBody({ obsidianFormat: "yes" }).ok, false);
 		assert.deepEqual(parseObsidianSettingsBody({ obsidianFormat: false }), { ok: true, settings: { obsidianFormat: false } });
+		assert.equal(parseObsidianSettingsBody({ suggestFolders: "yes" }).ok, false);
+		assert.equal(parseObsidianSettingsBody({ inboxFolder: "../fuera" }).ok, false);
+		assert.equal(parseObsidianSettingsBody({ inboxFolder: "Naipes", outputFolder: "Naipes" }).ok, false, "inbox and output must not overlap");
+		assert.equal(parseObsidianSettingsBody({ inboxFolder: "Naipes/Bandeja", outputFolder: "Naipes" }).ok, false);
+		assert.deepEqual(parseObsidianSettingsBody({ suggestFolders: true, inboxFolder: "/Entrada/" }), { ok: true, settings: { suggestFolders: true, inboxFolder: "Entrada" } });
 	});
 });
 
@@ -387,5 +392,92 @@ describe("vault sync", () => {
 		} finally {
 			unsubscribe();
 		}
+	});
+
+	it("recognizes a move (new path first): same ideas, no extraction", async () => {
+		const { notesSourceId } = await import("../src/agent/subagents/extraction.ts");
+		const sourceId = notesSourceId("Notas/dos.md");
+		imports.length = 0;
+		fs.mkdirSync(path.join(VAULT, "Notas", "movidas"), { recursive: true });
+		fs.renameSync(path.join(VAULT, "Notas", "dos.md"), path.join(VAULT, "Notas", "movidas", "dos.md"));
+		vault.reconfigureVault();
+		await vault.whenVaultIdle();
+		assert.equal(imports.length, 0, "no extraction for a move");
+		assert.ok(nodeNames().includes("Masa"), "the ideas stay");
+		assert.equal(stores.graphStore.readSources().find((src) => src.id === sourceId)?.filePath, "Notas/movidas/dos.md", "the source follows");
+	});
+
+	it("recognizes a move (deleted path first) and replaces a moved note's ideas when it changes", async () => {
+		imports.length = 0;
+		fs.renameSync(path.join(VAULT, "Notas", "movidas", "dos.md"), path.join(VAULT, "Notas", "dos-bis.md"));
+		await vault.syncPathNow("Notas/movidas/dos.md");
+		await vault.syncPathNow("Notas/dos-bis.md");
+		assert.equal(imports.length, 0, "no extraction for a move");
+		assert.ok(nodeNames().includes("Masa"));
+		fs.writeFileSync(path.join(VAULT, "Notas", "dos-bis.md"), "# Peso\n");
+		await vault.syncPathNow("Notas/dos-bis.md");
+		assert.deepEqual(imports.map((i) => i.filePath), ["Notas/dos-bis.md"]);
+		assert.ok(nodeNames().includes("Peso"));
+		assert.ok(!nodeNames().includes("Masa"), "the moved note's old contribution (original source id) is gone");
+	});
+
+	it("suggests a folder for an inbox note, then dismiss, choose another and move", async () => {
+		const { PUT } = await import("../app/api/settings/[section]/route.ts");
+		const { subscribe } = await import("../src/core/events.ts");
+		const put = (body: unknown) =>
+			PUT(new Request("http://localhost/api/settings/obsidian", { method: "PUT", body: JSON.stringify(body) }), {
+				params: Promise.resolve({ section: "obsidian" }),
+			});
+		const section = { enabled: true, vaultPath: VAULT, folders: ["Notas", "Recursos"], outputFolder: OUT, obsidianFormat: false, confirmAboveRuns: 50 };
+		assert.equal(vault.inboxOverview().enabled, false, "off by default");
+		assert.equal((await put({ ...section, suggestFolders: true })).status, 200);
+		await vault.whenVaultIdle();
+		assert.ok(fs.statSync(path.join(VAULT, "Bandeja")).isDirectory(), "the inbox is created");
+
+		// A folder note in Recursos/Física and an inbox note whose two ideas
+		// chain into it.
+		write("Recursos/Física/fuerzas.md", "# Fuerza\n# Aceleracion\n");
+		write("Bandeja/nueva.md", "# Empuje\n# Inercia2\n");
+		write("Notas/nueva.md", "# Otra cosa\n");
+		vault.reconfigureVault();
+		await vault.whenVaultIdle();
+		const id = (name: string) => stores.graphStore.readNodes().find((n) => n.name === name)!.id;
+		stores.graphStore.appendChain({ id: "c_inbox1", premises: [id("Empuje")], conclusion: id("Fuerza"), createdAt: new Date().toISOString(), provenance: [{ chatId: "x", messageId: "" }] });
+		stores.graphStore.appendChain({ id: "c_inbox2", premises: [id("Inercia2")], conclusion: id("Aceleracion"), createdAt: new Date().toISOString(), provenance: [{ chatId: "x", messageId: "" }] });
+
+		const notices: unknown[] = [];
+		const unsubscribe = subscribe((event) => {
+			if (event.type === "vault-notice") notices.push(event);
+		});
+		try {
+			vault.exportVaultNow();
+			vault.exportVaultNow();
+			assert.deepEqual(notices, [{ type: "vault-notice", kind: "suggestions", count: 1 }], "announced once");
+		} finally {
+			unsubscribe();
+		}
+		const overview = vault.inboxOverview();
+		assert.equal(overview.inbox, "Bandeja");
+		const item = overview.items.find((i) => i.path === "Bandeja/nueva.md")!;
+		assert.equal(item.status, "suggested");
+		assert.deepEqual(item.suggestion, { folder: "Recursos/Física", count: 2, total: 2 });
+		assert.ok(overview.destinations.includes("Notas") && overview.destinations.includes("Recursos/Física"));
+		assert.ok(!overview.destinations.some((f) => f.startsWith("Bandeja") || f.startsWith(OUT)), "never the inbox or the output folder");
+
+		assert.deepEqual(vault.dismissInboxSuggestion("Bandeja/nueva.md"), { ok: true });
+		const dismissed = vault.inboxOverview().items.find((i) => i.path === "Bandeja/nueva.md")!;
+		assert.equal(dismissed.status, "none");
+		assert.deepEqual(dismissed.alternatives[0], { folder: "Recursos/Física", count: 2 }, "still offered under «Elegir otra»");
+
+		assert.equal(vault.moveInboxNote("Bandeja/nueva.md", "Diario").ok, false, "not a read folder");
+		assert.equal(vault.moveInboxNote("Bandeja/nueva.md", OUT).ok, false, "not the output folder");
+		imports.length = 0;
+		const moved = vault.moveInboxNote("Bandeja/nueva.md", "Notas");
+		assert.deepEqual(moved, { ok: true, path: "Notas/nueva (2).md" }, "a name clash gets (2)");
+		vault.reconfigureVault();
+		await vault.whenVaultIdle();
+		assert.equal(imports.length, 0, "moving from the inbox costs nothing");
+		assert.ok(nodeNames().includes("Empuje"));
+		assert.deepEqual(vault.inboxOverview().items, []);
 	});
 });

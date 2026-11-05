@@ -7,11 +7,13 @@
  */
 import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
+import { InboxCard } from "@/components/inbox-card";
 
 export function KnowledgePage({ rendering = true }: { rendering?: boolean }) {
 	return (
 		<div className="relative h-full" data-testid="knowledge-page">
 			<div className="absolute inset-0">{rendering ? <GraphView /> : <MinimalHome />}</div>
+			<InboxCard />
 		</div>
 	);
 }

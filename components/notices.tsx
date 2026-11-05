@@ -57,9 +57,11 @@ export const MAX_NOTICES = 50;
 /** Extractions ending within this window coalesce into one notice. */
 export const EXTRACTION_COALESCE_MS = 4000;
 
-/** Newest first, capped. Pure. */
+/** Newest first, capped. A notice whose id is already listed REPLACES the
+ *  old one (the coalesced inbox-suggestions notice keeps one id). Pure. */
 export function addNotices(list: readonly Notice[], incoming: readonly Notice[]): Notice[] {
-	return [...incoming, ...list].slice(0, MAX_NOTICES);
+	const ids = new Set(incoming.map((n) => n.id));
+	return [...incoming, ...list.filter((n) => !ids.has(n.id))].slice(0, MAX_NOTICES);
 }
 
 /** The last release version announced in the bell (this device). */
@@ -96,9 +98,24 @@ export function reviewNotice(event: { kind: "digest" | "evening"; count: number 
 
 /** The bell notice for a knowledge-folder document event. Pure. */
 export function vaultNotice(
-	event: { kind: "pending"; path: string; runs: number; pages?: number } | { kind: "ocr-missing"; path: string; count: number },
+	event:
+		| { kind: "pending"; path: string; runs: number; pages?: number }
+		| { kind: "ocr-missing"; path: string; count: number }
+		| { kind: "suggestions"; count: number },
 	now = new Date(),
 ): Notice {
+	if (event.kind === "suggestions") {
+		// One coalesced notice (fixed id): a newer count replaces it.
+		return {
+			id: "vault-suggestions",
+			at: now.toISOString(),
+			message: "notices.vaultSuggestions",
+			vars: { n: event.count },
+			href: "/knowledge",
+			tone: "ok",
+			read: false,
+		};
+	}
 	const file = event.path.split("/").pop() ?? event.path;
 	if (event.kind === "ocr-missing") {
 		return {

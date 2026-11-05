@@ -239,6 +239,8 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			outputFolder: record?.obsidian?.outputFolder ?? FACTORY_SETTINGS.obsidian.outputFolder,
 			obsidianFormat: resolveObsidianFormat(record?.obsidian),
 			confirmAboveRuns: record?.obsidian?.confirmAboveRuns ?? FACTORY_SETTINGS.obsidian.confirmAboveRuns,
+			suggestFolders: record?.obsidian?.suggestFolders ?? FACTORY_SETTINGS.obsidian.suggestFolders,
+			inboxFolder: record?.obsidian?.inboxFolder ?? FACTORY_SETTINGS.obsidian.inboxFolder,
 		},
 		review: { ...FACTORY_SETTINGS.review, ...record?.review },
 		desktop: { ...FACTORY_SETTINGS.desktop, ...record?.desktop },

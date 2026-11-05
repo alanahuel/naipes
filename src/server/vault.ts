@@ -52,6 +52,7 @@ import {
 	type FrontmatterFields,
 } from "../core/vault-notes.ts";
 import { estimateRuns, firstPageOf, type DocSegment } from "../core/doc-chunks.ts";
+import { SUGGEST_ALTERNATIVES, folderOf, rankFolders } from "../core/inbox.ts";
 import { documentText, isDocumentFile, isNoteFile, joinedText } from "./doc-text.ts";
 import type { ChatRecord, GraphNode } from "../core/contracts.ts";
 import { piEngineForSpec } from "../agent/models.ts";
@@ -99,6 +100,11 @@ export interface VaultState {
 	/** Path → content hash the user said «Leer» for (bypasses the threshold
 	 *  for exactly that content). */
 	confirmed: Record<string, string>;
+	/** Inbox suggestions the user dismissed (phase 3): path → the content
+	 *  and folder dismissed; hidden while both stay the same. */
+	dismissed: Record<string, { hash: string; folder: string }>;
+	/** Inbox suggestions already announced in the bell: path → "hash|folder". */
+	suggested: Record<string, string>;
 }
 
 export interface PendingDocument {
@@ -111,7 +117,7 @@ export interface PendingDocument {
 }
 
 function emptyState(root: string): VaultState {
-	return { version: 1, root, notes: {}, chats: {}, summaries: {}, concepts: {}, pending: {}, confirmed: {} };
+	return { version: 1, root, notes: {}, chats: {}, summaries: {}, concepts: {}, pending: {}, confirmed: {}, dismissed: {}, suggested: {} };
 }
 
 function readState(root: string): VaultState {
@@ -144,6 +150,9 @@ interface VaultConfig {
 	outputFolder: string;
 	/** Link style of every note the app writes (see the header). */
 	obsidianFormat: boolean;
+	/** The inbox subfolder while «Sugerir dónde guardar» is on (phase 3);
+	 *  null when off. Always read. */
+	inboxFolder: string | null;
 }
 
 interface VaultRuntime {
@@ -195,12 +204,12 @@ function currentConfig(): VaultConfig | null {
 		return null;
 	}
 	const { outputFolder } = obsidian;
-	return {
-		root,
-		folders: obsidian.folders.filter((f) => !isInOutputFolder(f, outputFolder)),
-		outputFolder,
-		obsidianFormat: obsidian.obsidianFormat,
-	};
+	const inbox = obsidian.suggestFolders ? obsidian.inboxFolder : null;
+	const inboxFolder = inbox && !isInOutputFolder(inbox, outputFolder) && !isInOutputFolder(outputFolder, inbox) ? inbox : null;
+	const folders = obsidian.folders.filter((f) => !isInOutputFolder(f, outputFolder));
+	// The inbox is always read, unless a selected folder already covers it.
+	if (inboxFolder && !folders.some((f) => isInOutputFolder(inboxFolder, f))) folders.push(inboxFolder);
+	return { root, folders, outputFolder, obsidianFormat: obsidian.obsidianFormat, inboxFolder };
 }
 
 function state(): VaultState | null {
@@ -314,7 +323,15 @@ async function processNote(rel: string): Promise<void> {
 	}
 
 	if (bytes === null) {
-		// Deleted (or moved away): its contribution leaves the graph.
+		// Moved (phase 3): the same content at a new, untracked path keeps
+		// its ideas — re-key instead of removing anything.
+		const known = s.notes[rel]?.hash ?? s.pending[rel]?.hash;
+		const movedTo = known ? findUntrackedCopy(config, s, known) : null;
+		if (movedTo) {
+			rekeyNote(s, rel, movedTo);
+			return;
+		}
+		// Deleted: its contribution leaves the graph.
 		const hadPending = s.pending[rel] !== undefined || s.confirmed[rel] !== undefined;
 		delete s.pending[rel];
 		delete s.confirmed[rel];
@@ -330,6 +347,19 @@ async function processNote(rel: string): Promise<void> {
 
 	const hash = hashOf(bytes);
 	if (s.notes[rel]?.hash === hash) return; // unchanged — costs nothing
+	if (s.pending[rel]?.hash === hash && s.confirmed[rel] !== hash) return; // still waiting for «Leer»
+
+	// Moved here (phase 3): a known note with this exact content whose old
+	// path is gone — re-key it, no extraction.
+	if (!s.notes[rel] && !s.pending[rel]) {
+		const from = [...Object.entries(s.notes), ...Object.entries(s.pending)].find(
+			([other, entry]) => other !== rel && entry.hash === hash && !fs.existsSync(path.join(config.root, other)),
+		)?.[0];
+		if (from) {
+			rekeyNote(s, from, rel);
+			return;
+		}
+	}
 
 	// Documents are converted (cached by hash) and gated by the
 	// confirmation threshold BEFORE anything leaves the graph: a big file
@@ -365,6 +395,10 @@ async function processNote(rel: string): Promise<void> {
 	// extraction succeeds (owner, 2026-11-02): a failed run must never
 	// leave the graph without the old import.
 	if (stores.graphStore.readSources().some((source) => source.id === sourceId)) deleteSourceTraces(sourceId);
+	// A note moved earlier keeps its original source id (phase 3): that is
+	// the contribution to replace.
+	const previousSource = s.notes[rel]?.sourceId;
+	if (previousSource && previousSource !== sourceId) deleteSourceTraces(previousSource);
 	const base = rel.split("/").pop();
 	const legacyIds = s.notes[rel]
 		? []
@@ -388,6 +422,170 @@ async function processNote(rel: string): Promise<void> {
 	delete s.confirmed[rel];
 	saveState();
 	scheduleConceptExport();
+}
+
+/** A watched file, not tracked yet, whose bytes hash to `hash` (the
+ *  destination of a move). Only untracked files are hashed. */
+function findUntrackedCopy(config: VaultConfig, s: VaultState, hash: string): string | null {
+	const present: string[] = [];
+	for (const folder of config.folders) scanFolder(config.root, folder, config.outputFolder, present);
+	for (const candidate of new Set(present)) {
+		if (s.notes[candidate] || s.pending[candidate]) continue;
+		try {
+			if (hashOf(fs.readFileSync(path.join(config.root, candidate))) === hash) return candidate;
+		} catch {
+			// vanished meanwhile
+		}
+	}
+	return null;
+}
+
+/** Move a note's bookkeeping from `from` to `to` (phase 3): same source id,
+ *  same ideas; the source record's file path (and so its area) follows. */
+function rekeyNote(s: VaultState, from: string, to: string): void {
+	for (const table of [s.notes, s.pending, s.confirmed, s.dismissed] as Array<Record<string, unknown>>) {
+		if (table[from] !== undefined) {
+			table[to] = table[from];
+			delete table[from];
+		}
+	}
+	delete s.suggested[from];
+	const sourceId = s.notes[to]?.sourceId;
+	const source = sourceId ? stores.graphStore.readSources().find((src) => src.id === sourceId) : undefined;
+	if (source) stores.graphStore.upsertSource({ ...source, filePath: to });
+	saveState();
+	console.info(`[vault] moved ${from} → ${to} (no extraction)`);
+	scheduleConceptExport();
+}
+
+// ─── the inbox (phase 3) ──────────────────────────────────────────────────────
+
+const within = (rel: string, folder: string) => rel === folder || rel.startsWith(`${folder}/`);
+
+/** Folders a note may move to: inside what is read, never the inbox or the
+ *  output folder (and they exist). */
+function destinationFolders(config: VaultConfig): string[] {
+	const out = new Set<string>();
+	const walk = (rel: string) => {
+		if (config.inboxFolder && within(rel, config.inboxFolder)) return;
+		if (isInOutputFolder(rel, config.outputFolder)) return;
+		out.add(rel);
+		let entries: fs.Dirent[];
+		try {
+			entries = fs.readdirSync(path.join(config.root, rel), { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) if (entry.isDirectory() && !entry.name.startsWith(".")) walk(`${rel}/${entry.name}`);
+	};
+	for (const folder of config.folders) walk(folder);
+	return [...out].sort((a, b) => a.localeCompare(b));
+}
+
+export interface InboxItem {
+	path: string;
+	status: "suggested" | "none" | "pending" | "extracting" | "waiting";
+	suggestion?: { folder: string; count: number; total: number };
+	alternatives: Array<{ folder: string; count: number }>;
+}
+
+export interface InboxOverview {
+	enabled: boolean;
+	inbox: string | null;
+	items: InboxItem[];
+	/** Every folder «Elegir otra…» may offer. */
+	destinations: string[];
+}
+
+function inboxFiles(config: VaultConfig): string[] {
+	if (!config.inboxFolder) return [];
+	const files: string[] = [];
+	scanFolder(config.root, config.inboxFolder, config.outputFolder, files);
+	return files.sort((a, b) => a.localeCompare(b));
+}
+
+/** The inbox with each note's suggestion (graph-only, core/inbox.ts). */
+export function inboxOverview(): InboxOverview {
+	const rt = runtime();
+	const config = rt.config;
+	const s = state();
+	if (!config || !s || !config.inboxFolder) return { enabled: false, inbox: null, items: [], destinations: [] };
+	const destinations = destinationFolders(config);
+	const destinationSet = new Set(destinations);
+	const graph = getGraph(stores.graphStore);
+	const sourceFolder = new Map<string, string>();
+	for (const [rel, entry] of Object.entries(s.notes)) {
+		if (!within(rel, config.inboxFolder)) sourceFolder.set(entry.sourceId, folderOf(rel));
+	}
+	const items = inboxFiles(config).map((rel): InboxItem => {
+		if (s.pending[rel]) return { path: rel, status: "pending", alternatives: [] };
+		if (rt.running.has(rel) || rt.queue.includes(rel) || rt.quiet.has(rel)) return { path: rel, status: "extracting", alternatives: [] };
+		const entry = s.notes[rel];
+		if (!entry) return { path: rel, status: "waiting", alternatives: [] };
+		const ranking = rankFolders(entry.sourceId, graph, sourceFolder, (folder) => destinationSet.has(folder));
+		const dismissed = s.dismissed[rel];
+		const hidden = ranking.suggestion && dismissed?.hash === entry.hash && dismissed.folder === ranking.suggestion.folder;
+		if (!ranking.suggestion || hidden) {
+			const alternatives = hidden ? [ranking.suggestion!, ...ranking.alternatives].slice(0, SUGGEST_ALTERNATIVES) : ranking.alternatives;
+			return { path: rel, status: "none", alternatives };
+		}
+		return {
+			path: rel,
+			status: "suggested",
+			suggestion: { ...ranking.suggestion, total: ranking.total },
+			alternatives: ranking.alternatives,
+		};
+	});
+	return { enabled: true, inbox: config.inboxFolder, items, destinations };
+}
+
+export type InboxActionResult = { ok: true; path?: string } | { ok: false; status: number; error: string };
+
+/** «Mover»: the inbox note goes to `folder` (a destination); a name clash
+ *  gets " (2)", " (3)"…; the bookkeeping follows at once (no extraction). */
+export function moveInboxNote(rel: string, folder: string): InboxActionResult {
+	const config = runtime().config;
+	const s = state();
+	if (!config || !s || !config.inboxFolder) return { ok: false, status: 409, error: "Folder suggestions are off." };
+	if (!within(rel, config.inboxFolder) || !inboxFiles(config).includes(rel)) return { ok: false, status: 404, error: "That file is not in the inbox." };
+	if (!destinationFolders(config).includes(folder)) return { ok: false, status: 400, error: "Notes can only move to a folder that is read (not the inbox or the output folder)." };
+	const name = rel.split("/").pop()!;
+	const dot = name.lastIndexOf(".");
+	const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+	let to = `${folder}/${name}`;
+	for (let n = 2; fs.existsSync(path.join(config.root, to)); n++) to = `${folder}/${stem} (${n})${ext}`;
+	fs.renameSync(path.join(config.root, rel), path.join(config.root, to));
+	if (s.notes[rel] || s.pending[rel]) rekeyNote(s, rel, to);
+	return { ok: true, path: to };
+}
+
+/** «Descartar»: hide the current suggestion until the note or the winner changes. */
+export function dismissInboxSuggestion(rel: string): InboxActionResult {
+	const s = state();
+	const item = inboxOverview().items.find((i) => i.path === rel);
+	if (!s || !item) return { ok: false, status: 404, error: "That file is not in the inbox." };
+	if (!item.suggestion || !s.notes[rel]) return { ok: false, status: 409, error: "There is no suggestion to dismiss." };
+	s.dismissed[rel] = { hash: s.notes[rel].hash, folder: item.suggestion.folder };
+	saveState();
+	return { ok: true };
+}
+
+/** Announce NEW inbox suggestions in the bell — one coalesced count. */
+function notifySuggestions(): void {
+	const s = state();
+	if (!s || !runtime().config?.inboxFolder) return;
+	const visible = inboxOverview().items.filter((i) => i.status === "suggested");
+	let fresh = false;
+	const next: Record<string, string> = {};
+	for (const item of visible) {
+		const key = `${s.notes[item.path]?.hash ?? ""}|${item.suggestion!.folder}`;
+		next[item.path] = key;
+		if (s.suggested[item.path] !== key) fresh = true;
+	}
+	const changed = JSON.stringify(next) !== JSON.stringify(s.suggested);
+	s.suggested = next;
+	if (changed) saveState();
+	if (fresh) emit("vault-notice", { kind: "suggestions", count: visible.length });
 }
 
 /** Documents waiting for «Leer» (Settings list; deferred ones included). */
@@ -688,6 +886,8 @@ function exportConcepts(): void {
 
 	// Session notes list their concepts — refresh them against the new paths.
 	for (const chatId of Object.keys(s.chats)) exportChat(chatId);
+	// The graph changed: inbox suggestions may have appeared (phase 3).
+	notifySuggestions();
 }
 
 function scheduleChatExport(chatId: string): void {
@@ -770,6 +970,8 @@ export function reconfigureVault(): void {
 	rt.config = currentConfig();
 	rt.lastError = null;
 	if (!rt.config) return;
+	// «Sugerir dónde guardar» on: the inbox exists (phase 3).
+	if (rt.config.inboxFolder) fs.mkdirSync(path.join(rt.config.root, rt.config.inboxFolder), { recursive: true });
 	startWatcher();
 	guard("reconcile vault", reconcileVault);
 	rt.lastConceptRevision = -1;
@@ -960,6 +1162,12 @@ export function stopVaultSync(): void {
 	rt.conceptTimer = null;
 	rt.chatsTimer = null;
 	rt.config = null;
+}
+
+/** Process one path right now, bypassing the queue (tests: the order of a
+ *  move's two events). */
+export async function syncPathNow(rel: string): Promise<void> {
+	await processNote(rel);
 }
 
 /** Run the concept + session export now (tests; the scheduled path debounces). */

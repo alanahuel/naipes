@@ -295,6 +295,12 @@ export interface ObsidianSettings {
 	 *  user's «Leer» before any extraction (phase 2, owner 2026-11-04).
 	 *  Factory 6 ≈ 24k tokens ≈ 50 PDF pages. Integer ≥ 1. */
 	confirmAboveRuns?: number;
+	/** «Sugerir dónde guardar» (phase 3, owner 2026-11-05): notes dropped in
+	 *  `inboxFolder` get a folder suggestion from the graph. OFF by default;
+	 *  switching it on creates the inbox, which is then always read. */
+	suggestFolders?: boolean;
+	/** The inbox subfolder (folder-relative). Factory "Bandeja". */
+	inboxFolder?: string;
 }
 
 /** The smallest confirmation threshold the settings accept. */
@@ -503,7 +509,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 	},
 	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096 },
 	compaction: { thresholdTokens: 150_000 },
-	obsidian: { enabled: false, vaultPath: "", folders: [], outputFolder: DEFAULT_VAULT_OUTPUT_FOLDER, obsidianFormat: false, confirmAboveRuns: 6 },
+	obsidian: { enabled: false, vaultPath: "", folders: [], outputFolder: DEFAULT_VAULT_OUTPUT_FOLDER, obsidianFormat: false, confirmAboveRuns: 6, suggestFolders: false, inboxFolder: "Bandeja" },
 	review: { targetRetention: 0.9, digestTime: "09:00", eveningTime: "19:00", newPerDay: 15, batchSize: 10, confidenceThreshold: 70 },
 	desktop: { tray: true, autostart: true },
 };
@@ -726,6 +732,10 @@ function sanitizeObsidian(raw: Record<string, unknown>): ObsidianSettings {
 	if (typeof raw.confirmAboveRuns === "number" && Number.isFinite(raw.confirmAboveRuns)) {
 		out.confirmAboveRuns = Math.max(CONFIRM_ABOVE_RUNS_MIN, Math.round(raw.confirmAboveRuns));
 	}
+	const suggestFolders = boolOrDrop(raw.suggestFolders);
+	if (suggestFolders !== undefined) out.suggestFolders = suggestFolders;
+	const inboxFolder = normalizeVaultFolder(raw.inboxFolder);
+	if (inboxFolder !== null) out.inboxFolder = inboxFolder;
 	return out;
 }
 

@@ -60,7 +60,10 @@ export interface ServerEvents {
 	 *  `count` scanned pages were skipped because no tesseract is installed. */
 	"vault-notice":
 		| { kind: "pending"; path: string; runs: number; pages?: number; chatId?: undefined }
-		| { kind: "ocr-missing"; path: string; count: number; chatId?: undefined };
+		| { kind: "ocr-missing"; path: string; count: number; chatId?: undefined }
+		/** Inbox notes with a folder suggestion (phase 3): `count` = all the
+		 *  suggestions now visible; sent when a new one appears. */
+		| { kind: "suggestions"; count: number; chatId?: undefined };
 }
 
 export type ServerEventType = keyof ServerEvents;

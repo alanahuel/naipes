@@ -434,6 +434,20 @@ export function parseObsidianSettingsBody(body: unknown): SettingsBodyResult<Obs
 		}
 		settings.confirmAboveRuns = raw.confirmAboveRuns as number;
 	}
+	if (raw.suggestFolders !== undefined) {
+		if (typeof raw.suggestFolders !== "boolean") return { ok: false, error: "suggestFolders must be a boolean" };
+		settings.suggestFolders = raw.suggestFolders;
+	}
+	if (raw.inboxFolder !== undefined) {
+		const inboxFolder = normalizeVaultFolder(raw.inboxFolder);
+		if (inboxFolder === null) return { ok: false, error: `invalid inbox folder: ${JSON.stringify(raw.inboxFolder)}` };
+		settings.inboxFolder = inboxFolder;
+	}
+	const output = settings.outputFolder;
+	const inbox = settings.inboxFolder;
+	if (output !== undefined && inbox !== undefined && (inbox === output || inbox.startsWith(`${output}/`) || output.startsWith(`${inbox}/`))) {
+		return { ok: false, error: "the inbox folder and the output folder must not overlap" };
+	}
 	return { ok: true, settings };
 }
 

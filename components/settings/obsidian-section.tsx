@@ -64,6 +64,8 @@ export function ObsidianSection({
 	const vaultPath = obsidian?.vaultPath ?? "";
 	const obsidianFormat = resolveObsidianFormat(obsidian);
 	const confirmAboveRuns = obsidian?.confirmAboveRuns ?? FACTORY_SETTINGS.obsidian.confirmAboveRuns;
+	const suggestFolders = obsidian?.suggestFolders ?? FACTORY_SETTINGS.obsidian.suggestFolders;
+	const inboxFolder = obsidian?.inboxFolder ?? FACTORY_SETTINGS.obsidian.inboxFolder;
 
 	const refresh = useCallback(async () => {
 		try {
@@ -186,6 +188,23 @@ export function ObsidianSection({
 					}}
 				/>
 			</SettingsRow>
+			<SettingsRow label={t("settings.obsidian.suggest")} hint={t("settings.obsidian.suggestHint", { folder: inboxFolder })} testid="obsidian-row-suggest">
+				<Toggle checked={suggestFolders} label={t("settings.obsidian.suggestToggle")} testid="toggle-suggest-folders" onChange={(on) => void write({ ...obsidian, suggestFolders: on })} />
+			</SettingsRow>
+			{suggestFolders && (
+				<SettingsRow label={t("settings.obsidian.inbox")} hint={t("settings.obsidian.inboxHint")} testid="obsidian-row-inbox">
+					<CommitInput
+						value={obsidian?.inboxFolder ?? ""}
+						placeholder={FACTORY_SETTINGS.obsidian.inboxFolder}
+						ariaLabel={t("settings.obsidian.inbox")}
+						testid="input-vault-inbox"
+						onCommit={(v) => {
+							const next = v.trim();
+							if (next) void write({ ...obsidian, inboxFolder: next });
+						}}
+					/>
+				</SettingsRow>
+			)}
 			{status && enabled && (
 				<p className="text-xs text-muted-foreground" data-testid="obsidian-status">
 					{status.watching ? t("settings.obsidian.watching") : t("settings.obsidian.notWatching")} · {t("settings.obsidian.synced", { n: status.synced })}
