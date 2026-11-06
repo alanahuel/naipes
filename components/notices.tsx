@@ -12,6 +12,8 @@
  *     (a vault sync) coalesce into one notice;
  *   - spaced review: the daily digest or the evening reminder went out
  *     (server event "review-notice"; opens Repaso);
+ *   - an exam: below its target, 7 days / 1 day before, or the day's plan
+ *     when Repaso had nothing due (server event "exam-notice"; opens it);
  *   - a knowledge-folder document is waiting for «Leer» / «Ahora no»
  *     (server event "vault-notice", kind pending — the notice carries the
  *     two buttons), or had scanned pages skipped for lack of tesseract;
@@ -92,6 +94,31 @@ export function reviewNotice(event: { kind: "digest" | "evening"; count: number 
 		vars: { n: event.count },
 		href: "/review",
 		tone: "ok",
+		read: false,
+	};
+}
+
+const EXAM_NOTICE_KEY: Record<"below" | "week" | "eve" | "study" | "pending", MessageKey> = {
+	below: "notices.examBelow",
+	week: "notices.examWeek",
+	eve: "notices.examEve",
+	study: "notices.examStudy",
+	pending: "notices.examPending",
+};
+
+/** The bell notice for an exam notice («Exámenes», 2026-11-06): opens the
+ *  exam. One per exam, kind and day. Pure. */
+export function examNotice(
+	event: { examId: string; exam: string; kind: "below" | "week" | "eve" | "study" | "pending"; minutes?: number },
+	now = new Date(),
+): Notice {
+	return {
+		id: `exam:${event.examId}:${event.kind}:${now.toISOString().slice(0, 10)}`,
+		at: now.toISOString(),
+		message: EXAM_NOTICE_KEY[event.kind],
+		vars: { exam: event.exam, min: event.minutes ?? 0 },
+		href: `/exams/${event.examId}`,
+		tone: event.kind === "below" ? "warn" : "ok",
 		read: false,
 	};
 }
@@ -304,6 +331,11 @@ export function NoticesProvider({ children }: { children: React.ReactNode }) {
 	// Spaced review: the digest / evening reminder went out.
 	useServerEvent("review-notice", (event) => {
 		push([reviewNotice({ kind: event.kind, count: event.count })]);
+	});
+
+	// An exam notice (below target, countdowns, the exam-only digest).
+	useServerEvent("exam-notice", (event) => {
+		push([examNotice(event)]);
 	});
 
 	// A knowledge-folder document needs a decision (or lost scanned pages).

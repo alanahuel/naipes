@@ -48,9 +48,10 @@ describe("settings pages (stage 3: the dialog became pages)", () => {
 		assert.equal(settingsHref("keys", "OPENAI_API_KEY"), "/settings/ai?row=OPENAI_API_KEY");
 	});
 
-	it("the profile menu lists the pages in order: Tu IA, Conexiones, Repaso, Apariencia, Atajos, Avanzado", () => {
-		// Repaso joined after Conexiones (owner, 2026-11-04).
-		assert.deepEqual(SETTINGS_PAGES.map((p) => p.id), ["ai", "connections", "review", "appearance", "shortcuts", "advanced"]);
+	it("the profile menu lists the pages in order: Tu IA, Conexiones, Repaso, Exámenes, Apariencia, Atajos, Avanzado", () => {
+		// Repaso joined after Conexiones (owner, 2026-11-04); Exámenes after
+		// Repaso (2026-11-06).
+		assert.deepEqual(SETTINGS_PAGES.map((p) => p.id), ["ai", "connections", "review", "exams", "appearance", "shortcuts", "advanced"]);
 		for (const p of SETTINGS_PAGES) assert.ok(isSettingsPage(p.id), p.id);
 		assert.ok(isSettingsPage("language") && !isSettingsPage("general"));
 	});

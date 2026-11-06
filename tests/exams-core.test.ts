@@ -305,6 +305,14 @@ describe("work, budget and today's blocks", () => {
 		assert.equal(tight.shortfall.e, 30);
 		assert.deepEqual(infeasibility({ shortfall: 30, daysLeft: 2, allocated: 20, presetWork: { pass: 15, merit: 40, distinction: 90 } }), { shortfall: 30, extraPerDay: 15, bestPreset: "pass" });
 	});
+	it("planBudget spreads review work over the study days instead of front-loading it", () => {
+		const plan = planBudget({ today: "2026-11-02", weeklyMinutes: [60, 60, 60, 60, 60, 60, 60], exams: [{ examId: "e", examDate: "2026-11-12", work: 100, spread: 50 }] });
+		const days = plan.allocations.e!;
+		assert.equal(days.reduce((s, x) => s + x, 0), 100);
+		assert.ok(days.every((x) => x > 0), "every study day before the exam keeps a review share");
+		assert.ok(Math.abs(days[9]! - 5) < 1e-9, "the last day carries only its review share");
+		assert.equal(plan.shortfall.e, 0);
+	});
 	it("today's blocks: review, then practice, then teach one point", () => {
 		const blocks = todayBlocks({ status, standard: { mode: "discrimination" }, minutes: 60, durations, priorityBlocks: [] });
 		assert.deepEqual(blocks.map((b) => b.kind), ["review", "practice", "teach"]);

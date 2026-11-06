@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,8 @@ import { joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { cn } from "@/lib/utils";
 import { useT } from "@/components/i18n";
+import { ConfidenceSlider } from "@/components/confidence-rail";
+import { CONFIDENCE_STOPS, DEFAULT_CONFIDENCE_INDEX } from "@/src/core";
 
 /**
  * The practice dock (practice sessions, owner design 2026-10-04): an
@@ -38,8 +40,9 @@ export interface PracticeDockProps {
 	/** Collapse state, owned by the DockOverlay. */
 	expanded: boolean;
 	onExpand: () => void;
-	/** text — POST {type:"thinking"} (one lane; the register is read from the text). */
-	onSubmit: (text: string) => void;
+	/** text — POST {type:"thinking"} (one lane; the register is read from
+	 *  the text) with the learner's stated confidence (owner, 2026-11-05). */
+	onSubmit: (text: string, confidence: number) => void;
 	/** Escape in the thinking field stops dictation (threaded from the page). */
 	onEscape?: () => void;
 	/** Compaction is running for this chat (owner round 14): the thinking
@@ -52,6 +55,16 @@ export interface PracticeDockProps {
 export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmit, onEscape, compactionRunning = false }: PracticeDockProps) {
 	const t = useT();
 	const [thinking, setThinking] = useState("");
+	// The stated confidence (owner, 2026-11-05 — «Exámenes»): the quiz
+	// dock's default stop, kept across one problem's submissions and reset
+	// for the next problem.
+	const defaultConfidence = CONFIDENCE_STOPS[DEFAULT_CONFIDENCE_INDEX]!;
+	const [confidence, setConfidence] = useState(defaultConfidence);
+	const confidenceRef = useRef(defaultConfidence);
+	useEffect(() => {
+		confidenceRef.current = defaultConfidence;
+		setConfidence(defaultConfidence);
+	}, [problemCallId, defaultConfidence]);
 	// Ref MIRRORS the field ("nothing gets lost", the question-dock
 	// discipline): a submit resuming after `await finishDictation()` reads
 	// the tail, never a stale closure.
@@ -75,7 +88,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 		if (text.length === 0) return;
 		thinkingRef.current = "";
 		setThinking("");
-		onSubmit(text);
+		onSubmit(text, confidenceRef.current);
 	};
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): dictation
@@ -112,6 +125,21 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 				<div className="np-prose text-[15px]">
 					<ToolContentResponse>{input.statement}</ToolContentResponse>
 				</div>
+			</div>
+
+			{/* Confidence (owner, 2026-11-05): how sure the learner is that
+			    this submission is right — the review and exam models read it. */}
+			<div className="border-t border-border/60 px-4 py-2.5">
+				<ConfidenceSlider
+					value={confidence}
+					onChange={(stop) => {
+						confidenceRef.current = stop;
+						setConfidence(stop);
+					}}
+					label={t("session.question.confidence")}
+					ariaLabel={t("session.question.confidenceAria")}
+					valueText={t("session.question.confidenceValue", { n: confidence })}
+				/>
 			</div>
 
 			{/* The learner's half: Enter SENDS (owner round 2, 2026-10-05);

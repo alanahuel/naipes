@@ -54,7 +54,7 @@ import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog"
 import Link from "next/link";
 import { ArrowRightIcon, ChevronRightIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
 import { StateLabel } from "@/components/sessions";
-import type { PlanBlockData } from "@/src/core";
+import type { ExamSessionKind, PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
@@ -72,6 +72,7 @@ import {
 } from "@/components/compaction-divider";
 import { CoverageRing } from "@/components/extraction-coverage";
 import { ReviewBatchActions } from "@/components/review";
+import { ExamBatchActions } from "@/components/exams";
 import { Button } from "@/components/ui/button";
 import {
 	derivePlanStatuses,
@@ -225,6 +226,7 @@ export function Chat({
 	initialConfigured = false,
 	kind = "teach",
 	review = false,
+	exam,
 }: {
 	chatId: string;
 	title: string;
@@ -239,6 +241,9 @@ export function Chat({
 	 *  idea had its problem, the composer offers «Siguiente tanda» /
 	 *  «Parar» instead of the next problem. */
 	review?: boolean;
+	/** An exam session («Exámenes», 2026-11-06): its batch end returns to
+	 *  the exam and opens the next session of the same block. */
+	exam?: { id: string; kind: ExamSessionKind };
 	initialPrompt?: string;
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
@@ -504,10 +509,10 @@ export function Chat({
 	// the dock stays mounted (the problem is still active until the agent
 	// concludes).
 	const submitThinking = useCallback(
-		(text: string) => {
+		(text: string, confidence?: number) => {
 			const problem = activeProblemRef.current;
 			if (!problem) return;
-			void send({ type: "thinking", problemCallId: problem.toolCallId, text });
+			void send({ type: "thinking", problemCallId: problem.toolCallId, text, ...(typeof confidence === "number" ? { confidence } : {}) });
 		},
 		[send],
 	);
@@ -777,7 +782,8 @@ export function Chat({
 	 * session, once every picked idea had a concluded problem, the pause
 	 * stops offering the next problem (the batch is the whole job — no new
 	 * material) and offers the next batch / stop instead. */
-	const batchDone = review && nextReady && reviewBatchProgress(nativeMessages).done;
+	const examBatch = exam !== undefined && exam.kind !== "teach";
+	const batchDone = (review || examBatch) && nextReady && reviewBatchProgress(nativeMessages).done;
 	const sendNext = useCallback(() => {
 		if (!nextReady || batchDone) return;
 		void send({ type: "next" });
@@ -1772,7 +1778,7 @@ export function Chat({
 							nextProblem={nextReady && !batchDone}
 							onNext={sendNext}
 							placeholder={nextReady && !batchDone ? t("session.composer.nextPlaceholder") : undefined}
-							endActions={batchDone ? <ReviewBatchActions /> : undefined}
+							endActions={batchDone ? examBatch ? <ExamBatchActions examId={exam!.id} kind={exam!.kind} /> : <ReviewBatchActions /> : undefined}
 						/>
 					}
 					onSubmitAnswer={(output) => {
@@ -1980,7 +1986,7 @@ function DockOverlay({
 	 *  question (the composer is replaced); null in teaching sessions. */
 	practice: { toolCallId: string; input: unknown } | null;
 	/** (commit, text) — the practice dock's two submit lanes. */
-	onSubmitThinking: (text: string) => void;
+	onSubmitThinking: (text: string, confidence?: number) => void;
 	/** Teach-phase pending question: arrives collapsed behind the reveal button (W5). */
 	requiresReveal: boolean;
 	/** The reading-thinking draft (owner 2026-10-03) — owned by ChatView so

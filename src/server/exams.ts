@@ -37,6 +37,8 @@ import {
 	type ExamStatusModel,
 	type Infeasibility,
 	type WorkBreakdown,
+	type ExamSummaryView,
+	type ExamDetailView,
 } from "../core/exams.ts";
 import { formatMessage, type Locale, type MessageVars } from "../core/i18n.ts";
 import { MESSAGES, type MessageKey } from "../core/messages/index.ts";
@@ -182,7 +184,7 @@ export function getExamsState(now = Date.now(), whatIf?: ExamsWhatIf): ExamsStat
 	const plan = planBudget({
 		today,
 		weeklyMinutes: whatIf?.weeklyMinutes ?? settings.weeklyMinutes,
-		exams: computed.filter((c) => c.live).map((c) => ({ examId: c.record.id, examDate: c.record.examDate, work: c.work!.total })),
+		exams: computed.filter((c) => c.live).map((c) => ({ examId: c.record.id, examDate: c.record.examDate, work: c.work!.total, spread: c.work!.review })),
 	});
 	for (const c of computed) {
 		if (!c.live) continue;
@@ -196,37 +198,6 @@ export function getExamsState(now = Date.now(), whatIf?: ExamsWhatIf): ExamsStat
 }
 
 // ─── API views ──────────────────────────────────────────────────────────────
-
-export interface ExamSummaryView {
-	id: string;
-	title: string;
-	examDate: string;
-	status: ExamRecord["status"];
-	daysLeft: number;
-	standard: ExamStandard;
-	mapping: ExamRecord["mapping"];
-	coverage: number | null;
-	reachedPreset: ExamPreset | null;
-	meetsStandard: boolean;
-	todayMinutes: number;
-	infeasible: Infeasibility | null;
-	final?: ExamRecord["final"];
-	realGrade?: string;
-}
-
-export interface ExamDetailView extends ExamSummaryView {
-	record: ExamRecord;
-	model: ExamStatusModel | null;
-	blocks: ExamBlock[];
-	/** Planned minutes for the next days (index 0 = today). */
-	allocation: number[];
-	days: string[];
-	work: WorkBreakdown | null;
-	presetWork: Record<ExamPreset, number> | null;
-	durations: Durations;
-	weeklyMinutes: number[];
-	startedToday: boolean;
-}
 
 function summaryOf(c: ExamComputed, today: string): ExamSummaryView {
 	return {
@@ -682,7 +653,7 @@ export function nextExamNotice(state: ExamsState, locale: Locale): ExamNotice | 
 		const pick = candidates[0];
 		if (pick) {
 			appendExamNotice({ examId: id, kind: pick.kind, day: state.today, at: new Date(state.now).toISOString() });
-			emit("exam-notice", { examId: id, kind: pick.kind, title: pick.title, body: pick.body });
+			emit("exam-notice", { examId: id, exam, kind: pick.kind });
 			return { examId: id, ...pick };
 		}
 	}
@@ -752,7 +723,8 @@ export function deskNotice(kind: ReviewNoticeKind, now = Date.now()): DeskNotice
 	const n = summary.dueCount;
 	if (send) {
 		appendReviewNotice({ day: reviewDay(now), kind, at: new Date(now).toISOString(), count: n });
-		emit("review-notice", { kind, count: n });
+		if (reviewPending) emit("review-notice", { kind, count: n });
+		else for (const l of examPending) emit("exam-notice", { examId: l.examId, exam: l.exam, kind: kind === "digest" ? "study" : "pending", minutes: l.minutes });
 		const lineKey = kind === "digest" ? "exams.notice.digestLine" : "exams.notice.eveningLine";
 		const examText = examPending.map((l) => t(locale, lineKey, { exam: l.exam, min: l.minutes })).join(" ");
 		if (reviewPending) {

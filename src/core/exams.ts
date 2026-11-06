@@ -804,8 +804,11 @@ export function examWork(input: {
 export interface PlanExam {
 	examId: string;
 	examDate: string;
-	/** Minutes still needed (examWork(...).total). */
+	/** Minutes still needed (examWork(...).total), spread included. */
 	work: number;
+	/** The part of `work` that happens over time (reviews): spread evenly
+	 *  over the study days left instead of front-loaded. */
+	spread?: number;
 }
 
 export interface PlanResult {
@@ -827,31 +830,48 @@ export function planBudget(input: { today: string; weeklyMinutes: readonly numbe
 	const exams = [...input.exams].filter((e) => daysBetween(input.today, e.examDate) > 0);
 	const horizon = exams.reduce((h, e) => Math.max(h, daysBetween(input.today, e.examDate)), 0);
 	const days = Array.from({ length: horizon }, (_, i) => addDays(input.today, i));
-	const remaining = new Map(exams.map((e) => [e.examId, e.work]));
+	const budgetOf = (day: string) => input.weeklyMinutes[weekdayIndex(day)] ?? 0;
+	// Spread work (reviews) is owed a little every study day until the exam.
+	const spreadLeft = new Map(exams.map((e) => [e.examId, Math.min(e.work, e.spread ?? 0)]));
+	const fixedLeft = new Map(exams.map((e) => [e.examId, e.work - spreadLeft.get(e.examId)!]));
+	const studyDaysAhead = (e: PlanExam, from: number) => days.slice(from).filter((d) => daysBetween(d, e.examDate) > 0 && budgetOf(d) > 0).length;
 	const allocations: Record<string, number[]> = {};
 	const studyDays: Record<string, number> = {};
 	for (const e of input.exams) {
 		allocations[e.examId] = new Array<number>(days.length).fill(0);
 		studyDays[e.examId] = 0;
 	}
+	const urgency = (a: PlanExam, b: PlanExam) =>
+		daysBetween(input.today, a.examDate) - daysBetween(input.today, b.examDate) || fixedLeft.get(b.examId)! - fixedLeft.get(a.examId)!;
 	days.forEach((day, i) => {
-		let budget = input.weeklyMinutes[weekdayIndex(day)] ?? 0;
-		const open = exams
-			.filter((e) => daysBetween(day, e.examDate) > 0)
-			.sort((a, b) => daysBetween(input.today, a.examDate) - daysBetween(input.today, b.examDate) || remaining.get(b.examId)! - remaining.get(a.examId)!);
+		let budget = budgetOf(day);
+		const open = exams.filter((e) => daysBetween(day, e.examDate) > 0).sort(urgency);
 		for (const e of open) if (budget > 0) studyDays[e.examId]!++;
+		const give = (e: PlanExam, minutes: number) => {
+			allocations[e.examId]![i] = (allocations[e.examId]![i] ?? 0) + minutes;
+			budget -= minutes;
+		};
+		// 1) today's share of the spread work, nearest exam first.
 		for (const e of open) {
 			if (budget <= 0) break;
-			const need = remaining.get(e.examId)!;
-			if (need <= 0) continue;
-			const give = Math.min(need, budget);
-			allocations[e.examId]![i] = give;
-			remaining.set(e.examId, need - give);
-			budget -= give;
+			const left = spreadLeft.get(e.examId)!;
+			if (left <= 0) continue;
+			const share = Math.min(left, budget, left / Math.max(1, studyDaysAhead(e, i)));
+			spreadLeft.set(e.examId, left - share);
+			give(e, share);
+		}
+		// 2) the rest, earliest deadline first.
+		for (const e of open) {
+			if (budget <= 0) break;
+			const left = fixedLeft.get(e.examId)!;
+			if (left <= 0) continue;
+			const minutes = Math.min(left, budget);
+			fixedLeft.set(e.examId, left - minutes);
+			give(e, minutes);
 		}
 	});
 	const shortfall: Record<string, number> = {};
-	for (const e of input.exams) shortfall[e.examId] = Math.max(0, remaining.get(e.examId) ?? e.work);
+	for (const e of input.exams) shortfall[e.examId] = Math.max(0, (fixedLeft.get(e.examId) ?? e.work) + (spreadLeft.get(e.examId) ?? 0));
 	return { allocations, shortfall, studyDays, days };
 }
 
@@ -987,4 +1007,37 @@ export function syllabusCandidates(input: {
 export function numberBlocks(blocks: ReadonlyArray<{ title: string; points: ReadonlyArray<{ text: string; nodeIds: readonly string[] }> }>): SyllabusBlock[] {
 	let p = 0;
 	return blocks.map((b, i) => ({ id: `b${i + 1}`, title: b.title, points: b.points.map((pt) => ({ id: `p${++p}`, text: pt.text, nodeIds: [...pt.nodeIds] })) }));
+}
+
+// ─── API views (GET /api/exams, /api/exams/[id]; server and components) ─────
+
+export interface ExamSummaryView {
+	id: string;
+	title: string;
+	examDate: string;
+	status: ExamRecord["status"];
+	daysLeft: number;
+	standard: ExamStandard;
+	mapping: ExamRecord["mapping"];
+	coverage: number | null;
+	reachedPreset: ExamPreset | null;
+	meetsStandard: boolean;
+	todayMinutes: number;
+	infeasible: Infeasibility | null;
+	final?: ExamRecord["final"];
+	realGrade?: string;
+}
+
+export interface ExamDetailView extends ExamSummaryView {
+	record: ExamRecord;
+	model: ExamStatusModel | null;
+	blocks: ExamBlock[];
+	/** Planned minutes for the next days (index 0 = today). */
+	allocation: number[];
+	days: string[];
+	work: WorkBreakdown | null;
+	presetWork: Record<ExamPreset, number> | null;
+	durations: Durations;
+	weeklyMinutes: number[];
+	startedToday: boolean;
 }

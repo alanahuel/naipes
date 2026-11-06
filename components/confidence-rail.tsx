@@ -59,3 +59,68 @@ export function ConfidenceRail({ value, className }: { value: number; className?
 		/>
 	);
 }
+
+/**
+ * The confidence SLIDER (practice dock, «Exámenes» 2026-11-05): the quiz
+ * dock's snapped control as a standalone piece — same rail, same stops,
+ * same ramp colors. Native range keys (focused ←/→) move it a stop.
+ */
+export function ConfidenceSlider({
+	value,
+	onChange,
+	label,
+	ariaLabel,
+	valueText,
+	testid = "practice-confidence",
+}: {
+	/** Stop value (0, 30, 50, 70, 90, 100). */
+	value: number;
+	onChange: (stop: number) => void;
+	label: string;
+	ariaLabel: string;
+	valueText: string;
+	testid?: string;
+}) {
+	const index = Math.max(0, CONFIDENCE_STOPS.indexOf(value));
+	return (
+		<div className="flex items-center gap-3" data-testid={testid}>
+			<span className="shrink-0 text-xs font-medium text-muted-foreground">{label}</span>
+			<div className="relative h-4 min-w-0 flex-1">
+				<div aria-hidden className="pointer-events-none absolute top-1/2 left-2 right-2 h-1.5 -translate-y-1/2 rounded-full border border-border" style={confidenceRailStyle(value)} />
+				<input
+					type="range"
+					min={0}
+					max={100}
+					step={1}
+					value={value}
+					aria-label={ariaLabel}
+					aria-valuetext={valueText}
+					onKeyDown={(e) => {
+						if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+						e.preventDefault();
+						e.stopPropagation();
+						const next = Math.min(CONFIDENCE_STOPS.length - 1, Math.max(0, index + (e.key === "ArrowRight" ? 1 : -1)));
+						onChange(CONFIDENCE_STOPS[next]!);
+					}}
+					onChange={(e) => {
+						const v = Number(e.target.value);
+						let best = 0;
+						for (let i = 1; i < CONFIDENCE_STOPS.length; i++) {
+							if (Math.abs(CONFIDENCE_STOPS[i]! - v) < Math.abs(CONFIDENCE_STOPS[best]! - v)) best = i;
+						}
+						onChange(CONFIDENCE_STOPS[best]!);
+					}}
+					style={{ color: CONFIDENCE_COLORS[index] }}
+					className={cn(
+						"absolute inset-0 h-4 w-full cursor-pointer appearance-none bg-transparent outline-none",
+						"[&::-webkit-slider-runnable-track]:h-4 [&::-webkit-slider-runnable-track]:bg-transparent",
+						"[&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-current",
+						"[&::-moz-range-track]:h-4 [&::-moz-range-track]:bg-transparent",
+						"[&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-current",
+					)}
+				/>
+			</div>
+			<span className="w-9 shrink-0 text-right font-mono text-sm tabular-nums">{value}%</span>
+		</div>
+	);
+}

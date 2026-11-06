@@ -57,9 +57,10 @@ export interface ServerEvents {
 	/** An exam record or its derived plan changed («Exámenes», 2026-11-05):
 	 *  create, mapping transitions, edits, exam sessions started. */
 	"exams-changed": { examId: string; chatId?: undefined };
-	/** A one-off exam notice went out (below target / 7 days / 1 day): the
-	 *  bell adds it and opens the exam. */
-	"exam-notice": { examId: string; kind: "below" | "week" | "eve"; title: string; body: string; chatId?: undefined };
+	/** An exam notice went out — below target, 7 days, 1 day, or the exam
+	 *  digest/evening when Repaso had nothing due (`minutes` = today's plan):
+	 *  the bell adds it and opens the exam. */
+	"exam-notice": { examId: string; exam: string; kind: "below" | "week" | "eve" | "study" | "pending"; minutes?: number; chatId?: undefined };
 	/** A knowledge-folder document needs the user (phase 2, 2026-11-04):
 	 *  `pending` = over the confirmation threshold, waiting for «Leer» /
 	 *  «Ahora no» (`runs` estimated, `pages` for a PDF); `ocr-missing` =

@@ -1,0 +1,104 @@
+/** «Exámenes» stage 3: the tab's pure pieces and static renders (English —
+ *  the i18n context default in tests). */
+import React from "react";
+(globalThis as Record<string, unknown>).React = React;
+
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { renderToStaticMarkup } from "react-dom/server";
+import {
+	beginExamSession,
+	blockLabel,
+	blockScore,
+	ideaLevelLabel,
+	pointNeedLabel,
+	raiseWeekly,
+	StandardPicker,
+	standardName,
+	WeeklyMinutes,
+} from "../components/exams.tsx";
+import { ExamSettingsSection } from "../components/settings/exams-section.tsx";
+import { ConfidenceSlider } from "../components/confidence-rail.tsx";
+import { PracticeDock } from "../components/practice-dock.tsx";
+import { examNotice } from "../components/notices.tsx";
+import { TABS } from "../components/app-shell.tsx";
+import { translator } from "../components/i18n.tsx";
+import { presetStandard, type PointStatus } from "../src/core/index.ts";
+
+const es = translator("es");
+const en = translator("en");
+
+const point = (over: Partial<PointStatus> = {}): PointStatus => ({ id: "p1", blockId: "b1", text: "Rozamiento", nodeIds: [], gap: true, probe: null, taughtSession: false, score: 0, need: "teach", ...over });
+
+describe("exams: pure formatting", () => {
+	it("raiseWeekly adds the extra to studied days only (all days when none)", () => {
+		assert.deepEqual(raiseWeekly([45, 45, 0, 45, 45, 90, 0], 15), [60, 60, 0, 60, 60, 105, 0]);
+		assert.deepEqual(raiseWeekly([0, 0, 0, 0, 0, 0, 0], 20), [20, 20, 20, 20, 20, 20, 20]);
+		assert.equal(raiseWeekly([715, 0, 0, 0, 0, 0, 0], 30)[0], 720);
+	});
+	it("blockScore is the mean of its points", () => {
+		assert.equal(blockScore([{ score: 1 }, { score: 0.5 }]), 0.75);
+		assert.equal(blockScore([]), 0);
+	});
+	it("labels: idea level, point need, blocks, standards", () => {
+		assert.equal(ideaLevelLabel({ level: 2, toTeach: false, placed: true, tested: true }, es), "Discriminar");
+		assert.equal(ideaLevelLabel({ level: 3, toTeach: true, placed: true, tested: true }, es), "por enseñar");
+		assert.equal(ideaLevelLabel({ level: 0, toTeach: false, placed: false, tested: false }, es), "sin probar");
+		assert.equal(pointNeedLabel(point({ need: "placement" }), es), "falta · en la prueba de nivel");
+		assert.equal(pointNeedLabel(point({ need: "consolidate" }), es), "por afianzar");
+		assert.equal(blockLabel({ kind: "review", minutes: 24, nodeIds: ["a", "b"] }, [], es), "Repaso con fecha · 2 ideas");
+		assert.equal(blockLabel({ kind: "teach", minutes: 10, nodeIds: [], pointId: "p1", short: true }, [point()], es), "Enseñar: Rozamiento (corto)");
+		assert.equal(standardName(presetStandard("merit"), es), "Notable");
+		assert.equal(standardName({ ...presetStandard("merit"), preset: null }, en), "Custom");
+	});
+	it("beginExamSession posts the block, stashes the opening and returns the id", async () => {
+		const calls: Array<{ url: string; body: string }> = [];
+		const fake = (async (url: string, init?: RequestInit) => {
+			calls.push({ url, body: String(init?.body) });
+			return new Response(JSON.stringify({ id: "chat_x1", opening: "Empecemos la prueba de nivel." }), { status: 200 });
+		}) as typeof fetch;
+		const stashed: string[] = [];
+		const id = await beginExamSession(fake, "exam_ab_12345678", "teach", "p3", (cid, text) => (stashed.push(`${cid}:${text}`), true));
+		assert.equal(id, "chat_x1");
+		assert.deepEqual(calls, [{ url: "/api/exams/exam_ab_12345678/sessions", body: JSON.stringify({ kind: "teach", pointId: "p3" }) }]);
+		assert.deepEqual(stashed, ["chat_x1:Empecemos la prueba de nivel."]);
+		const refused = (async () => new Response("{}", { status: 409 })) as unknown as typeof fetch;
+		assert.equal(await beginExamSession(refused, "exam_ab_12345678", "review"), null);
+	});
+	it("the bell notice opens the exam", () => {
+		const n = examNotice({ examId: "exam_ab_12345678", exam: "Física", kind: "below" }, new Date("2026-11-06T10:00:00Z"));
+		assert.equal(n.href, "/exams/exam_ab_12345678");
+		assert.equal(n.tone, "warn");
+		assert.equal(es(n.message, n.vars), "Física: no llegas al objetivo");
+		assert.equal(es(examNotice({ examId: "e", exam: "Física", kind: "study", minutes: 45 }).message, { exam: "Física", min: 45 }), "Hoy toca estudiar para Física (~45 min)");
+	});
+	it("the fifth tab is Exámenes", () => {
+		assert.deepEqual(TABS.map((t) => t.href), ["/", "/sessions", "/knowledge", "/review", "/exams"]);
+		assert.ok(TABS[4]!.match("/exams/exam_x"));
+	});
+});
+
+describe("exams: static renders", () => {
+	it("StandardPicker shows the presets and the line", () => {
+		const html = renderToStaticMarkup(<StandardPicker value={presetStandard("pass")} onChange={() => {}} />);
+		for (const word of ["Pass", "Merit", "Distinction", "recall 80% · Recall · 70% of the syllabus"]) assert.ok(html.includes(word), word);
+		assert.ok(html.includes('aria-checked="true"'));
+	});
+	it("WeeklyMinutes renders seven inputs, Monday first", () => {
+		const html = renderToStaticMarkup(<WeeklyMinutes value={[45, 45, 45, 45, 45, 90, 0]} onChange={() => {}} />);
+		assert.equal((html.match(/type="number"/g) ?? []).length, 7);
+		assert.ok(html.indexOf('value="90"') > html.indexOf('value="45"'));
+	});
+	it("the settings section shows time, durations and plan", () => {
+		const html = renderToStaticMarkup(<ExamSettingsSection exams={{ teachMinutes: 30 }} onChange={() => {}} />);
+		for (const id of ["exams-teachMinutes", "exams-problemMinutes", "exams-finalWindowDays", "exams-placementBatch", "exam-weekly"]) assert.ok(html.includes(id), id);
+		assert.ok(html.includes('value="30"'));
+	});
+	it("the confidence slider and the practice dock carry it", () => {
+		const slider = renderToStaticMarkup(<ConfidenceSlider value={70} onChange={() => {}} label="Confidence" ariaLabel="a" valueText="70" />);
+		assert.ok(slider.includes("70%"));
+		const dock = renderToStaticMarkup(<PracticeDock problemCallId="p1" input={{ statement: "S" }} expanded onExpand={() => {}} onSubmit={() => {}} />);
+		assert.ok(dock.includes('data-testid="practice-confidence"'));
+		assert.ok(dock.includes("50%"), "the quiz dock's default stop");
+	});
+});

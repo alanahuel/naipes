@@ -8,6 +8,7 @@ import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { SessionRow, useChatList } from "@/components/sessions";
 import { ActivitySection } from "@/components/activity-dock";
 import { ReviewTodayCard } from "@/components/review";
+import { ExamsTodayCard } from "@/components/exams";
 import { SetupDialog } from "@/components/setup-dialog";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
@@ -326,6 +327,10 @@ export function Home({ initialConfigured }: { initialConfigured: boolean }) {
 				{/* «Para repasar hoy» (Repaso, owner 2026-11-04): only when
 				    something is due — after the composer, before «Ahora». */}
 				<ReviewTodayCard />
+
+				{/* «Hoy para tu examen» («Exámenes», 2026-11-06): only with an
+				    exam plan for today. */}
+				<ExamsTodayCard />
 
 				{/* «Ahora» (stage 5): what is running in the background — hidden
 				    while empty, three at most with «Ver N más». */}

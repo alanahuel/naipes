@@ -26,6 +26,7 @@ export default async function ChatPage({
 			title={chat.title}
 			kind={chat.kind ?? "teach"}
 			review={chat.review !== undefined}
+			exam={chat.exam ? { id: chat.exam.id, kind: chat.exam.kind } : undefined}
 			// Wave D: the record IS native agent history — the client view is
 				// derived app-side (core/view.ts projectView; GET serves the same
 				// native messages).
