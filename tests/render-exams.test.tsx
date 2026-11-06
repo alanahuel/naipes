@@ -10,6 +10,8 @@ import {
 	beginExamSession,
 	blockLabel,
 	blockScore,
+	ExamCard,
+	ExamMenu,
 	ideaLevelLabel,
 	pointNeedLabel,
 	raiseWeekly,
@@ -23,7 +25,7 @@ import { PracticeDock } from "../components/practice-dock.tsx";
 import { examNotice } from "../components/notices.tsx";
 import { TABS } from "../components/app-shell.tsx";
 import { translator } from "../components/i18n.tsx";
-import { presetStandard, type PointStatus } from "../src/core/index.ts";
+import { presetStandard, type ExamSummaryView, type PointStatus } from "../src/core/index.ts";
 
 const es = translator("es");
 const en = translator("en");
@@ -100,5 +102,32 @@ describe("exams: static renders", () => {
 		const dock = renderToStaticMarkup(<PracticeDock problemCallId="p1" input={{ statement: "S" }} expanded onExpand={() => {}} onSubmit={() => {}} />);
 		assert.ok(dock.includes('data-testid="practice-confidence"'));
 		assert.ok(dock.includes("50%"), "the quiz dock's default stop");
+	});
+	it("a draft card carries the «···» menu; an active card does not (owner, 2026-11-06)", () => {
+		const summary = (status: ExamSummaryView["status"]): ExamSummaryView => ({
+			id: `exam_${status}`,
+			title: "CPS",
+			examDate: "2027-02-19",
+			status,
+			daysLeft: 105,
+			standard: presetStandard("pass"),
+			mapping: { state: "done" },
+			coverage: 0.2,
+			reachedPreset: null,
+			meetsStandard: false,
+			todayMinutes: 0,
+			infeasible: null,
+		});
+		const draft = renderToStaticMarkup(<ul><ExamCard exam={summary("draft")} /></ul>);
+		assert.ok(draft.includes('data-testid="exam-menu"'));
+		// The menu sits outside the card's link (it must never open the draft).
+		assert.ok(draft.indexOf('data-testid="exam-menu"') > draft.indexOf("</a>"));
+		const active = renderToStaticMarkup(<ul><ExamCard exam={summary("active")} /></ul>);
+		assert.ok(!active.includes('data-testid="exam-menu"'));
+	});
+	it("ExamMenu renders closed: only the trigger", () => {
+		const html = renderToStaticMarkup(<ExamMenu exam={{ id: "exam_d", title: "CPS", status: "draft", examDate: "2027-02-19", standard: presetStandard("pass") }} />);
+		assert.ok(html.includes('aria-haspopup="menu"'));
+		assert.ok(!html.includes('role="menu"'));
 	});
 });

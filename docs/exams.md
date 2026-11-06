@@ -36,7 +36,7 @@ A miss drops one mode; two misses in a row at Recordar or below → «por enseñ
 
 ## Lifecycle
 
-1. **Draft** — title, date, syllabus (text, an attached md/txt/pdf/docx/epub whose text only seeds the syllabus, and/or knowledge-folder areas).
+1. **Draft** — title, date, syllabus (text, an attached md/txt/pdf/docx/epub whose text only seeds the syllabus, and/or knowledge-folder areas). A draft can be deleted without finishing the wizard: the «···» menu on its card in the list and in the wizard header (owner, 2026-11-06). Deleting keeps the sessions and the graph; a mapping still running finds the exam gone and saves nothing.
 2. **Mapping** — the `syllabusMapper` role (strong slot) makes ONE `submit_syllabus` call over candidate propositions (the areas' ideas + word-overlap hits per syllabus line, ≤ 400): blocks → points → node ids; an empty point is «falta». The learner reviews and edits the table.
 3. **Active** — the plan runs. The exam's ideas join Repaso: enrolled, exempt from the daily cap, held out until the placement test grades them, due earlier when the normal interval would reach the exam day below the exam's recall, and always reviewed once in the final window (`exams.finalWindowDays`, 3).
 4. **Archived** — automatically after the date (with the final coverage and preset frozen), or by hand; the learner may note the real grade. The ideas return to the normal rhythm.

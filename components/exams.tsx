@@ -21,6 +21,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangleIcon, CheckIcon, ChevronRightIcon, MoreHorizontalIcon, PlusIcon, SettingsIcon, StarIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MenuShell } from "@/components/menu-shell";
 import { useServerEvent } from "@/components/server-events";
 import { stashOpeningPrompt } from "@/components/opening-prompt";
 import { useLocale, useT, type Translate } from "@/components/i18n";
@@ -222,15 +223,15 @@ function CoverageBar({ value, target, label }: { value: number; target: number; 
 
 // ─── the list ───────────────────────────────────────────────────────────────
 
-function ExamCard({ exam }: { exam: ExamSummaryView }) {
+export function ExamCard({ exam }: { exam: ExamSummaryView }) {
 	const t = useT();
 	const { locale } = useLocale();
 	const coverage = pct(exam.coverage);
 	const target = Math.round(exam.standard.coverage * 100);
 	const days = exam.daysLeft;
 	return (
-		<li className="border-b last:border-b-0">
-			<Link href={`/exams/${exam.id}`} className="flex flex-col gap-2 px-4 py-3 transition-colors hover:bg-accent/50" data-testid={`exam-card-${exam.id}`}>
+		<li className="flex items-center border-b transition-colors last:border-b-0 hover:bg-accent/50">
+			<Link href={`/exams/${exam.id}`} className="flex min-w-0 flex-1 flex-col gap-2 px-4 py-3" data-testid={`exam-card-${exam.id}`}>
 				<span className="flex items-baseline justify-between gap-3">
 					<span className="min-w-0 truncate font-medium">{exam.title}</span>
 					<span className="shrink-0 text-sm text-muted-foreground">
@@ -255,6 +256,13 @@ function ExamCard({ exam }: { exam: ExamSummaryView }) {
 					</>
 				)}
 			</Link>
+			{/* Drafts only (owner, 2026-11-06): delete without finishing the
+			    wizard. Outside the Link so the menu never opens the draft. */}
+			{exam.status === "draft" && (
+				<span className="shrink-0 pr-2">
+					<ExamMenu exam={exam} />
+				</span>
+			)}
 		</li>
 	);
 }
@@ -723,12 +731,16 @@ function PlanSteps({ exam, step, setStep }: { exam: ExamDetailView; step: 3 | 4;
 
 /** A draft resumes at its step: mapping (2) until confirmed, then 3–4. */
 function DraftWizard({ exam, reload }: { exam: ExamDetailView; reload: () => void }) {
+	const router = useRouter();
 	const [step, setStep] = useState<2 | 3 | 4>(2);
 	return (
 		<div className="h-full overflow-y-auto" data-testid="exam-wizard">
 			<div className="mx-auto flex w-full max-w-[46rem] flex-col gap-8 px-4 pb-16 pt-10">
 				<StepHeader step={step} />
-				<p className="px-1 font-medium">{exam.title}</p>
+				<div className="flex items-center justify-between gap-3 px-1">
+					<p className="min-w-0 truncate font-medium">{exam.title}</p>
+					<ExamMenu exam={exam} onDeleted={() => router.push("/exams")} />
+				</div>
 				{step === 2 ? (
 					<MappingStep
 						exam={exam}
@@ -1024,40 +1036,94 @@ function ArchivedSection({ exam }: { exam: ExamDetailView }) {
 	);
 }
 
-function ExamMenu({ exam }: { exam: ExamDetailView }) {
+/** The «···» menu: the exam page's header, the draft wizard's header and
+ *  the draft cards on the list (owner, 2026-11-06: a draft can be deleted
+ *  without finishing the wizard). A draft shows only «Eliminar». The menu
+ *  and the delete confirmation are portaled (MenuShell) so the list's
+ *  rounded overflow-hidden frame cannot clip them. */
+export function ExamMenu({
+	exam,
+	onDeleted,
+}: {
+	exam: Pick<ExamSummaryView, "id" | "title" | "status" | "examDate" | "standard">;
+	/** After a successful delete (the page and the wizard leave for
+	 *  /exams; the list refreshes on its own via exams-changed). */
+	onDeleted?: () => void;
+}) {
 	const t = useT();
-	const router = useRouter();
-	const [open, setOpen] = useState(false);
+	const anchorRef = useRef<HTMLButtonElement | null>(null);
+	const [panel, setPanel] = useState<"menu" | "delete" | null>(null);
 	const [editing, setEditing] = useState(false);
 	const [date, setDate] = useState(exam.examDate);
 	const [standard, setStandard] = useState(exam.standard);
-	const [confirmDelete, setConfirmDelete] = useState(false);
+	const [deleting, setDeleting] = useState(false);
 	const item = "flex min-h-9 w-full items-center rounded-lg px-3 text-left text-sm transition-colors hover:bg-accent";
+	// Outside pointerdown / Esc closes (the sessions context menu's rule:
+	// the portaled body carries data-np-menu, the trigger toggles itself).
+	useEffect(() => {
+		if (panel === null) return;
+		const onPointerDown = (e: PointerEvent) => {
+			const target = e.target as Node;
+			if (target instanceof Element && target.closest("[data-np-menu]")) return;
+			if (anchorRef.current?.contains(target)) return;
+			setPanel(null);
+		};
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === "Escape") {
+				e.stopPropagation();
+				setPanel(null);
+			}
+		};
+		document.addEventListener("pointerdown", onPointerDown);
+		document.addEventListener("keydown", onKeyDown);
+		return () => {
+			document.removeEventListener("pointerdown", onPointerDown);
+			document.removeEventListener("keydown", onKeyDown);
+		};
+	}, [panel]);
+	const remove = async () => {
+		setDeleting(true);
+		const res = await sendJson(`/api/exams/${exam.id}`, "DELETE");
+		setDeleting(false);
+		setPanel(null);
+		if (res.ok) onDeleted?.();
+	};
 	return (
 		<div className="relative">
-			<button type="button" aria-label={t("exams.menu.open")} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+			<button
+				ref={anchorRef}
+				type="button"
+				data-testid="exam-menu"
+				aria-label={t("exams.menu.open")}
+				aria-haspopup="menu"
+				aria-expanded={panel === "menu"}
+				onClick={() => setPanel((v) => (v === null ? "menu" : null))}
+				className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+			>
 				<MoreHorizontalIcon className="size-5" />
 			</button>
-			{open && (
-				<div role="menu" className="absolute right-0 top-10 z-50 w-56 rounded-[14px] border bg-popover p-1.5 shadow-float">
-					{exam.status === "active" && (
-						<button type="button" role="menuitem" className={item} onClick={() => { setEditing(true); setOpen(false); }}>
-							{t("exams.menu.edit")}
+			{panel === "menu" && (
+				<MenuShell anchorRef={anchorRef} testid="exam-menu-body" preferredSide="down" menuClass="w-56 rounded-[14px] border bg-popover p-1.5 shadow-float">
+					<div role="menu">
+						{exam.status === "active" && (
+							<button type="button" role="menuitem" className={item} onClick={() => { setEditing(true); setPanel(null); }}>
+								{t("exams.menu.edit")}
+							</button>
+						)}
+						{exam.status === "active" ? (
+							<button type="button" role="menuitem" className={item} onClick={() => { setPanel(null); void sendJson(`/api/exams/${exam.id}`, "PUT", { status: "archived" }); }}>
+								{t("exams.menu.archive")}
+							</button>
+						) : exam.status === "archived" ? (
+							<button type="button" role="menuitem" className={item} onClick={() => { setPanel(null); void sendJson(`/api/exams/${exam.id}`, "PUT", { status: "active" }); }}>
+								{t("exams.menu.unarchive")}
+							</button>
+						) : null}
+						<button type="button" role="menuitem" data-testid="exam-menu-delete" className={cn(item, "text-warn")} onClick={() => setPanel("delete")}>
+							{t("exams.menu.delete")}
 						</button>
-					)}
-					{exam.status === "active" ? (
-						<button type="button" role="menuitem" className={item} onClick={() => { setOpen(false); void sendJson(`/api/exams/${exam.id}`, "PUT", { status: "archived" }); }}>
-							{t("exams.menu.archive")}
-						</button>
-					) : exam.status === "archived" ? (
-						<button type="button" role="menuitem" className={item} onClick={() => { setOpen(false); void sendJson(`/api/exams/${exam.id}`, "PUT", { status: "active" }); }}>
-							{t("exams.menu.unarchive")}
-						</button>
-					) : null}
-					<button type="button" role="menuitem" className={cn(item, "text-warn")} onClick={() => { setConfirmDelete(true); setOpen(false); }}>
-						{t("exams.menu.delete")}
-					</button>
-				</div>
+					</div>
+				</MenuShell>
 			)}
 			{editing && (
 				<div role="dialog" aria-label={t("exams.menu.edit")} className="absolute right-0 top-10 z-50 flex w-[22rem] flex-col gap-3 rounded-[14px] border bg-popover p-4 shadow-float">
@@ -1076,22 +1142,20 @@ function ExamMenu({ exam }: { exam: ExamDetailView }) {
 					</div>
 				</div>
 			)}
-			{confirmDelete && (
-				<div role="alertdialog" aria-label={t("exams.menu.deleteTitle")} className="absolute right-0 top-10 z-50 flex w-72 flex-col gap-3 rounded-[14px] border bg-popover p-4 shadow-float">
-					<p className="text-sm">{t("exams.menu.deleteBody", { title: exam.title })}</p>
-					<div className="flex justify-end gap-2">
-						<button type="button" className={quietBtn} onClick={() => setConfirmDelete(false)}>
-							{t("exams.menu.cancel")}
-						</button>
-						<button
-							type="button"
-							className={cn(primaryBtn, "bg-warn hover:bg-warn/90")}
-							onClick={() => void sendJson(`/api/exams/${exam.id}`, "DELETE").then(() => router.push("/exams"))}
-						>
-							{t("exams.menu.delete")}
-						</button>
+			{panel === "delete" && (
+				<MenuShell anchorRef={anchorRef} testid="exam-delete-confirm" preferredSide="down" menuClass="w-72 rounded-[14px] border bg-popover p-4 shadow-float">
+					<div role="alertdialog" aria-label={t("exams.menu.deleteTitle")} className="flex flex-col gap-3">
+						<p className="text-sm">{t("exams.menu.deleteBody", { title: exam.title })}</p>
+						<div className="flex justify-end gap-2">
+							<button type="button" className={quietBtn} disabled={deleting} onClick={() => setPanel(null)}>
+								{t("exams.menu.cancel")}
+							</button>
+							<button type="button" data-testid="exam-delete-confirm-button" className={cn(primaryBtn, "bg-warn hover:bg-warn/90")} disabled={deleting} onClick={() => void remove()}>
+								{t("exams.menu.delete")}
+							</button>
+						</div>
 					</div>
-				</div>
+				</MenuShell>
 			)}
 		</div>
 	);
@@ -1100,6 +1164,7 @@ function ExamMenu({ exam }: { exam: ExamDetailView }) {
 export function ExamPage({ id }: { id: string }) {
 	const t = useT();
 	const { locale } = useLocale();
+	const router = useRouter();
 	const { data, reload } = useExam(id);
 	const [highlight, setHighlight] = useState(false);
 	if (data === undefined) return <p className="p-10 text-sm text-muted-foreground">{t("exams.loading")}</p>;
@@ -1125,7 +1190,7 @@ export function ExamPage({ id }: { id: string }) {
 							<SettingsIcon className="size-4" />
 							{t("exams.page.settings")}
 						</Link>
-						<ExamMenu exam={data} />
+						<ExamMenu exam={data} onDeleted={() => router.push("/exams")} />
 					</span>
 				</header>
 				{live ? (
