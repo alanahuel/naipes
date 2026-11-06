@@ -17,6 +17,7 @@
  * exited and resumed mid-question for free.
  */
 
+import type { AttachmentRef } from "./attachments.ts";
 import { Type, type Static } from "typebox";
 import { stripModelValueDebris } from "./value-debris.ts";
 
@@ -468,6 +469,10 @@ export interface QuestionAnswerData {
 	committed?: string; // explain only (rendering): the model's committed answer
 	explanation?: string; // quiz only (rendering)
 	dismissed?: boolean;
+	/** VIEW-ONLY (owner, 2026-11-06): the answer message's image refs,
+	 *  merged in by projectView for the answered card. Never persisted in
+	 *  the answer itself — the record keeps them on the message. */
+	attachments?: AttachmentRef[];
 	answeredAt: string;
 }
 

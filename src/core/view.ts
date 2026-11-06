@@ -36,6 +36,7 @@ import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai"
 import type { NpMarkerMessage, NpMessage } from "./native-messages.ts";
 import { modelSolutionForConclude, PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sendToUserText } from "./native-messages.ts";
 import { activeCompactionOf, type CompactionDetails } from "./compaction.ts";
+import { attachmentsOf, type AttachmentRef } from "./attachments.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
 import type { SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
 import type { PlanBlockData } from "./contracts/chat.ts";
@@ -66,6 +67,9 @@ export interface NpViewMessage {
 	parts: NpViewPart[];
 	/** The subagentResult meta the steer cards read (marker details). */
 	metadata?: unknown;
+	/** A user message's image attachments (owner, 2026-11-06) — the
+	 *  bubble renders their thumbnails below its text. */
+	attachments?: AttachmentRef[];
 }
 
 /** A tool call's live execution outcome (from tool_execution_end). */
@@ -184,7 +188,14 @@ export function projectView(messages: readonly NpMessage[], live?: LiveTurnState
 				typeof content === "string"
 					? [content]
 					: content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text);
-			out.push({ id: m.id, role: "user", parts: texts.map(textPart) });
+			const attachments = attachmentsOf(m);
+			out.push({
+				id: m.id,
+				role: "user",
+				// An image-only message (empty text) projects no empty text part.
+				parts: texts.filter((t) => attachments.length === 0 || t.trim().length > 0).map(textPart),
+				...(attachments.length > 0 ? { attachments } : {}),
+			});
 			continue;
 		}
 
@@ -194,7 +205,16 @@ export function projectView(messages: readonly NpMessage[], live?: LiveTurnState
 		}
 
 		if (role === "toolResult") {
-			applyResultTo(findToolPart((m as ToolResultMessage).toolCallId), m as ToolResultMessage);
+			const result = m as ToolResultMessage;
+			const attachments = attachmentsOf(m);
+			// Answer images (owner, 2026-11-06) ride the card's output — the
+			// answered card renders them beside the learner's text.
+			applyResultTo(
+				findToolPart(result.toolCallId),
+				attachments.length > 0 && !result.isError && result.details && typeof result.details === "object"
+					? { ...result, details: { ...(result.details as object), attachments } as unknown as ToolResultMessage["details"] }
+					: result,
+			);
 			continue;
 		}
 
@@ -429,7 +449,12 @@ function projectMarker(marker: NpMarkerMessage, out: NpViewMessage[]): void {
 			out.push({
 				id: marker.id,
 				role: "user",
-				parts: [{ type: "data-practice-thinking", id: `pt_${marker.id}`, data: marker.details }],
+				parts: [{
+					type: "data-practice-thinking",
+					id: `pt_${marker.id}`,
+					// The thinking's images (owner, 2026-11-06) join the card data.
+					data: attachmentsOf(marker).length > 0 ? { ...(marker.details as object), attachments: attachmentsOf(marker) } : marker.details,
+				}],
 			});
 			return;
 		}

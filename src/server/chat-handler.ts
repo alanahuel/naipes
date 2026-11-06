@@ -55,9 +55,11 @@ import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.
 import { emit } from "../core/events.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages } from "../core/native-messages.ts";
+import { imageResolverFor, modelHasVision, resolveAttachments } from "./attachments.ts";
 import {
 	ChatInputError,
 	inputAppends,
+	inputAttachmentIds,
 	parseChatInput,
 	retryDrops,
 	type TurnInput,
@@ -302,7 +304,7 @@ export async function handleChatInput(
 		appends =
 			input.type === "steers"
 				? input.steers.filter((s) => !steerDelivered(record.messages, s.id))
-				: inputAppends(record, input);
+				: inputAppends(record, input, resolveAttachments(chatId, inputAttachmentIds(input)));
 	} catch (err) {
 		if (err instanceof ChatInputError) {
 			return Response.json({ error: err.message }, { status: 400 });
@@ -424,6 +426,10 @@ export async function handleChatInput(
 	});
 	const agentOpts: AgentBuildOptions = {
 		engine,
+		// Image attachments (owner, 2026-11-06): refs become native image
+		// content for a vision model, a text stand-in otherwise — decided
+		// per turn, so a model switch takes effect on the next turn.
+		images: imageResolverFor(chatId, modelHasVision(engine.model)),
 		callPurpose,
 		requestCycle,
 		messages: asAgentMessages(agentMessages),

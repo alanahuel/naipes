@@ -38,6 +38,8 @@ import {
 	type Phase3,
 } from "@/src/core";
 import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-rail";
+import { AttachButton, AttachmentTrayView, useAttachmentTray } from "@/components/attachments";
+import type { AttachmentRef } from "@/src/core";
 
 /**
  * The question dock — a pending quiz/ask REPLACES the chat composer: the
@@ -73,7 +75,8 @@ export interface QuestionDockProps {
 	 */
 	reveal?: boolean;
 	onExpand: () => void;
-	onSubmit: (output: QuestionAnswerData) => void;
+	/** `attachments` (owner, 2026-11-06): text answers may carry images. */
+	onSubmit: (output: QuestionAnswerData, attachments?: readonly AttachmentRef[]) => void;
 	/** Restore only this call's unconfirmed submission after recovery. */
 	initialDraft?: QuestionFormDraft;
 	onSaveDraft?: (draft: QuestionFormDraft) => void;
@@ -374,9 +377,11 @@ function QuestionDockForm({
 
 	const toggle = (idx: number) => setSel(toggleOption(selectMode, sel, idx));
 
+	// Text answers take images too (owner, 2026-11-06); select modes don't.
+	const tray = useAttachmentTray();
 	const canSubmit =
 		qd.mode === "text"
-			? text.trim().length > 0
+			? (text.trim().length > 0 || tray.count > 0) && !tray.uploading
 			: sel.dontKnow || (sel.otherSelected && other.trim().length > 0) || sel.selected.size > 0;
 
 	const submit = () => {
@@ -414,7 +419,7 @@ function QuestionDockForm({
 			text: answerTextRef.current,
 			confidenceIndex: confIdx,
 		});
-		onSubmit(buildAnswer(qd, req, toolName));
+		onSubmit(buildAnswer(qd, req, toolName), qd.mode === "text" ? tray.take() : []);
 	};
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): the same
@@ -850,12 +855,15 @@ function QuestionDockForm({
 				<div
 					data-testid={qd.mode === "text" ? "answer-field" : "thinking-field"}
 					className="rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
+					{...(qd.mode === "text" ? tray.dropProps : {})}
 				>
 					<div className="px-2.5 pt-2 text-xs font-medium text-muted-foreground">
 						{qd.mode === "text" ? t("session.question.yourAnswer") : t("session.yourThinking")}
 					</div>
+					{qd.mode === "text" && <AttachmentTrayView tray={tray} />}
 					{qd.mode === "text" ? (
 						<textarea
+							onPaste={tray.onPaste}
 							value={text}
 							onChange={(e) => {
 								answerTextRef.current = e.target.value;
@@ -919,7 +927,8 @@ function QuestionDockForm({
 						/>
 					)}
 					<div className="flex items-center justify-between gap-2 p-1">
-						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
+						{qd.mode === "text" && <AttachButton tray={tray} className="size-9 rounded-[6px]" />}
+						<span aria-hidden className="mr-auto pl-1.5 text-xs text-muted-foreground">
 								{compactionRunning ? t("session.composer.compacting") : t("session.composer.submitHint")}
 						</span>
 						<Button

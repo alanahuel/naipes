@@ -19,7 +19,7 @@ import { healToolRecord, withArgumentHeal } from "./tools/heal.ts";
 import { sendToUserTool } from "./tools/send-to-user.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
-import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL } from "../core/native-messages.ts";
+import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL, type ImageResolver } from "../core/native-messages.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
 
@@ -100,6 +100,9 @@ export type StepUsageCollector = (usage: Usage) => void;
 export interface AgentBuildOptions {
 	/** Model + stream function — tests inject a scripted faux engine. */
 	engine?: PiEngine;
+	/** Image attachments (owner, 2026-11-06): how refs reach the model —
+	 *  absent → every image reads as omitted (core/native-messages). */
+	images?: ImageResolver;
 	callPurpose?: { background: boolean };
 	requestCycle?: ChatGPTRequestCycle;
 	/** The initial transcript, as pi messages (the record IS agent state). */
@@ -234,7 +237,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		// UI-only markers (plan-block) drop, the app's id fields strip, and
 		// an abort's dangling question call gets its INTERRUPTED result. It
 		// must never throw (pi's convertToLlm contract).
-		convertToLlm: toLlmMessages,
+		convertToLlm: (messages: AgentMessage[]) => toLlmMessages(messages, opts.images),
 		prepareRequest: (request) => {
 			if (opts.callPurpose) {
 				let learner = false, automatic = false;

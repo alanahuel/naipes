@@ -30,6 +30,7 @@ import {
 	userFacingTextOf,
 } from "./native-messages.ts";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
+import { attachmentsOf, IMAGE_ATTACHED_MARKDOWN } from "./attachments.ts";
 
 /** The practice join context (owner-approved, 2026-10-06 export round):
  *  practice tool RESULTS are acks — the statement, outcome, and verdict
@@ -165,10 +166,16 @@ export function messageMarkdown(
 	const anchor = anchors ? ` · ${mid}` : "";
 	const parts: string[] = [];
 
+	// Image attachments (owner, 2026-11-06): the background readers see a
+	// marker per image, never the pixels.
+	const images = attachmentsOf(message).map(() => IMAGE_ATTACHED_MARKDOWN);
 	if (role === "user") {
-		for (const text of userFacingTextOf((message as { content: unknown }).content)) {
-			parts.push(`### Learner${anchor}\n\n${text.trim()}`);
-		}
+		const texts = userFacingTextOf((message as { content: unknown }).content).map((text) => text.trim());
+		if (texts.length === 0 && images.length > 0) texts.push("");
+		texts.forEach((text, i) => {
+			const body = i === texts.length - 1 ? [text, ...images].filter(Boolean).join("\n\n") : text;
+			parts.push(`### Learner${anchor}\n\n${body}`);
+		});
 	} else if (role === "assistant") {
 		for (const text of userFacingTextOf((message as { content: unknown }).content, ctx?.failedOutputCalls ?? failedOutputCallIds([message]))) {
 			parts.push(`### Teacher${anchor}\n\n${text.trim()}`);
@@ -177,7 +184,7 @@ export function messageMarkdown(
 		const result = message as ToolResultMessage;
 		if (result.isError || result.toolName === SEND_TO_USER_TOOL) return null; // retry context or output ack, not learning evidence
 		const { heading, body } = toolResultBody(result, ctx);
-		parts.push(`### ${heading}${anchor}\n\n${body.join("\n\n")}`);
+		parts.push(`### ${heading}${anchor}\n\n${[...body, ...images].join("\n\n")}`);
 	}
 
 	// custom markers are invisible, same as the extraction view.

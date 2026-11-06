@@ -157,6 +157,8 @@ export async function deleteChatSession(chatId: string, mode: ChatDeleteMode): P
 		discardChatDeliveries(chatId);
 		clearTurnFailure(chatId);
 	}
+	// The session's images go with it (owner, 2026-11-06).
+	stores.attachmentStore.removeChat(chatId);
 	return { ok: true, mode, stats, jobsRemoved, graphRevision: graphRevision() };
 }
 

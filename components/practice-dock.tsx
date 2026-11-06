@@ -9,7 +9,8 @@ import { useEnterSubmits } from "@/components/enter-submits";
 import { cn } from "@/lib/utils";
 import { useT } from "@/components/i18n";
 import { ConfidenceSlider } from "@/components/confidence-rail";
-import { CONFIDENCE_STOPS, DEFAULT_CONFIDENCE_INDEX } from "@/src/core";
+import { CONFIDENCE_STOPS, DEFAULT_CONFIDENCE_INDEX, type AttachmentRef } from "@/src/core";
+import { AttachButton, AttachmentTrayView, useAttachmentTray } from "@/components/attachments";
 
 /**
  * The practice dock (practice sessions, owner design 2026-10-04): an
@@ -42,7 +43,7 @@ export interface PracticeDockProps {
 	onExpand: () => void;
 	/** text — POST {type:"thinking"} (one lane; the register is read from
 	 *  the text) with the learner's stated confidence (owner, 2026-11-05). */
-	onSubmit: (text: string, confidence: number) => void;
+	onSubmit: (text: string, confidence: number, attachments?: readonly AttachmentRef[]) => void;
 	/** Escape in the thinking field stops dictation (threaded from the page). */
 	onEscape?: () => void;
 	/** Compaction is running for this chat (owner round 14): the thinking
@@ -69,6 +70,9 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 	// discipline): a submit resuming after `await finishDictation()` reads
 	// the tail, never a stale closure.
 	const thinkingRef = useRef("");
+	// Photos of the paper working (owner, 2026-11-06 — the reason the
+	// feature exists): the same tray as the composer.
+	const tray = useAttachmentTray();
 
 	useDictationTarget(
 		useCallback(
@@ -83,12 +87,12 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 	);
 
 	const submit = () => {
-		if (compactionRunning) return;
+		if (compactionRunning || tray.uploading) return;
 		const text = thinkingRef.current.trim();
-		if (text.length === 0) return;
+		if (text.length === 0 && tray.count === 0) return;
 		thinkingRef.current = "";
 		setThinking("");
-		onSubmit(text, confidenceRef.current);
+		onSubmit(text, confidenceRef.current, tray.take());
 	};
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): dictation
@@ -147,11 +151,14 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 			<div
 				data-testid="practice-thinking-field"
 				className="m-1.5 rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
+				{...tray.dropProps}
 			>
 				<div className="px-2.5 pt-2 text-xs font-medium text-muted-foreground">
 					{t("session.yourThinking")}
 				</div>
+				<AttachmentTrayView tray={tray} />
 				<textarea
+					onPaste={tray.onPaste}
 					value={thinking}
 					onChange={(e) => {
 						thinkingRef.current = e.target.value;
@@ -184,13 +191,14 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 				    one p-1 row. Corner radii concentric: shell 16 − m-1.5 (6) =
 				    field 10 − p-1 (4) = button 6. */}
 				<div className="flex items-center justify-between gap-2 p-1">
-					<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
+					<AttachButton tray={tray} className="size-9 rounded-[6px]" />
+					<span aria-hidden className="mr-auto pl-1.5 text-xs text-muted-foreground">
 						{compactionRunning ? t("session.composer.compacting") : t("session.composer.submitHint")}
 					</span>
 					<Button
 						type="button"
 						data-testid="practice-send"
-						disabled={thinking.trim().length === 0 || compactionRunning}
+						disabled={(thinking.trim().length === 0 && tray.count === 0) || tray.uploading || compactionRunning}
 						onClick={() => submit()}
 						className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
 					>

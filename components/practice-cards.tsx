@@ -4,6 +4,8 @@ import { ToolContentResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
 import type { ArtifactPartProps, MessageKey } from "@/src/core";
 import { useT } from "@/components/i18n";
+import { AttachmentThumbs } from "@/components/attachments";
+import type { AttachmentRef } from "@/src/core";
 
 /**
  * The practice transcript cards (practice sessions, owner design
@@ -54,6 +56,8 @@ export interface PracticeThinkingData {
 	/** Legacy records (pre 2026-10-05) carry the old two-lane flag; ignored. */
 	commit?: boolean;
 	text: string;
+	/** The submission's images (owner, 2026-11-06) — view-projected. */
+	attachments?: AttachmentRef[];
 }
 
 export function ProblemCard({ part }: ArtifactPartProps) {
@@ -298,5 +302,11 @@ export function ThinkingCard({ data }: { data: PracticeThinkingData }) {
 	// 50%-italic quote block on expand. Legacy records' commit flag is
 	// deliberately unread (one lane now). A TRANSCRIPT row (owner round,
 	// 2026-10-07): full-width band + rail, arriving expanded.
-	return <ThinkingBlock testId="thinking-card" text={data.text} defaultOpen />;
+	if (!data.attachments?.length) return <ThinkingBlock testId="thinking-card" text={data.text} defaultOpen />;
+	return (
+		<>
+			{data.text.trim() && <ThinkingBlock testId="thinking-card" text={data.text} defaultOpen />}
+			<AttachmentThumbs refs={data.attachments} className="ml-[3ch]" />
+		</>
+	);
 }

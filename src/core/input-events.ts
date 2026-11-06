@@ -42,11 +42,15 @@ import {
 	pendingProblemDismissalOf,
 } from "./native-messages.ts";
 import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
+import { isAttachmentId, MAX_ATTACHMENTS, type AttachmentRef } from "./attachments.ts";
 
 /** One client-originated input event (the POST body's `input`). */
 export type ChatInput =
-	| { type: "text"; text: string }
-	| { type: "answer"; toolCallId: string; answer: QuestionAnswerData }
+	/** `attachmentIds` (owner, 2026-11-06): images uploaded to this chat
+	 *  (POST /api/chats/[id]/attachments) — at most MAX_ATTACHMENTS; with
+	 *  any, the text may be empty. The handler resolves them to refs. */
+	| { type: "text"; text: string; attachmentIds?: string[] }
+	| { type: "answer"; toolCallId: string; answer: QuestionAnswerData; attachmentIds?: string[] }
 	| { type: "continue" }
 	/** The failed-turn retry (issue #110): the banner's Retry button. */
 	| { type: "retry" }
@@ -54,7 +58,7 @@ export type ChatInput =
 	 *  thinking on the ACTIVE problem — one lane (owner 2026-10-05):
 	 *  whether it claims an answer is read from the text. One
 	 *  problem may carry many submissions; each is its own turn. */
-	| { type: "thinking"; problemCallId: string; text: string; confidence?: number }
+	| { type: "thinking"; problemCallId: string; text: string; confidence?: number; attachmentIds?: string[] }
 	/** The practice move-on signal (owner round 16): the learner's
 	 *  explicit go-ahead during the between-problems pause — the Next
 	 *  chip or Enter on an empty composer. Practice sessions only, and
@@ -115,7 +119,23 @@ export function parseDismissInput(input: unknown): DismissInput {
  *  (a send with no live turn is a plain text send, which already exists).
  *  The id is client-minted (steer_<localid>): the queued indicator keys on
  *  it, and the drain's message events upsert the real card by the same id. */
-export type UserSteerInput = { type: "steer"; id: string; text: string };
+export type UserSteerInput = { type: "steer"; id: string; text: string; attachmentIds?: string[] };
+
+/** Parse an event's optional attachment ids: well-formed, unique, ≤ MAX. */
+export function parseAttachmentIds(value: unknown): string[] | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value) || !value.every(isAttachmentId)) {
+		throw new ChatInputError("attachmentIds must be an array of attachment ids");
+	}
+	if (value.length > MAX_ATTACHMENTS) throw new ChatInputError(`at most ${MAX_ATTACHMENTS} attachments per message`);
+	if (new Set(value).size !== value.length) throw new ChatInputError("attachmentIds must be unique");
+	return value.length > 0 ? [...value] : undefined;
+}
+
+/** The ids an input carries (none for the id-less kinds). */
+export function inputAttachmentIds(input: ChatInput | UserSteerInput): string[] {
+	return "attachmentIds" in input && input.attachmentIds ? input.attachmentIds : [];
+}
 
 /** Parse and validate a steer event off a request body. */
 export function parseUserSteerInput(input: unknown): UserSteerInput {
@@ -125,10 +145,11 @@ export function parseUserSteerInput(input: unknown): UserSteerInput {
 	if (typeof i.id !== "string" || i.id.length === 0) {
 		throw new ChatInputError("steer input requires a client-minted id");
 	}
-	if (typeof i.text !== "string" || i.text.trim().length === 0) {
+	const attachmentIds = parseAttachmentIds(i.attachmentIds);
+	if (typeof i.text !== "string" || (i.text.trim().length === 0 && !attachmentIds)) {
 		throw new ChatInputError("steer input requires non-empty text");
 	}
-	return { type: "steer", id: i.id, text: i.text };
+	return { type: "steer", id: i.id, text: i.text, ...(attachmentIds ? { attachmentIds } : {}) };
 }
 
 /** The native appends a dismissal makes (pure — same orphan discipline
@@ -160,11 +181,13 @@ export function parseChatInput(input: unknown): ChatInput {
 	if (typeof input !== "object" || input === null) throw new ChatInputError("input must be an object");
 	const i = input as Record<string, unknown>;
 	switch (i.type) {
-		case "text":
-			if (typeof i.text !== "string" || (i.text as string).trim().length === 0) {
+		case "text": {
+			const attachmentIds = parseAttachmentIds(i.attachmentIds);
+			if (typeof i.text !== "string" || ((i.text as string).trim().length === 0 && !attachmentIds)) {
 				throw new ChatInputError("text input requires non-empty text");
 			}
-			return { type: "text", text: i.text };
+			return { type: "text", text: i.text, ...(attachmentIds ? { attachmentIds } : {}) };
+		}
 		case "answer":
 			if (typeof i.toolCallId !== "string" || i.toolCallId.length === 0) {
 				throw new ChatInputError("answer input requires toolCallId");
@@ -172,7 +195,10 @@ export function parseChatInput(input: unknown): ChatInput {
 			if (typeof i.answer !== "object" || i.answer === null) {
 				throw new ChatInputError("answer input requires the graded answer object");
 			}
-			return { type: "answer", toolCallId: i.toolCallId, answer: i.answer as QuestionAnswerData };
+			{
+				const attachmentIds = parseAttachmentIds(i.attachmentIds);
+				return { type: "answer", toolCallId: i.toolCallId, answer: i.answer as QuestionAnswerData, ...(attachmentIds ? { attachmentIds } : {}) };
+			}
 		case "continue":
 			return { type: "continue" };
 		case "retry":
@@ -181,13 +207,22 @@ export function parseChatInput(input: unknown): ChatInput {
 			if (typeof i.problemCallId !== "string" || i.problemCallId.length === 0) {
 				throw new ChatInputError("thinking input requires problemCallId");
 			}
-			if (typeof i.text !== "string" || i.text.trim().length === 0) {
-				throw new ChatInputError("thinking input requires non-empty text");
+			{
+				const attachmentIds = parseAttachmentIds(i.attachmentIds);
+				if (typeof i.text !== "string" || (i.text.trim().length === 0 && !attachmentIds)) {
+					throw new ChatInputError("thinking input requires non-empty text");
+				}
+				if (i.confidence !== undefined && !(CONFIDENCE_STOPS as readonly unknown[]).includes(i.confidence)) {
+					throw new ChatInputError("thinking confidence must be one of the confidence stops");
+				}
+				return {
+					type: "thinking",
+					problemCallId: i.problemCallId,
+					text: i.text,
+					...(typeof i.confidence === "number" ? { confidence: i.confidence } : {}),
+					...(attachmentIds ? { attachmentIds } : {}),
+				};
 			}
-			if (i.confidence !== undefined && !(CONFIDENCE_STOPS as readonly unknown[]).includes(i.confidence)) {
-				throw new ChatInputError("thinking confidence must be one of the confidence stops");
-			}
-			return { type: "thinking", problemCallId: i.problemCallId, text: i.text, ...(typeof i.confidence === "number" ? { confidence: i.confidence } : {}) };
 		case "next":
 			return { type: "next" };
 		default:
@@ -203,20 +238,24 @@ export function parseChatInput(input: unknown): ChatInput {
  * DANGLING QUESTION call in the record (posed, never answered) — anything
  * else 400s honestly instead of silently interrupting a question or
  * double-answering.
+ *
+ * `attachments`: the input's attachmentIds already resolved to refs (the
+ * handler reads the store — this stays pure), in the event's order.
  */
 export function inputAppends(
 	record: { messages: NpMessage[]; kind?: string },
 	input: ChatInput,
+	attachments: readonly AttachmentRef[] = [],
 ): NpMessage[] {
 	switch (input.type) {
 		case "text":
-			return [...dismissalConclusion(record), newUserMessage(input.text)];
+			return [...dismissalConclusion(record), newUserMessage(input.text, attachments)];
 		case "answer": {
 			const pending = danglingQuestionOf(record.messages);
 			if (!pending || pending.toolCallId !== input.toolCallId) {
 				throw new ChatInputError("answer input targets no pending question call");
 			}
-			return [newAnswerResult(input.toolCallId, pending.tool, input.answer)];
+			return [newAnswerResult(input.toolCallId, pending.tool, input.answer, attachments)];
 		}
 		case "continue":
 			return dismissalConclusion(record);
@@ -229,7 +268,7 @@ export function inputAppends(
 			if (!active || active.toolCallId !== input.problemCallId) {
 				throw new ChatInputError("thinking input targets no active problem");
 			}
-			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text, input.confidence)];
+			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text, input.confidence, attachments)];
 		}
 		case "next": {
 			// Honest 400s, the thinking gate's discipline: the signal is a

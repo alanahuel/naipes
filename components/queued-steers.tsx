@@ -11,6 +11,8 @@
  * against the message ids. A steer parked server-side (stranded behind a
  * question) keeps its line — an honest "waiting for the next run".
  */
+import { useT } from "@/components/i18n";
+
 export interface QueuedSteerLine {
 	id: string;
 	text: string;
@@ -19,16 +21,18 @@ export interface QueuedSteerLine {
 /** The pure body (SSR-pinnable): one right-aligned truncated line per
  *  queued steer, stacked. */
 export function QueuedSteersBody({ steers }: { steers: QueuedSteerLine[] }) {
+	const t = useT();
 	if (steers.length === 0) return null;
 	return (
 		<div className="flex flex-col items-end gap-0.5 pb-1 pr-4" data-testid="queued-steers">
 			{steers.map((s) => (
 				<span
 					key={s.id}
-					title={s.text}
+					title={s.text || t("session.attach.imageOnly")}
 					className="block max-w-[240px] truncate font-ui text-[11px] text-muted-foreground/60"
 				>
-					{s.text}
+					{/* An image-only steer (owner, 2026-11-06) still gets its line. */}
+					{s.text || t("session.attach.imageOnly")}
 				</span>
 			))}
 		</div>

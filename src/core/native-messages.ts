@@ -34,7 +34,8 @@
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent, Message, TextContent, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
+import { attachmentsOf, IMAGE_OMITTED_TEXT, type AttachmentRef } from "./attachments.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
 import {
 	CONCLUDE_ACK_TEXT,
@@ -90,8 +91,19 @@ declare module "@earendil-works/pi-agent-core" {
 	}
 }
 
-/** A record message: a native pi message (or our marker) plus the record id. */
-export type NpMessage = (UserMessage | AssistantMessage | ToolResultMessage | NpMarkerMessage) & { id: string };
+/** A record message: a native pi message (or our marker) plus the record id.
+ *  `attachments` (owner, 2026-11-06 — image attachments): refs to the
+ *  learner's images on user messages, practice-thinking markers and
+ *  answer results; the files live outside the record (core/attachments).
+ *  Like `id`, toLlmMessages strips it at the wire and turns it into
+ *  native image content. */
+export type NpMessage = (UserMessage | AssistantMessage | ToolResultMessage | NpMarkerMessage) & { id: string; attachments?: AttachmentRef[] };
+
+/** The `attachments` field, present only when there are refs (records
+ *  without images stay byte-identical to the pre-attachment shape). */
+function withAttachments(attachments?: readonly AttachmentRef[]): { attachments?: AttachmentRef[] } {
+	return attachments && attachments.length > 0 ? { attachments: attachments.map((a) => ({ ...a })) } : {};
+}
 
 /** A record message list is assignable to the agent's context — that IS
  *  the replay (ui-stream/chat-handler assign it to initialState.messages). */
@@ -159,12 +171,13 @@ export function newMessageId(): string {
 //     core/input-events.ts; steers in core/contracts/jobs.ts) ─────────────────
 
 /** A learner-authored user message (text input, verdict note). */
-export function newUserMessage(text: string): NpMessage & UserMessage {
+export function newUserMessage(text: string, attachments?: readonly AttachmentRef[]): NpMessage & UserMessage {
 	return {
 		id: newMessageId(),
 		role: "user",
 		content: text,
 		timestamp: Date.now(),
+		...withAttachments(attachments),
 	};
 }
 
@@ -173,8 +186,8 @@ export function newUserMessage(text: string): NpMessage & UserMessage {
  *  rides agent.steer(), the live stream's message events, and the settled
  *  record, so the optimistic queued indicator and the transcript card
  *  upsert by one identity. */
-export function newUserSteer(text: string, id: string): NpMessage & UserMessage {
-	return { id, role: "user", content: text, timestamp: Date.now() };
+export function newUserSteer(text: string, id: string, attachments?: readonly AttachmentRef[]): NpMessage & UserMessage {
+	return { id, role: "user", content: text, timestamp: Date.now(), ...withAttachments(attachments) };
 }
 
 /** The learner's answer — the question call's tool result (fork 1).
@@ -187,6 +200,7 @@ export function newAnswerResult(
 	toolCallId: string,
 	toolName: string,
 	answer: unknown,
+	attachments?: readonly AttachmentRef[],
 ): NpMessage & ToolResultMessage {
 	return {
 		id: newMessageId(),
@@ -199,6 +213,7 @@ export function newAnswerResult(
 		details: answer as ToolResultMessage["details"],
 		isError: false,
 		timestamp: Date.now(),
+		...withAttachments(attachments),
 	};
 }
 
@@ -293,7 +308,12 @@ export function newGraphContextMessage(picks: readonly GraphContextPick[], chain
  *  content label is the single "Your thinking"; `details` keeps the raw
  *  payload for the transcript card. One problem may carry many
  *  submissions. */
-export function newThinkingMessage(problemCallId: string, text: string, confidence?: number): NpMarkerMessage {
+export function newThinkingMessage(
+	problemCallId: string,
+	text: string,
+	confidence?: number,
+	attachments?: readonly AttachmentRef[],
+): NpMarkerMessage & { attachments?: AttachmentRef[] } {
 	// The learner's stated confidence (owner, 2026-11-05 — «Exámenes»): the
 	// model reads it (the placement climbs on it) and the review/exam
 	// models fold it from details.
@@ -306,6 +326,7 @@ export function newThinkingMessage(problemCallId: string, text: string, confiden
 		display: true,
 		details: typeof confidence === "number" ? { problemCallId, text, confidence } : { problemCallId, text },
 		timestamp: Date.now(),
+		...withAttachments(attachments),
 	};
 }
 
@@ -546,6 +567,22 @@ export function pendingProblemDismissalOf(messages: readonly NpMessage[]): strin
 
 // ─── the one model-facing seam (the agent's convertToLlm) ────────────────────
 
+/** Turns one attachment ref into its model-facing block (server-built:
+ *  reads the file, knows whether the model has vision input). */
+export type ImageResolver = (ref: AttachmentRef) => ImageContent | TextContent;
+
+/** A message's refs as content blocks — never throws (convertToLlm's law). */
+function imageBlocks(refs: readonly AttachmentRef[], resolveImage?: ImageResolver): (ImageContent | TextContent)[] {
+	return refs.map((ref) => {
+		if (!resolveImage) return { type: "text", text: IMAGE_OMITTED_TEXT };
+		try {
+			return resolveImage(ref);
+		} catch {
+			return { type: "text", text: IMAGE_OMITTED_TEXT };
+		}
+	});
+}
+
 /** The ids of every toolResult in the tail (for the dangling-call scan). */
 function resultIdsFrom(messages: readonly AgentMessage[]): Set<string> {
 	const ids = new Set<string>();
@@ -572,10 +609,16 @@ function resultIdsFrom(messages: readonly AgentMessage[]): Set<string> {
  *   Error/aborted generations do not: Pi drops those assistant messages,
  *   so manufacturing their results would leave orphan results on the wire.
  *
+ * - attachments (owner, 2026-11-06): a message's image refs become content
+ *   blocks after its text, each from `resolveImage` — native image content
+ *   for a vision model, a text stand-in otherwise. Without a resolver every
+ *   image reads IMAGE_OMITTED_TEXT (the safe default: nothing unverified
+ *   reaches a provider).
+ *
  * Contract (pi-agent-core): never throws — an unknown shape passes
  * through untouched rather than killing the loop.
  */
-export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
+export function toLlmMessages(messages: readonly AgentMessage[], resolveImage?: ImageResolver): Message[] {
 	// THE COMPACTION CUT (owner round 14, 2026-10-05): the ACTIVE marker
 	// (the newest — chained compactions rule last) names the first kept
 	// message; everything before it is replaced by the marker's content
@@ -628,14 +671,25 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 			if (marker.customType === "compaction" && head !== null) continue;
 			out.push({
 				role: "user",
-				content: [{ type: "text", text: marker.content }],
+				content: [{ type: "text", text: marker.content }, ...imageBlocks(attachmentsOf(marker), resolveImage)],
 			timestamp: marker.timestamp,
 			});
 			continue;
 		}
-		// Strip the record id: the wire carries the native shape only.
-		const { id: _id, ...native } = m as NpMessage;
-		out.push(native as Message);
+		// Strip the record id (and the attachment refs): the wire carries
+		// the native shape only — refs become content blocks.
+		const { id: _id, attachments, ...native } = m as NpMessage;
+		if (attachments && attachments.length > 0 && (role === "user" || role === "toolResult")) {
+			const blocks = imageBlocks(attachments, resolveImage);
+			const content = (native as { content: unknown }).content;
+			const base: (TextContent | ImageContent)[] =
+				typeof content === "string"
+					? content.trim() ? [{ type: "text", text: content }] : []
+					: (content as (TextContent | ImageContent)[]);
+			out.push({ ...native, content: [...base, ...blocks] } as Message);
+		} else {
+			out.push(native as Message);
+		}
 		// Repair unanswered calls from completed generations, not calls in
 		// failed generations. Pi filters error/aborted assistants itself;
 		// adding results for their unexecuted calls would leave orphans.

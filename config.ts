@@ -33,6 +33,9 @@ export const PATHS = {
 	review: path.join(DATA_ROOT, "review"),
 	/** Exams with a deadline («Exámenes», owner 2026-11-05): src/store/exams.ts. */
 	exams: path.join(DATA_ROOT, "exams"),
+	/** Image attachments (owner, 2026-11-06): attachments/<chatId>/<id>.jpg
+	 *  — src/store/attachments.ts. */
+	attachments: path.join(DATA_ROOT, "attachments"),
 } as const;
 
 // ─── Models ────────────────────────────────────────────────────────────────

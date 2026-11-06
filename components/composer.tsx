@@ -4,6 +4,7 @@ import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/ui/hint";
 import { useT } from "@/components/i18n";
+import { AttachButton, AttachmentTrayView, type AttachmentTray } from "@/components/attachments";
 
 /**
  * The chat composer — content row ONLY (the persistent rounded shell lives in
@@ -51,6 +52,7 @@ export function Composer({
 	nextProblem = false,
 	onNext,
 	endActions,
+	tray,
 }: {
 	busy: boolean;
 	value: string;
@@ -79,6 +81,9 @@ export function Composer({
 	/** Buttons that replace the send button on an idle, empty composer
 	 *  (a review session's batch end: «Parar» / «Siguiente tanda»). */
 	endActions?: React.ReactNode;
+	/** Image attachments (owner, 2026-11-06): the clip, paste and drop
+	 *  feed this tray; its thumbnails sit above the row. */
+	tray?: AttachmentTray;
 }) {
 	const t = useT();
 	const act = () => {
@@ -90,13 +95,18 @@ export function Composer({
 	return (
 		<form
 			data-testid="composer"
-			className="flex items-end gap-1.5 p-1.5"
+			className="flex flex-col"
 			onSubmit={(e) => {
 				e.preventDefault();
 				act();
 			}}
+			{...tray?.dropProps}
 		>
+			{tray && <AttachmentTrayView tray={tray} />}
+			<div className="flex items-end gap-1.5 p-1.5">
+			{tray && <AttachButton tray={tray} />}
 			<textarea
+				onPaste={tray?.onPaste}
 				ref={inputRef}
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
@@ -165,6 +175,7 @@ export function Composer({
 						{busy && !canSend ? <SquareIcon className="size-4" /> : <CornerDownLeftIcon className="size-5" />}
 					</button>
 				)}
+			</div>
 		</form>
 	);
 }

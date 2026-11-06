@@ -40,6 +40,7 @@ export * from "./math-delims.ts";
 // Wave B (owner-approved 2026-09-26): the native record (NpMessage), the
 // and the input-events contract — all
 // pure logic, browser-safe.
+export * from "./attachments.ts";
 export * from "./native-messages.ts";
 export * from "./compaction.ts";
 export * from "./input-events.ts";

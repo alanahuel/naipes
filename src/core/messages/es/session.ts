@@ -40,6 +40,20 @@ export default {
 	"session.composer.submitHint": "↵ envía · ⇧↵ nueva línea",
 	"session.composer.compacting": "compactando la sesión…",
 
+	// Imágenes adjuntas
+	"session.attach.add": "Adjuntar imágenes",
+	"session.attach.remove": "Quitar imagen",
+	"session.attach.open": "Ver imagen",
+	"session.attach.close": "Cerrar",
+	"session.attach.count": "{n}/{max}",
+	"session.attach.uploading": "subiendo…",
+	"session.attach.noVision": "Este modelo no ve imágenes; cambia de modelo para adjuntarlas.",
+	"session.attach.heic": "Las fotos HEIC no se pueden abrir aquí: expórtala como JPEG.",
+	"session.attach.unsupported": "Solo se admiten imágenes JPG, PNG o WebP.",
+	"session.attach.tooMany": "Máximo {max} imágenes por mensaje.",
+	"session.attach.failed": "No se pudo adjuntar la imagen.",
+	"session.attach.imageOnly": "(imagen)",
+
 	// Nueva sesión y elección de ideas
 	"session.new.practiceTitle": "Nueva sesión de práctica",
 	"session.new.practiceDescription": "Elige ideas de tu grafo, cuenta qué quieres practicar o trae tu propio problema.",

@@ -42,6 +42,20 @@ export default {
 	"session.composer.submitHint": "↵ submits · ⇧↵ newline",
 	"session.composer.compacting": "compacting session…",
 
+	// Image attachments
+	"session.attach.add": "Attach images",
+	"session.attach.remove": "Remove image",
+	"session.attach.open": "View image",
+	"session.attach.close": "Close",
+	"session.attach.count": "{n}/{max}",
+	"session.attach.uploading": "uploading…",
+	"session.attach.noVision": "This model can't see images — switch models to attach them.",
+	"session.attach.heic": "HEIC photos can't be opened here — export it as JPEG.",
+	"session.attach.unsupported": "Only JPG, PNG or WebP images are supported.",
+	"session.attach.tooMany": "At most {max} images per message.",
+	"session.attach.failed": "The image could not be attached.",
+	"session.attach.imageOnly": "(image)",
+
 	// New session and node picking
 	"session.new.practiceTitle": "New practice session",
 	"session.new.practiceDescription": "Pick nodes from your knowledge graph, describe what you want to practice, or bring your own problem.",

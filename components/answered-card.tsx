@@ -9,6 +9,7 @@ import { useT } from "@/components/i18n";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import type { QuestionAnswerData } from "@/src/core";
 import { answerForPresentation, parseAskInput, parseQuizInput } from "@/src/core";
+import { AttachmentThumbs } from "@/components/attachments";
 
 /**
  * Static rendering of an answered question (tool part in `output-available`).
@@ -162,6 +163,7 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 			)}
 
 			{answer.text && <div className="np-prose mt-2 whitespace-pre-wrap">“{answer.text}”</div>}
+			<AttachmentThumbs refs={answer.attachments} />
 
 			{/* The confidence record (owner round 6): the slider's rail, disc
 			    removed — the missing handle itself says "this is a record, not a

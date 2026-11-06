@@ -10,6 +10,7 @@
  */
 
 import type { NpMessage } from "./native-messages.ts";
+import type { AttachmentRef } from "./attachments.ts";
 import type {
 	ChatExamLink,
 	ChatRecord,
@@ -67,6 +68,23 @@ export interface ChatStore {
 	 *  job cleanup are the caller's choreography (core/graph-deletion.ts +
 	 *  the DELETE route), not the store's. */
 	deleteChat(id: string): boolean;
+}
+
+// ─── AttachmentStore — the learner's images (data/attachments) ─────────────
+
+/** Image attachments (owner, 2026-11-06): one folder per chat, one JPEG per
+ *  attachment; records hold only refs (core/attachments.ts). */
+export interface AttachmentStore {
+	/** Persist a JPEG for this chat; null when the bytes are not a JPEG. */
+	save(chatId: string, bytes: Uint8Array): AttachmentRef | null;
+	/** The ref of a stored attachment (read from its JPEG header), or null. */
+	ref(chatId: string, id: string): AttachmentRef | null;
+	/** The stored bytes, or null when unknown. */
+	read(chatId: string, id: string): Buffer | null;
+	/** Remove one attachment; false when it did not exist. */
+	removeOne(chatId: string, id: string): boolean;
+	/** Remove the chat's whole attachment folder (session deletion). */
+	removeChat(chatId: string): void;
 }
 
 // ─── GraphStore — the append-only evidence ledgers (data/graph) ──────────────

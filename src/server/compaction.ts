@@ -164,7 +164,10 @@ export function effectiveThresholdTokens(settingTokens: number | undefined, cont
 export function projectedContextTokens(messages: readonly NpMessage[], systemPromptTokens: number): number {
 	const est = estimateContextTokens(messages);
 	if (est.lastUsageIndex !== null) return est.tokens;
-	return estimateTokens(toLlmMessages(messages as readonly AgentMessage[]) as unknown as readonly NpMessage[]) + systemPromptTokens;
+	// An estimate-only resolver: each attachment counts as one image block
+	// (the fixed allowance); this projection never reaches a provider.
+	const estimateImage = (ref: { mimeType: string }) => ({ type: "image" as const, data: "", mimeType: ref.mimeType });
+	return estimateTokens(toLlmMessages(messages as readonly AgentMessage[], estimateImage) as unknown as readonly NpMessage[]) + systemPromptTokens;
 }
 
 // ─── the compaction run ─────────────────────────────────────────────────────

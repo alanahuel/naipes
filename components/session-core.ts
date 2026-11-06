@@ -27,6 +27,8 @@ import {
 	newThinkingMessage,
 	newUserMessage,
 	projectView,
+	attachmentsOf,
+	type AttachmentRef,
 	type ChatInput,
 	type NpMarkerMessage,
 	type NpMessage,
@@ -166,13 +168,20 @@ export function pendingCallTool(messages: readonly NpMessage[], toolCallId: stri
  * content, not the (local) id; only `c_`-prefixed local entries are ever
  * absorbed (live turn content is never dropped).
  */
+function attachmentKey(m: unknown): string {
+	return attachmentsOf(m).map((a) => a.id).join(",");
+}
+
 export function absorbed(m: NpMessage, record: readonly NpMessage[]): boolean {
 	if (typeof m.id !== "string" || !m.id.startsWith("c_")) return false;
 	const role = (m as { role?: string }).role;
 	if (role === "user") {
 		const content = (m as { content?: unknown }).content;
+		// Same text AND the same images (owner, 2026-11-06): two image-only
+		// sends share the empty text, never the attachment ids.
+		const images = attachmentKey(m);
 		return record.some(
-			(r) => (r as { role?: string }).role === "user" && (r as { content?: unknown }).content === content,
+			(r) => (r as { role?: string }).role === "user" && (r as { content?: unknown }).content === content && attachmentKey(r) === images,
 		);
 	}
 	if (role === "toolResult") {
@@ -674,7 +683,9 @@ export class SessionModel {
 	 * POST + consume. Ready-gated: one turn per client at a time (the
 	 * server's 409 + identity retry covers the wake-race window).
 	 */
-	async send(input: ChatInput, onAccepted?: () => void): Promise<boolean> {
+	/** `attachments`: the refs behind the input's attachmentIds (the tray
+	 *  uploaded them) — the optimistic card shows the images at once. */
+	async send(input: ChatInput, onAccepted?: () => void, attachments: readonly AttachmentRef[] = []): Promise<boolean> {
 		const recovering = this.statusValue === "error";
 		if (!this.readyRef && !recovering) return false;
 		this.consumeAbort?.abort();
@@ -716,19 +727,19 @@ export class SessionModel {
 		// write-ahead will persist (inputAppends), with LOCAL ids so
 		// adoption can tell them from the record's absorbed copies.
 		const optimistic: NpMessage[] = [];
-		if (input.type === "text") optimistic.push({ ...newUserMessage(input.text), id: localId() });
+		if (input.type === "text") optimistic.push({ ...newUserMessage(input.text, attachments), id: localId() });
 		else if (input.type === "thinking") {
 			// The practice submissions (2026-10-04): the marker lands
 			// optimistically — the card renders from its details the
 			// moment the button fires.
-			optimistic.push({ ...newThinkingMessage(input.problemCallId, input.text, input.confidence), id: localId() });
+			optimistic.push({ ...newThinkingMessage(input.problemCallId, input.text, input.confidence, attachments), id: localId() });
 		} else if (input.type === "next") {
 			// The move-on signal (owner round 16): the NEXT PROBLEM line
 			// renders the instant the chip/Enter fires.
 			optimistic.push({ ...newNextMessage(), id: localId() });
 		} else if (input.type === "answer") {
 			const tool = pendingCallTool([...this.base, ...this.tail], input.toolCallId) ?? "quiz";
-			const result = { ...newAnswerResult(input.toolCallId, tool, input.answer), id: localId() };
+			const result = { ...newAnswerResult(input.toolCallId, tool, input.answer, attachments), id: localId() };
 			optimistic.push(result);
 			this.unconfirmedAnswers.set(result.id, input.toolCallId);
 		}
@@ -826,9 +837,10 @@ export class SessionModel {
 	 *  settled mid-send (the race): fall back to the plain text send —
 	 *  the entry is dropped and send() pushes its own optimistic card.
 	 */
-	async steer(text: string): Promise<void> {
+	async steer(text: string, attachments: readonly AttachmentRef[] = []): Promise<void> {
 		const t = text.trim();
-		if (!t) return;
+		if (!t && attachments.length === 0) return;
+		const attachmentIds = attachments.map((a) => a.id);
 		const id = `steer_${localId()}`;
 		this.steerQueueValue = [...this.steerQueueValue, { id, text: t }];
 		this.onChange?.();
@@ -840,12 +852,13 @@ export class SessionModel {
 			const res = await this.fetch(`/api/chats/${this.chatId}/steer`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ input: { type: "steer", id, text: t } }),
+				body: JSON.stringify({ input: { type: "steer", id, text: t, ...(attachmentIds.length > 0 ? { attachmentIds } : {}) } }),
 			});
 			if (res.ok) return; // parked or delivered — the stream lands the card
 			if (res.status === 409) {
 				dropSteer();
-				await this.send({ type: "text", text: t }); // the settle race: plain send
+				// the settle race: plain send
+				await this.send({ type: "text", text: t, ...(attachmentIds.length > 0 ? { attachmentIds } : {}) }, undefined, attachments);
 				return;
 			}
 			dropSteer();
@@ -858,9 +871,14 @@ export class SessionModel {
 
 	/** The answer path (the dock): the answer IS the question call's tool
 	 *  result (fork 1), riding as its input event. */
-	submitAnswer(tool: string, toolCallId: string, output: QuestionAnswerData): Promise<void> {
+	submitAnswer(tool: string, toolCallId: string, output: QuestionAnswerData, attachments: readonly AttachmentRef[] = []): Promise<void> {
 		void tool;
-		return this.send({ type: "answer", toolCallId, answer: output }).then(() => undefined);
+		const attachmentIds = attachments.map((a) => a.id);
+		return this.send(
+			{ type: "answer", toolCallId, answer: output, ...(attachmentIds.length > 0 ? { attachmentIds } : {}) },
+			undefined,
+			attachments,
+		).then(() => undefined);
 	}
 
 	/** The dismissal path (owner design 2026-10-03, "A2"): the skipped

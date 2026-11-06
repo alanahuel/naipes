@@ -38,6 +38,7 @@ import { derivePlanStatusesLh, derivedNodeStatus } from "./contracts/plan.ts";
 import { COMPACTED_HISTORY_HEADER } from "./contracts/chat.ts";
 import type { NpMessage, NpMarkerMessage } from "./native-messages.ts";
 import { newMessageId } from "./native-messages.ts";
+import { attachmentsOf } from "./attachments.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolResultMessage, SystemMessage } from "@earendil-works/pi-ai";
 
@@ -100,6 +101,9 @@ export function estimateMessageTokens(message: NpMessage | AgentMessage): number
 		}
 	} else {
 		chars += textCharsOfContent(content);
+		// Record-shape image refs (owner, 2026-11-06): the wire carries each
+		// as an image block — the same fixed allowance.
+		chars += attachmentsOf(message).length * ESTIMATED_IMAGE_CHARS;
 		if (message.role === "system") {
 			const system = message as SystemMessage;
 			for (const section of Object.values(system.sections ?? {})) chars += section?.length ?? 0;
@@ -310,6 +314,20 @@ export function serializeForSummary(messages: readonly NpMessage[]): string {
 	const lines: string[] = [];
 	for (const m of messages) {
 		const role = (m as { role?: string }).role;
+		const before = lines.length;
+		pushLine(m, role);
+		// Image attachments (owner, 2026-11-06): the summarizer never sees
+		// pixels — a note per image, on the message's own line.
+		const images = attachmentsOf(m).length;
+		if (images > 0) {
+			const note = Array.from({ length: images }, () => "[image attached]").join(" ");
+			if (lines.length > before) lines[lines.length - 1] = `${lines[lines.length - 1]} ${note}`;
+			else lines.push(`[LEARNER] ${note}`);
+		}
+	}
+	return lines.join("\n\n");
+
+	function pushLine(m: NpMessage, role: string | undefined): void {
 		if (role === "user") {
 			lines.push(`[LEARNER] ${(m as { content: string }).content}`);
 		} else if (role === "assistant") {
@@ -334,11 +352,10 @@ export function serializeForSummary(messages: readonly NpMessage[]): string {
 			);
 		} else if (role === "custom") {
 			const marker = m as NpMarkerMessage;
-			if (marker.customType === "plan-block") continue; // UI-only
+			if (marker.customType === "plan-block") return; // UI-only
 			lines.push(`[SYSTEM NOTE] ${marker.content}`);
 		}
 	}
-	return lines.join("\n\n");
 }
 
 /** Render the plan dependency tree verbatim (owner requirement: the tree
