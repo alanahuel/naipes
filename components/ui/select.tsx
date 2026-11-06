@@ -23,7 +23,9 @@ export interface SelectOption<V extends string = string> {
 }
 
 const SIZES = {
-	sm: "h-7 gap-1 rounded-md px-2 text-xs",
+	// sm = the settings menu-trigger look (SettingsMenuTrigger): every
+	// compact dropdown reads like the model menus.
+	sm: "h-7 gap-1 rounded-sm px-1.5 text-xs",
 	md: "h-9 gap-2 rounded-md px-3 text-sm",
 } as const;
 

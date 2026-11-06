@@ -72,8 +72,10 @@ export function SettingsRow({
 	dimmed?: boolean;
 }) {
 	return (
-		<div data-testid={testid} className={cn("flex items-center justify-between gap-4 py-1", dimmed && "opacity-40")}>
-			<span className="min-w-0">
+		<div data-testid={testid} className={cn("flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-1", dimmed && "opacity-40")}>
+			{/* Narrow windows (design pass 2026-11-06): the control wraps under
+			    the label instead of squeezing the hint to a word per line. */}
+			<span className="min-w-0 flex-1 basis-52">
 				<span className="block font-prose text-(length:--np-prose-size)">{label}</span>
 				{hint && <span className="block text-xs text-muted-foreground/70">{hint}</span>}
 			</span>

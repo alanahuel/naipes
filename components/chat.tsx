@@ -1397,7 +1397,7 @@ export function Chat({
 						</>
 					) : (
 					<>
-						<nav aria-label={t("session.header.breadcrumb")} className="flex shrink-0 items-center gap-1 text-sm text-muted-foreground" data-testid="session-breadcrumb">
+						<nav aria-label={t("session.header.breadcrumb")} className="hidden shrink-0 items-center gap-1 text-sm text-muted-foreground sm:flex" data-testid="session-breadcrumb">
 							<Link href="/sessions" className="rounded-md px-1 transition-colors hover:text-foreground">
 								{t("sessions.title")}
 							</Link>
@@ -1415,7 +1415,7 @@ export function Chat({
 								setTitleDraft(titleText);
 								setRenaming(true);
 							}}
-							className="np-no-drag -mx-1.5 min-w-4 shrink cursor-text truncate rounded-md px-1.5 text-left font-title text-3xl tracking-tight transition-colors hover:bg-accent"
+							className="np-no-drag -mx-1.5 min-w-4 shrink cursor-text truncate rounded-md px-1.5 text-left font-title text-2xl tracking-tight transition-colors hover:bg-accent sm:text-3xl"
 						>
 							{titleText}
 							</button>
@@ -1423,7 +1423,7 @@ export function Chat({
 							{/* The status line (stage 4): plan step + whose turn it is. */}
 							<div className="flex shrink-0 items-center gap-2" data-testid="session-status">
 								{progress && (
-									<span className="text-sm tabular-nums text-muted-foreground">{t("session.header.step", { step: progress.step, total: progress.total })}</span>
+									<span className="hidden whitespace-nowrap text-sm tabular-nums text-muted-foreground sm:inline">{t("session.header.step", { step: progress.step, total: progress.total })}</span>
 								)}
 								{busy ? (
 									<StateLabel label={t("sessions.state.working")} tone="neutral" />
@@ -1475,7 +1475,11 @@ export function Chat({
 							{t("session.practiceTag")}
 						</span>
 					) : (
-						<PhaseChip phase={phases.at(-1) ?? "probe"} />
+						// Narrow windows: the plan chip and the ring stay; the phase
+						// label yields its width to the title (design pass 2026-11-06).
+						<span className="hidden sm:contents">
+							<PhaseChip phase={phases.at(-1) ?? "probe"} />
+						</span>
 					)}
 				</TopBar>
 

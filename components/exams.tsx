@@ -1961,7 +1961,7 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 								</button>
 								{exam.record.status === "active" && kindSelect(b, null, b.title)}
 								<span className="w-10 text-right tabular-nums text-muted-foreground">{score}%</span>
-								<span className="w-24">
+								<span className="hidden w-24 sm:block">
 									<CoverageBar value={score} target={Math.round(exam.standard.coverage * 100)} label={t("exams.level.bar", { n: score, target: Math.round(exam.standard.coverage * 100) })} />
 								</span>
 								<button
