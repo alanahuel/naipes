@@ -110,3 +110,17 @@ describe("targets survive the record round-trip", () => {
 		assert.equal(blocks[0]!.points[0]!.targets?.[0]?.statement, "S");
 	});
 });
+
+describe("exam sorter", () => {
+	it("sorts every idea to a target or extension; unknown ids are retried", async () => {
+		const { runExamSorter, examSorterPrompt } = await import("../src/agent/subagents/exam-sorter.ts");
+		const input = { point: "Límites", targets: [{ id: "t1", statement: "Definición de límite" }], ideas: [{ id: "n5", name: "Límite", statement: "…" }, { id: "n6", name: "Sucesiones", statement: "…" }] };
+		assert.ok(examSorterPrompt(input).includes("TARGETS:\n[t1] Definición de límite"));
+		const engine = fauxEngine([
+			call("submit_sort", { ideas: [{ id: "n5", target: "t9" }, { id: "n6", target: "extension" }] }, "a"),
+			call("submit_sort", { ideas: [{ id: "n5", target: "t1" }, { id: "n6", target: "extension" }] }, "b"),
+		]);
+		const sorted = await runExamSorter({ engine, input });
+		assert.deepEqual([...sorted], [["n5", "t1"], ["n6", "extension"]]);
+	});
+});

@@ -73,7 +73,7 @@ export interface ChatRecord {
 	version?: number;
 }
 
-export type ExamSessionKind = "placement" | "practice" | "review" | "teach" | "mock";
+export type ExamSessionKind = "placement" | "practice" | "review" | "teach" | "mock" | "deepen";
 
 export interface ChatExamLink {
 	id: string;
@@ -85,6 +85,9 @@ export interface ChatExamLink {
 	pointIds?: string[];
 	/** Practice: each picked idea's reached mode level at creation. */
 	levels?: Record<string, number>;
+	/** Teach of a researched point (owner 2026-11-06): the target ideas it
+	 *  establishes, frozen at creation (consolidate: the known ones). */
+	targetIds?: string[];
 }
 
 /** The chat record format this build writes and understands. */

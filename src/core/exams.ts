@@ -87,6 +87,9 @@ export interface SyllabusPoint {
 	/** The research's target ideas (owner 2026-11-06); absent = the point
 	 *  was not researched (a v1 exam, or research pending). */
 	targets?: TargetIdea[];
+	/** «Ampliación» (owner 2026-11-06): ideas formed while studying the
+	 *  point that go beyond its targets — dated review, not counted. */
+	extension?: string[];
 }
 
 /** Where a target idea comes from (owner 2026-11-06). */
@@ -513,7 +516,8 @@ export function sanitizeBlocks(raw: unknown): SyllabusBlock[] {
 			if (!pid || !text || seen.has(pid)) continue;
 			seen.add(pid);
 			const targets = sanitizeTargets(point.targets);
-			points.push({ id: pid, text, nodeIds: strList(point.nodeIds), ...(targets ? { targets } : {}) });
+			const extension = strList(point.extension);
+			points.push({ id: pid, text, nodeIds: strList(point.nodeIds), ...(targets ? { targets } : {}), ...(extension.length ? { extension } : {}) });
 		}
 		out.push({ id, title, points });
 	}
@@ -666,9 +670,16 @@ export function deadlineDue(input: {
  *  sessions (a taught «falta» point joins the exam through them). */
 export function examNodeIds(exam: Pick<ExamRecord, "id" | "blocks">, chats: ReadonlyArray<Pick<ExamChat, "id" | "exam">>, nodesBornIn: ReadonlyMap<string, readonly string[]>): string[] {
 	const out = new Set<string>();
-	for (const p of allPoints(exam)) for (const id of p.nodeIds) out.add(id);
+	const researched = new Set<string>();
+	for (const p of allPoints(exam)) {
+		for (const id of p.nodeIds) out.add(id);
+		for (const id of p.extension ?? []) out.add(id);
+		if (p.targets) researched.add(p.id);
+	}
+	// Researched points gain born ideas through the sort (targets or
+	// ampliación); unresearched ones the old way, every born idea.
 	for (const chat of chats) {
-		if (chat.exam?.id !== exam.id || chat.exam.kind !== "teach") continue;
+		if (chat.exam?.id !== exam.id || chat.exam.kind !== "teach" || (chat.exam.pointId && researched.has(chat.exam.pointId))) continue;
 		for (const id of nodesBornIn.get(chat.id) ?? []) out.add(id);
 	}
 	return [...out];
@@ -794,6 +805,19 @@ export interface IdeaStatus extends IdeaLevel {
 /** What a point needs next, in plan order. */
 export type PointNeed = "placement" | "teach" | "consolidate" | "practice" | "done";
 
+/** One target idea's standing (owner 2026-11-06). */
+export interface TargetStatus {
+	id: string;
+	statement: string;
+	nodeIds: string[];
+	probe: PointProbe | null;
+	/** All its linked ideas meet the standard. */
+	mastered: boolean;
+	/** mastered / linked (has ideas, not all meeting) / placement (not in
+	 *  the graph, not probed yet) / consolidate (probed known) / teach. */
+	state: "mastered" | "linked" | "placement" | "consolidate" | "teach";
+}
+
 export interface PointStatus {
 	id: string;
 	blockId: string;
@@ -805,9 +829,14 @@ export interface PointStatus {
 	probe: PointProbe | null;
 	/** An exam teach session for this point exists. */
 	taughtSession: boolean;
-	/** Share of its ideas meeting the standard (0 with no ideas). */
+	/** Share of its ideas (researched: of its targets) meeting the
+	 *  standard (0 with none). */
 	score: number;
 	need: PointNeed;
+	/** Researched points: their targets' standing; null otherwise. */
+	targets: TargetStatus[] | null;
+	/** «Ampliación» ideas (not counted). */
+	extension: string[];
 }
 
 export interface ExamStatusModel {
@@ -840,18 +869,28 @@ export interface ExamStatusInput {
 const meetsWith = (idea: Pick<IdeaStatus, "toTeach" | "level" | "recallAtExam">, standard: Pick<ExamStandard, "mode" | "recall">) =>
 	!idea.toTeach && idea.level >= MODE_LEVEL[standard.mode] && idea.recallAtExam !== null && idea.recallAtExam >= standard.recall;
 
+/** The units a point's score counts: its targets' linked ideas (a target
+ *  counts only when ALL of them meet — owner 2026-11-06; an unlinked
+ *  target never), else each of its ideas alone. */
+const unitsOf = (p: { nodeIds: readonly string[]; targets?: ReadonlyArray<{ nodeIds: readonly string[] }> | null }): Array<readonly string[]> =>
+	p.targets ? p.targets.map((t) => t.nodeIds) : p.nodeIds.map((n) => [n]);
+
 /** Per-point coverage (owner): mean of the points' meeting shares. */
-export function coverageWith(points: ReadonlyArray<{ nodeIds: readonly string[] }>, ideas: ReadonlyMap<string, Pick<IdeaStatus, "toTeach" | "level" | "recallAtExam">>, standard: Pick<ExamStandard, "mode" | "recall">): number {
+export function coverageWith(
+	points: ReadonlyArray<{ nodeIds: readonly string[]; targets?: ReadonlyArray<{ nodeIds: readonly string[] }> | null }>,
+	ideas: ReadonlyMap<string, Pick<IdeaStatus, "toTeach" | "level" | "recallAtExam">>,
+	standard: Pick<ExamStandard, "mode" | "recall">,
+): number {
 	if (points.length === 0) return 0;
 	let sum = 0;
 	for (const p of points) {
-		if (p.nodeIds.length === 0) continue;
+		const units = unitsOf(p);
+		if (units.length === 0) continue;
 		let met = 0;
-		for (const id of p.nodeIds) {
-			const idea = ideas.get(id);
-			if (idea && meetsWith(idea, standard)) met++;
+		for (const unit of units) {
+			if (unit.length > 0 && unit.every((id) => { const idea = ideas.get(id); return !!idea && meetsWith(idea, standard); })) met++;
 		}
-		sum += met / p.nodeIds.length;
+		sum += met / units.length;
 	}
 	return sum / points.length;
 }
@@ -869,19 +908,22 @@ export function computeExamStatus(input: ExamStatusInput): ExamStatusModel {
 	// Ideas born in this exam's own teach sessions start from those checks —
 	// the placement test is for what the learner brought in.
 	const examTaught = new Set<string>();
-	for (const p of allPoints(exam)) pointNodes.set(p.id, [...p.nodeIds]);
+	const recordPoints = new Map(allPoints(exam).map((p) => [p.id, p]));
+	for (const p of recordPoints.values()) pointNodes.set(p.id, [...p.nodeIds]);
 	for (const chat of examChats) {
 		if (chat.exam!.kind !== "teach" || !chat.exam!.pointId || !pointNodes.has(chat.exam!.pointId)) continue;
 		taughtSession.add(chat.exam!.pointId);
+		const researched = !!recordPoints.get(chat.exam!.pointId)!.targets;
 		const list = pointNodes.get(chat.exam!.pointId)!;
 		for (const id of input.nodesBornIn.get(chat.id) ?? []) {
 			examTaught.add(id);
-			if (!list.includes(id)) list.push(id);
+			if (!researched && !list.includes(id)) list.push(id);
 		}
 	}
 
 	const pointsOf = new Map<string, string[]>();
 	for (const [pid, ids] of pointNodes) for (const id of ids) pointsOf.set(id, [...(pointsOf.get(id) ?? []), pid]);
+	for (const p of recordPoints.values()) for (const id of p.extension ?? []) if (!(pointsOf.get(id) ?? []).includes(p.id)) pointsOf.set(id, [...(pointsOf.get(id) ?? []), p.id]);
 
 	const ideas: IdeaStatus[] = [];
 	const ideaById = new Map<string, IdeaStatus>();
@@ -904,19 +946,46 @@ export function computeExamStatus(input: ExamStatusInput): ExamStatusModel {
 	}
 
 	const target = MODE_LEVEL[exam.standard.mode];
+	const ideaNeed = (members: IdeaStatus[]): PointNeed => {
+		if (members.some((i) => !i.placed && !examTaught.has(i.nodeId))) return "placement";
+		if (members.some((i) => i.toTeach)) return "consolidate";
+		if (members.some((i) => i.level < target)) return "practice";
+		return "done";
+	};
 	const points: PointStatus[] = allPoints(exam).map((p) => {
 		const nodeIds = pointNodes.get(p.id) ?? [];
-		const gap = p.nodeIds.length === 0;
 		const probe = probes.get(p.id) ?? null;
 		const members = nodeIds.map((id) => ideaById.get(id)!).filter(Boolean);
+		const extension = (p.extension ?? []).filter((id) => ideaById.has(id));
+		const base = { id: p.id, blockId: p.blockId, text: p.text, nodeIds, probe, taughtSession: taughtSession.has(p.id), extension };
+		if (p.targets) {
+			// Researched (owner 2026-11-06): targets decide. An unlinked
+			// target is probed first; known → a short consolidation, else
+			// taught. A taught point's targets wait for the sort to link them.
+			const targets: TargetStatus[] = p.targets.map((tg) => {
+				const linked = tg.nodeIds.map((id) => ideaById.get(id)).filter((i): i is IdeaStatus => !!i);
+				const tProbe = probes.get(tg.id) ?? null;
+				const mastered = linked.length > 0 && linked.every((i) => i.meets);
+				const state: TargetStatus["state"] = mastered
+					? "mastered"
+					: linked.length > 0
+						? "linked"
+						: tProbe === null && !taughtSession.has(p.id)
+							? "placement"
+							: tProbe === "known"
+								? "consolidate"
+								: "teach";
+				return { id: tg.id, statement: tg.statement, nodeIds: linked.map((i) => i.nodeId), probe: tProbe, mastered, state };
+			});
+			const score = targets.length ? targets.filter((x) => x.mastered).length / targets.length : 0;
+			const states = new Set(targets.map((x) => x.state));
+			const need: PointNeed = states.has("placement") ? "placement" : states.has("teach") ? "teach" : states.has("consolidate") ? "consolidate" : ideaNeed(members);
+			return { ...base, gap: targets.some((x) => x.nodeIds.length === 0), score, need, targets };
+		}
+		const gap = p.nodeIds.length === 0;
 		const score = members.length ? members.filter((i) => i.meets).length / members.length : 0;
-		let need: PointNeed;
-		if (gap && !taughtSession.has(p.id)) need = probe === null ? "placement" : probe === "known" ? "consolidate" : "teach";
-		else if (members.some((i) => !i.placed && !examTaught.has(i.nodeId))) need = "placement";
-		else if (members.some((i) => i.toTeach)) need = "consolidate";
-		else if (members.some((i) => i.level < target)) need = "practice";
-		else need = "done";
-		return { id: p.id, blockId: p.blockId, text: p.text, nodeIds, gap, probe, taughtSession: taughtSession.has(p.id), score, need };
+		const need: PointNeed = gap && !taughtSession.has(p.id) ? (probe === null ? "placement" : probe === "known" ? "consolidate" : "teach") : ideaNeed(members);
+		return { ...base, gap, score, need, targets: null };
 	});
 
 	const coverage = coverageWith(points, ideaById, exam.standard);
@@ -927,8 +996,14 @@ export function computeExamStatus(input: ExamStatusInput): ExamStatusModel {
 	}
 	// Placement is exhaustive (owner): every syllabus idea the placement
 	// test hasn't reached, and every «falta» point not yet probed.
-	const pendingIdeas = ideas.filter((i) => !i.placed && !examTaught.has(i.nodeId)).map((i) => i.nodeId);
-	const pendingPoints = points.filter((p) => p.gap && !p.taughtSession && p.probe === null).map((p) => p.id);
+	// Extension ideas are not placed (they were formed in exam sessions).
+	const counted = new Set(points.flatMap((p) => p.nodeIds));
+	const pendingIdeas = ideas.filter((i) => counted.has(i.nodeId) && !i.placed && !examTaught.has(i.nodeId)).map((i) => i.nodeId);
+	// «Falta» points (unresearched) and unlinked targets not probed yet —
+	// both are probed by id through `syllabusPoint`.
+	const pendingPoints = points.flatMap((p) =>
+		p.targets ? p.targets.filter((x) => x.state === "placement").map((x) => x.id) : p.gap && !p.taughtSession && p.probe === null ? [p.id] : [],
+	);
 	return {
 		examId: exam.id,
 		today,
@@ -1114,7 +1189,24 @@ export function examWork(input: {
 		let practice = 0;
 		let review = 0;
 		let met = false;
-		if (p.gap && !p.taughtSession) {
+		if (p.targets) {
+			// Researched: unlinked targets are taught (one session; a short
+			// one when all of them are known), then climbed and reviewed;
+			// linked ideas as below. Met = every target mastered.
+			const open = p.targets.filter((x) => x.nodeIds.length === 0);
+			if (open.some((x) => x.state === "teach" || x.state === "placement")) teach = durations.teach;
+			else if (open.length > 0) teach = durations.consolidate;
+			practice += open.length * target * durations.problem;
+			review += open.length * reviewsFor(null) * durations.review;
+			const members = p.nodeIds.map((id) => ideaById.get(id)).filter((i): i is IdeaStatus => !!i);
+			if (members.some((i) => i.toTeach)) teach += durations.consolidate;
+			for (const i of members) {
+				const from = i.toTeach ? 0 : i.placed || i.tested ? i.level : target;
+				practice += Math.max(0, target - from) * durations.problem;
+				review += reviewsFor(i.nodeId) * durations.review;
+			}
+			met = p.targets.length > 0 && p.targets.every((x) => x.mastered);
+		} else if (p.gap && !p.taughtSession) {
 			teach = p.probe === "known" ? durations.consolidate : durations.teach;
 			practice = ideasPerPoint * target * durations.problem;
 			review = ideasPerPoint * reviewsFor(null) * durations.review;
@@ -1393,4 +1485,72 @@ export interface ExamDetailView extends ExamSummaryView {
 	startedToday: boolean;
 	/** While/after reading unread folders: notes settled and failed. */
 	reading: { total: number; done: number; failed: Array<{ path: string; error: string }> } | null;
+}
+
+// ─── sorting ideas born in exam sessions (owner 2026-11-06) ─────────────────
+
+/** What still has to be sorted: per researched point, the ideas born in
+ *  its exam teach sessions (→ the sorter) and in its «Profundizar»
+ *  sessions (→ ampliación, no model) that sit in none of its lists. */
+export function pendingSorts(
+	exam: Pick<ExamRecord, "id" | "blocks">,
+	chats: ReadonlyArray<Pick<ExamChat, "id" | "exam">>,
+	nodesBornIn: ReadonlyMap<string, readonly string[]>,
+): Array<{ pointId: string; teach: string[]; deepen: string[] }> {
+	const points = new Map(allPoints(exam).filter((p) => p.targets).map((p) => [p.id, p]));
+	const out = new Map<string, { pointId: string; teach: Set<string>; deepen: Set<string> }>();
+	for (const chat of chats) {
+		const link = chat.exam;
+		if (link?.id !== exam.id || !link.pointId || (link.kind !== "teach" && link.kind !== "deepen")) continue;
+		const point = points.get(link.pointId);
+		if (!point) continue;
+		const placed = new Set([...point.targets!.flatMap((t) => t.nodeIds), ...(point.extension ?? [])]);
+		for (const id of nodesBornIn.get(chat.id) ?? []) {
+			if (placed.has(id)) continue;
+			const entry = out.get(point.id) ?? { pointId: point.id, teach: new Set<string>(), deepen: new Set<string>() };
+			out.set(point.id, entry);
+			(link.kind === "deepen" ? entry.deepen : entry.teach).add(id);
+		}
+	}
+	return [...out.values()].map((e) => ({ pointId: e.pointId, teach: [...e.teach].filter((id) => !e.deepen.has(id)), deepen: [...e.deepen] }));
+}
+
+/** Put sorted ideas in place: a target id links the idea to that target,
+ *  "extension" adds it to the point's ampliación. Pure. */
+export function applySort(blocks: SyllabusBlock[], pointId: string, sorted: ReadonlyMap<string, string>): SyllabusBlock[] {
+	return syncPointLinks(
+		blocks.map((b) => ({
+			...b,
+			points: b.points.map((p) => {
+				if (p.id !== pointId || !p.targets) return p;
+				const extension = new Set(p.extension ?? []);
+				const targets = p.targets.map((t) => ({ ...t, nodeIds: [...t.nodeIds] }));
+				for (const [idea, where] of sorted) {
+					const target = targets.find((t) => t.id === where);
+					if (target) {
+						if (!target.nodeIds.includes(idea)) target.nodeIds.push(idea);
+						extension.delete(idea);
+					} else if (where === "extension") extension.add(idea);
+				}
+				const { extension: _old, ...rest } = p;
+				void _old;
+				return { ...rest, targets, ...(extension.size ? { extension: [...extension] } : {}) };
+			}),
+		})),
+	);
+}
+
+/** The learner's hand move (owner 2026-11-06): an idea of a researched
+ *  point goes to ampliación, or to one of its targets. Wins over the
+ *  sorter (the idea is then «placed» and never re-sorted). Pure. */
+export function moveIdea(blocks: SyllabusBlock[], pointId: string, ideaId: string, where: "extension" | { target: string }): SyllabusBlock[] {
+	const cleared = blocks.map((b) => ({
+		...b,
+		points: b.points.map((p) =>
+			p.id !== pointId || !p.targets
+				? p
+				: { ...p, targets: p.targets.map((t) => ({ ...t, nodeIds: t.nodeIds.filter((n) => n !== ideaId) })), extension: (p.extension ?? []).filter((n) => n !== ideaId) },
+		),
+	}));
+	return applySort(cleared, pointId, new Map([[ideaId, where === "extension" ? "extension" : where.target]]));
 }

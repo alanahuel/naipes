@@ -10,6 +10,9 @@ import {
 	coverageWith,
 	deadlineDue,
 	EMPTY_EXAM_CONTEXT,
+	applySort,
+	moveIdea,
+	pendingSorts,
 	folderCheck,
 	foldersToRead,
 	inExamScope,
@@ -282,11 +285,85 @@ describe("syllabus probes and status", () => {
 	});
 });
 
+describe("researched points: targets decide (owner 2026-11-06)", () => {
+	const item = (nodeId: string, events: ReturnType<typeof ev>[]): ReviewItem => ({
+		nodeId, name: nodeId, group: { kind: "area", id: "a" }, state: "review", stability: 60, difficulty: 5, retrievability: 0.95,
+		due: T0 + 30 * D, lastReview: T0 - D, reps: 3, lapses: 0, paused: false, released: true, events,
+	});
+	const tg = (id: string, nodeIds: string[] = []) => ({ id, statement: `idea ${id}`, source: { kind: "model" as const, title: "" }, nodeIds });
+	const researched = (over: Partial<ExamRecord> = {}) =>
+		exam({
+			blocks: [{ id: "b1", title: "Análisis", points: [{ id: "pt1", text: "Límites", nodeIds: ["n1", "n2"], targets: [tg("t1", ["n1", "n2"]), tg("t2"), tg("t3")], extension: ["n9"] }] }],
+			...over,
+		});
+	const run = (record: ExamRecord, chats: ExamChat[] = [], born = new Map<string, string[]>()) =>
+		computeExamStatus({
+			exam: record,
+			now: T0,
+			items: new Map([
+				["n1", item("n1", [ev({ nodeId: "n1", chatId: "place1", step: "up", mode: "discrimination" })])],
+				["n2", item("n2", [ev({ nodeId: "n2", chatId: "place1", step: "up", mode: "discrimination" })])],
+				["n9", item("n9", [])],
+			]),
+			names: new Map(),
+			chats: [{ id: "place1", kind: "practice", createdAt: new Date(T0).toISOString(), exam: { id: "exam_test_1", kind: "placement" }, messages: [] }, ...chats],
+			nodesBornIn: born,
+			confidenceThreshold: 70,
+			dueEnd: T0 + D,
+		});
+	it("a target counts only when ALL its ideas meet; unlinked targets count 0; ampliación never", () => {
+		const status = run(researched());
+		const pt1 = status.points[0]!;
+		assert.deepEqual(pt1.targets!.map((x) => x.state), ["mastered", "placement", "placement"]);
+		assert.equal(pt1.score, 1 / 3);
+		assert.deepEqual(pt1.extension, ["n9"]);
+		assert.equal(pt1.need, "placement");
+		assert.deepEqual(status.placement.pendingPoints, ["t2", "t3"], "unlinked targets are probed by id");
+		assert.ok(!status.placement.pendingIdeas.includes("n9"), "ampliación is not placed");
+		assert.ok(status.ideas.some((i) => i.nodeId === "n9"), "ampliación still gets dated review");
+	});
+	it("probes per target: known → consolidate, unknown → teach; born ideas wait for the sort", () => {
+		const probes: ExamChat = {
+			id: "place2",
+			kind: "practice",
+			createdAt: new Date(T0).toISOString(),
+			exam: { id: "exam_test_1", kind: "placement" },
+			messages: [...solvedProblem(T0, { syllabusPoint: "t2" }, {}, 90), ...solvedProblem(T0 + H, { syllabusPoint: "t3" }, { outcome: "surrendered" })],
+		};
+		const status = run(researched(), [probes]);
+		assert.deepEqual(status.points[0]!.targets!.map((x) => x.state), ["mastered", "consolidate", "teach"]);
+		assert.equal(status.points[0]!.need, "teach");
+		const teach: ExamChat = { id: "teach1", kind: "teach", createdAt: new Date(T0).toISOString(), exam: { id: "exam_test_1", kind: "teach", pointId: "pt1" }, messages: [] };
+		const after = run(researched(), [probes, teach], new Map([["teach1", ["n5"]]]));
+		assert.ok(!after.points[0]!.nodeIds.includes("n5"), "not auto-added to a researched point");
+	});
+	it("pendingSorts / applySort / moveIdea", () => {
+		const record = researched();
+		const chats: ExamChat[] = [
+			{ id: "teach1", kind: "teach", createdAt: "", exam: { id: "exam_test_1", kind: "teach", pointId: "pt1" }, messages: [] },
+			{ id: "deep1", kind: "teach", createdAt: "", exam: { id: "exam_test_1", kind: "deepen", pointId: "pt1" }, messages: [] },
+		];
+		const pending = pendingSorts(record, chats, new Map([["teach1", ["n1", "n5", "n6"]], ["deep1", ["n7", "n9"]]]));
+		assert.deepEqual(pending, [{ pointId: "pt1", teach: ["n5", "n6"], deepen: ["n7"] }]);
+		let blocks = applySort(record.blocks, "pt1", new Map([["n5", "t2"], ["n6", "extension"], ["n7", "extension"]]));
+		const p = blocks[0]!.points[0]!;
+		assert.deepEqual(p.targets!.find((x) => x.id === "t2")!.nodeIds, ["n5"]);
+		assert.deepEqual(p.extension, ["n9", "n6", "n7"]);
+		assert.deepEqual(p.nodeIds, ["n1", "n2", "n5"], "links follow the targets");
+		blocks = moveIdea(blocks, "pt1", "n5", "extension");
+		assert.ok(!blocks[0]!.points[0]!.nodeIds.includes("n5"));
+		assert.ok(blocks[0]!.points[0]!.extension!.includes("n5"));
+		blocks = moveIdea(blocks, "pt1", "n9", { target: "t3" });
+		assert.deepEqual(blocks[0]!.points[0]!.targets!.find((x) => x.id === "t3")!.nodeIds, ["n9"]);
+		assert.ok(!blocks[0]!.points[0]!.extension!.includes("n9"));
+	});
+});
+
 describe("work, budget and today's blocks", () => {
 	const status = {
 		points: [
-			{ id: "pt1", blockId: "b1", text: "a", nodeIds: ["n1"], gap: false, probe: null, taughtSession: false, score: 0, need: "practice" as const },
-			{ id: "pt2", blockId: "b2", text: "b", nodeIds: [], gap: true, probe: "known" as const, taughtSession: false, score: 0, need: "consolidate" as const },
+			{ id: "pt1", blockId: "b1", text: "a", nodeIds: ["n1"], gap: false, probe: null, taughtSession: false, score: 0, need: "practice" as const, targets: null, extension: [] },
+			{ id: "pt2", blockId: "b2", text: "b", nodeIds: [], gap: true, probe: "known" as const, taughtSession: false, score: 0, need: "consolidate" as const, targets: null, extension: [] },
 		],
 		ideas: [{ nodeId: "n1", name: "n1", pointIds: ["pt1"], level: 1 as const, tested: true, placed: true, toTeach: false, recallAtExam: 0.9, meets: false, dueToday: true }],
 		placement: { pendingIdeas: [], pendingPoints: [], done: true },

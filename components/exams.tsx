@@ -52,6 +52,8 @@ import {
 	type SyllabusBlock,
 	type SyllabusPoint,
 	type TargetIdea,
+	type TargetStatus,
+	moveIdea,
 	type ExamMaterial,
 	type ExamRecord,
 } from "@/src/core";
@@ -1392,19 +1394,176 @@ function PlanSection({ exam }: { exam: ExamDetailView }) {
 	);
 }
 
+/** A target idea's status line (owner-approved texts). */
+export function targetStateLabel(target: Pick<TargetStatus, "state" | "nodeIds">, ideas: ReadonlyMap<string, IdeaStatus>, t: Translate): string {
+	switch (target.state) {
+		case "mastered":
+			return t("exams.target.mastered");
+		case "linked": {
+			const linked = target.nodeIds.map((n) => ideas.get(n)).filter((i): i is IdeaStatus => !!i);
+			const weakest = [...linked].sort((a, b) => a.level - b.level)[0];
+			const recalls = linked.map((i) => i.recallAtExam).filter((r): r is number => r !== null);
+			const recall = recalls.length ? Math.round(Math.min(...recalls) * 100) : null;
+			return weakest ? `${ideaLevelLabel(weakest, t)}${recall !== null ? ` · ${recall}%` : ""}` : t("exams.target.toLearn");
+		}
+		case "placement":
+			return t("exams.target.placement");
+		case "consolidate":
+			return t("exams.target.known");
+		case "teach":
+			return t("exams.target.toLearn");
+	}
+}
+
+function IdeaRow({ idea, action }: { idea: IdeaStatus; action?: React.ReactNode }) {
+	const t = useT();
+	const recall = pct(idea.recallAtExam);
+	return (
+		<li className="flex items-center justify-between gap-3 text-muted-foreground">
+			<span className="min-w-0 truncate">{idea.name}</span>
+			<span className="flex shrink-0 items-center gap-1.5 tabular-nums">
+				{ideaLevelLabel(idea, t)}
+				{recall !== null && ` · ${recall}%`}
+				{idea.meets && <CheckIcon className="size-3.5 text-ok" aria-label={t("exams.idea.meets")} />}
+				{action}
+			</span>
+		</li>
+	);
+}
+
+/** One researched point on the exam page: its targets with their status,
+ *  the ideas linked to each («Pasar a ampliación»), the «Ampliación (N)»
+ *  list («Pasar al punto» → which target), and «Profundizar». */
+function ResearchedPoint({ exam, point, ideas, onDeepen }: { exam: ExamDetailView; point: PointStatus; ideas: ReadonlyMap<string, IdeaStatus>; onDeepen: () => void }) {
+	const t = useT();
+	const [extOpen, setExtOpen] = useState(false);
+	const [picking, setPicking] = useState<string | null>(null);
+	const targets = point.targets ?? [];
+	const mastered = targets.filter((x) => x.mastered).length;
+	const move = (ideaId: string, where: "extension" | { target: string }) => {
+		setPicking(null);
+		void sendJson(`/api/exams/${exam.id}`, "PUT", { blocks: moveIdea(exam.record.blocks, point.id, ideaId, where) });
+	};
+	const canDeepen = point.nodeIds.length > 0 || point.taughtSession;
+	const smallBtn = "text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline";
+	return (
+		<li className="px-4 py-1.5 pl-10 text-sm" data-testid="exam-point">
+			<div className="flex items-center justify-between gap-3">
+				<span className="min-w-0 truncate">{point.text}</span>
+				<span className="flex shrink-0 items-center gap-3 text-muted-foreground">
+					<span>{t("exams.point.mastered", { mastered, total: targets.length })}</span>
+					<span>· {pointNeedLabel({ ...point, gap: false }, t)}</span>
+					{canDeepen && (
+						<button type="button" onClick={onDeepen} className={cn(quietBtn, "px-2 py-0.5 text-xs")} data-testid="exam-deepen">
+							{t("exams.deepen")}
+						</button>
+					)}
+				</span>
+			</div>
+			<ul className="mt-1 flex flex-col gap-1 pl-4" data-testid="exam-point-targets">
+				{targets.map((x) => (
+					<li key={x.id}>
+						<div className="flex items-start justify-between gap-3">
+							<span className={cn("min-w-0", x.mastered ? "text-foreground" : "text-muted-foreground")}>{x.statement}</span>
+							<span className={cn("flex shrink-0 items-center gap-1 text-xs tabular-nums", x.state === "mastered" ? "text-ok" : "text-muted-foreground")}>
+								{targetStateLabel(x, ideas, t)}
+								{x.mastered && <CheckIcon className="size-3.5" aria-hidden />}
+							</span>
+						</div>
+						{x.nodeIds.length > 0 && (
+							<ul className="mt-0.5 flex flex-col pl-4 text-xs">
+								{x.nodeIds.map((n) => {
+									const idea = ideas.get(n);
+									return idea ? (
+										<IdeaRow
+											key={n}
+											idea={idea}
+											action={
+												<button type="button" className={smallBtn} onClick={() => move(n, "extension")}>
+													{t("exams.extension.toExtension")}
+												</button>
+											}
+										/>
+									) : null;
+								})}
+							</ul>
+						)}
+					</li>
+				))}
+			</ul>
+			{point.extension.length > 0 && (
+				<div className="mt-1 pl-4" data-testid="exam-extension">
+					<button type="button" aria-expanded={extOpen} onClick={() => setExtOpen((v) => !v)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+						<ChevronRightIcon className={cn("size-3.5 transition-transform", extOpen && "rotate-90")} />
+						{t("exams.extension.title", { n: point.extension.length })}
+					</button>
+					{extOpen && (
+						<ul className="mt-0.5 flex flex-col gap-0.5 pl-4 text-xs">
+							{point.extension.map((n) => {
+								const idea = ideas.get(n);
+								if (!idea) return null;
+								return (
+									<li key={n}>
+										<ul>
+											<IdeaRow
+												idea={idea}
+												action={
+													picking === n ? (
+														<select autoFocus aria-label={t("exams.extension.pickTarget")} defaultValue="" onChange={(e) => e.target.value && move(n, { target: e.target.value })} onBlur={() => setPicking(null)} className="max-w-56 rounded-md border bg-background px-1 py-0.5">
+															<option value="" disabled>
+																{t("exams.extension.pickTarget")}
+															</option>
+															{targets.map((x) => (
+																<option key={x.id} value={x.id}>
+																	{x.statement.length > 70 ? `${x.statement.slice(0, 67)}…` : x.statement}
+																</option>
+															))}
+														</select>
+													) : (
+														<button type="button" className={smallBtn} onClick={() => setPicking(n)}>
+															{t("exams.extension.toPoint")}
+														</button>
+													)
+												}
+											/>
+										</ul>
+									</li>
+								);
+							})}
+						</ul>
+					)}
+				</div>
+			)}
+		</li>
+	);
+}
+
 function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight: boolean }) {
 	const t = useT();
 	const [open, setOpen] = useState<string | null>(null);
 	const points = exam.model?.points ?? [];
 	const ideas = useMemo(() => new Map((exam.model?.ideas ?? []).map((i) => [i.nodeId, i])), [exam.model]);
 	const priority = new Set(exam.record.priorityBlocks);
+	const { start } = useStartExamSession(exam.id);
+	const unresearched = exam.record.blocks.some((b) => b.points.some((p) => !p.targets));
+	const researching = exam.record.mapping.state === "researching" || exam.record.mapping.state === "running";
 	const togglePriority = (blockId: string) => {
 		const next = priority.has(blockId) ? [...priority].filter((b) => b !== blockId) : [...priority, blockId];
 		void sendJson(`/api/exams/${exam.id}`, "PUT", { priorityBlocks: next });
 	};
 	return (
 		<section className="flex flex-col gap-3" data-testid="exam-syllabus" id="exam-syllabus">
-			<SectionTitle>{t("exams.syllabus.title")}</SectionTitle>
+			<SectionTitle
+				right={
+					unresearched && exam.record.status === "active" ? (
+						<button type="button" className={cn(quietBtn, "px-3 py-1 text-sm")} disabled={researching} onClick={() => void sendJson(`/api/exams/${exam.id}/research`, "POST", { mode: "missing" })} data-testid="exam-research-syllabus">
+							{researching ? t("exams.wizard.researching", { i: Math.min((exam.record.research?.done ?? 0) + 1, exam.record.research?.total ?? 1), n: exam.record.research?.total ?? 1, title: exam.record.research?.current ?? "" }) : t("exams.syllabus.research")}
+						</button>
+					) : undefined
+				}
+			>
+				{t("exams.syllabus.title")}
+			</SectionTitle>
 			{highlight && <p className="px-1 text-sm text-muted-foreground">{t("exams.syllabus.prioritizeHint")}</p>}
 			<ul className="overflow-hidden rounded-xl border">
 				{exam.record.blocks.map((b) => {
@@ -1434,7 +1593,10 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 							</div>
 							{isOpen && (
 								<ul className="pb-2">
-									{blockPoints.map((p) => (
+									{blockPoints.map((p) =>
+										p.targets ? (
+											<ResearchedPoint key={p.id} exam={exam} point={p} ideas={ideas} onDeepen={() => void start("deepen", p.id)} />
+										) : (
 										<li key={p.id} className="px-4 py-1 pl-10 text-sm">
 											<div className="flex items-center justify-between gap-3">
 												<span className="min-w-0 truncate">{p.text}</span>
@@ -1460,7 +1622,8 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 												</ul>
 											)}
 										</li>
-									))}
+										),
+									)}
 								</ul>
 							)}
 						</li>

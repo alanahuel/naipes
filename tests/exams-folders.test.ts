@@ -79,4 +79,20 @@ describe("exam folder tree (whole knowledge folder)", () => {
 		assert.ok(!fs.existsSync(stored));
 		assert.ok(exams.deleteExam(exam.id));
 	});
+	it("session prompts: placement probes unlinked targets by id; teach lists its targets; deepen", () => {
+		const parsed = exams.parseExamCreate({ title: "Física", examDate: "2027-05-20", syllabus: { text: "Dinámica" } });
+		const exam = exams.createExam(parsed.ok ? parsed.value : (null as never));
+		const tg = (id: string, statement: string) => ({ id, statement, source: { kind: "model", title: "" }, nodeIds: [] });
+		const updated = exams.updateExam(exam.id, { blocks: [{ id: "b1", title: "Dinámica", points: [{ id: "p1", text: "Leyes de Newton", nodeIds: [], targets: [tg("t_a", "F = m·a"), tg("t_b", "Acción y reacción")] }] }] as never });
+		assert.ok(updated.ok);
+		const placement = exams.examSessionAppendix({ exam: { id: exam.id, kind: "placement", pointIds: ["t_a", "t_b"] } })!;
+		assert.ok(placement.includes("These target ideas are not in the learner's map yet"));
+		assert.ok(placement.includes("[t_a] F = m·a"));
+		const teach = exams.examSessionAppendix({ exam: { id: exam.id, kind: "teach", pointId: "p1", targetIds: ["t_b"] } })!;
+		assert.ok(teach.includes("The target ideas to establish:\n- Acción y reacción"));
+		assert.ok(!teach.includes("F = m·a"));
+		assert.ok(teach.includes("You may bring in closely related ideas"));
+		const deepen = exams.examSessionAppendix({ exam: { id: exam.id, kind: "deepen", pointId: "p1" } })!;
+		assert.ok(deepen.includes("## Going deeper") && deepen.includes("Leyes de Newton"));
+	});
 });

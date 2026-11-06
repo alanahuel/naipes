@@ -34,7 +34,7 @@ import { presetStandard, type ExamSummaryView, type PointStatus } from "../src/c
 const es = translator("es");
 const en = translator("en");
 
-const point = (over: Partial<PointStatus> = {}): PointStatus => ({ id: "p1", blockId: "b1", text: "Rozamiento", nodeIds: [], gap: true, probe: null, taughtSession: false, score: 0, need: "teach", ...over });
+const point = (over: Partial<PointStatus> = {}): PointStatus => ({ id: "p1", blockId: "b1", text: "Rozamiento", nodeIds: [], gap: true, probe: null, taughtSession: false, score: 0, need: "teach", targets: null, extension: [], ...over });
 
 describe("exams: pure formatting", () => {
 	it("raiseWeekly adds the extra to studied days only (all days when none)", () => {

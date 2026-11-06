@@ -34,12 +34,22 @@ Replayed from the review events (`src/core/review.ts` carries `mode` and `step` 
 
 A miss drops one mode; two misses in a row at Recordar or below → «por enseñar»; in the placement test a miss with no level yet → «por enseñar». A later teach event clears it. Every practice submission carries the learner's 0–100 confidence (the practice dock's slider); a solve below the threshold also grades **Hard** in FSRS. Mock exams never grade.
 
-## Lifecycle
+## Lifecycle (v2, owner 2026-11-06: the syllabus leads)
 
-1. **Draft** — title, date, syllabus (text, an attached md/txt/pdf/docx/epub whose text only seeds the syllabus, and/or knowledge folders picked in a tree — any folder at any depth, subfolders included; only folders with ideas, collapsed to the first level, names as on disk, a name filter (owner, 2026-11-06; older drafts' 2nd-level areas read back as those folders)). A draft can be deleted without finishing the wizard: the «···» menu on its card in the list and in the wizard header (owner, 2026-11-06). Deleting keeps the sessions and the graph; a mapping still running finds the exam gone and saves nothing.
-2. **Mapping** — the `syllabusMapper` role (strong slot) makes ONE `submit_syllabus` call over candidate propositions (the chosen folders' ideas + word-overlap hits per syllabus line, ≤ 400): blocks → points → node ids; an empty point is «falta». The learner reviews and edits the table.
-3. **Active** — the plan runs. The exam's ideas join Repaso: enrolled, exempt from the daily cap, held out until the placement test grades them, due earlier when the normal interval would reach the exam day below the exam's recall, and always reviewed once in the final window (`exams.finalWindowDays`, 3).
-4. **Archived** — automatically after the date (with the final coverage and preset frozen), or by hand; the learner may note the real grade. The ideas return to the normal rhythm.
+1. **Temario** — title, date, the guidelines (text, or an md/txt/pdf/docx/epub whose text seeds them), **Materiales** (research sources only — files stored in `data/exams/<id>/materials/`, page photos OCR'd, web links; never syllabus, never the graph), **Carpetas** (a tree of every knowledge-folder folder holding notes, read or not — «(N ideas)» / «(N notas · sin leer)»; tri-state at any depth: a click sets a subtree, any descendant can be unchecked, a partial folder keeps its loose notes; stored as `folders` recursive + `directFolders` loose notes only) and an optional **Contexto** (type, exam/subject, school or body, location, sitting — prefilled from the date's year — goal). Creating it makes a draft. A draft can be deleted from its «···» menu.
+2. **Estándar** — chosen before the research: it sets the research depth. «Investigar →»: unread folders in the scope get a notice («Se añadirán a tu conocimiento…»); confirmed, they are added to Settings → Knowledge (a partial folder with loose notes is added whole — the connection reads whole folders) and read first (mapping state `reading`, «Leyendo tus carpetas… x de N»; failures listed later).
+3. **Investigación** — the `syllabusMapper` (strong slot) outlines the guidelines into blocks → points (`running`), then the **exam researcher** (`src/agent/subagents/exam-researcher.ts`, owner-approved prompt) runs block by block (`researching`) producing each point's **target ideas** (≤ 12, depth by preset; «Personalizar» follows its mode): from the materials (`read_material`), the web (official guide for the sitting first, recent past papers; old material flagged `outdated`, each source with its year) and the model's knowledge, each linked to the candidate graph ideas that express it. Web search: Claude Code's own WebSearch when connected (`src/server/exam-research-io.ts` — one `claude -p` call per query, only WebSearch allowed, the cheap slot's model), else Tavily/Brave, else none («Sin búsqueda web»). A failed block keeps what was done; «Reintentar» resumes.
+4. **Revisar** — blocks → points → target ideas with source and links; edit, remove, add, unlink; «Volver a investigar este punto / todo».
+5. **Tiempo** → **Active**. Target ideas live in the exam, not the graph: they enter it only when taught. The exam's ideas join Repaso as before (exempt from the cap, due earlier for the date, a final review in the last days).
+6. **Archived** — after the date (final coverage frozen) or by hand.
+
+Exams made before v2 keep their point links; the exam page offers «Investigar temario» to add target ideas to the points without them.
+
+## Target ideas and ampliación
+
+- A researched point's score = mastered targets / targets; a target is mastered only when ALL its linked ideas meet the standard (an unlinked one counts 0). Coverage is still per point.
+- Placement: each unlinked target gets its own recall problem (`syllabusPoint` = the target id, prompt `placement-targets.md`); known (clean, confidence ≥ threshold) → a short consolidation, else taught. A teach session lists the targets it establishes (`ChatExamLink.targetIds`, frozen).
+- The tutor may bring in related ideas without asking (teach/consolidate prompts). After each extraction of an exam teach session the **sorter** (`exam-sorter.ts`, cheap slot) links every newly born idea to the target it expresses or marks it **ampliación** (`point.extension`). Ideas born in **«Profundizar»** sessions (kind `deepen`, prompt `deepen.md`, on demand outside the plan) are ampliación directly. Ampliación ideas get dated review but never count; the exam page moves ideas by hand («Pasar a ampliación» / «Pasar al punto»), which wins over the sorter.
 
 ## The plan
 
@@ -51,7 +61,7 @@ A miss drops one mode; two misses in a row at Recordar or below → «por enseñ
 
 ## Sessions
 
-`ChatRecord.exam = { id, kind, pointId?, short?, pointIds?, levels? }`. The agents get an appendix from `src/agent/prompts/exams/` (placement, practice, teach, consolidate, mock — owner-approved texts), built from the record's frozen link. Placement problems probing a «falta» point pass `syllabusPoint` and no target. A review block is an ordinary review session scoped to the exam's ideas.
+`ChatRecord.exam = { id, kind, pointId?, short?, pointIds?, levels?, targetIds? }` (kind ∈ placement, practice, review, teach, mock, deepen). The agents get an appendix from `src/agent/prompts/exams/` (placement, placement-points, placement-targets, practice, teach, consolidate, mock, deepen — owner-approved texts), built from the record's frozen link. Placement problems probing a «falta» point pass `syllabusPoint` and no target. A review block is an ordinary review session scoped to the exam's ideas.
 
 ## Notices
 
@@ -63,13 +73,16 @@ Folded into the desktop clock (`POST /api/review/notify` → `deskNotice`): the 
 
 | Route | Purpose |
 |---|---|
-| `GET/POST /api/exams` | list (+ knowledge folders with recursive idea counts) / create a draft |
+| `GET/POST /api/exams` | list / create a draft (with context) |
+| `GET/POST /api/exams/folders` | the wizard's folder tree / what «Leer y mapear» adds |
+| `POST/DELETE /api/exams/[id]/materials` | add a material (multipart file or `{ url }`) / remove one |
+| `POST /api/exams/[id]/research` | resume (`{}`), redo all (`{ mode: "all" }`) or one point (`{ pointId }`) |
 | `GET/PUT/DELETE /api/exams/[id]` | detail with the derived plan / edit, activate, archive, real grade / delete |
-| `POST /api/exams/[id]/map` | start the mapping (202; 503 without a strong model) |
+| `POST /api/exams/[id]/map` | start read → outline → research (202; 503 without a strong model) |
 | `POST /api/exams/[id]/preview` | the wizard's what-if forecast |
-| `POST /api/exams/[id]/sessions` | start a block: placement, practice, review, teach, mock |
+| `POST /api/exams/[id]/sessions` | start a block: placement, practice, review, teach, mock, deepen |
 | `POST /api/exams/syllabus-file` | a syllabus file → text |
 
 ## Interface
 
-The 5th tab **Exámenes** (`components/exams.tsx`): the list, the 4-step wizard, the exam page (Hoy, Tu nivel, Plan · próximos 14 días, Temario, Simulacro in the last 7 days); Inicio «Hoy para tu examen»; Settings → Exámenes; exam notices in the bell; an exam session's batch end returns to the exam or opens the next batch.
+The 5th tab **Exámenes** (`components/exams.tsx`): the list, the 5-step wizard (Temario · Estándar · Investigación · Revisar · Tiempo), the exam page (Hoy, Tu nivel, Plan · próximos 14 días, Temario, Simulacro in the last 7 days); Inicio «Hoy para tu examen»; Settings → Exámenes; exam notices in the bell; an exam session's batch end returns to the exam or opens the next batch.

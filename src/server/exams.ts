@@ -7,7 +7,7 @@
  */
 
 import type { ChatExamLink, ChatRecord, ExamSessionKind } from "../core/contracts.ts";
-import { emit } from "../core/events.ts";
+import { emit, subscribe } from "../core/events.ts";
 import {
 	allPoints,
 	computeExamStatus,
@@ -34,6 +34,8 @@ import {
 	planBudget,
 	PRESET_ORDER,
 	presetStandard,
+	pendingSorts,
+	applySort,
 	researchDepth,
 	syncPointLinks,
 	sanitizeBlocks,
@@ -62,6 +64,7 @@ import { CLAUDE_CODE_PROVIDER } from "../core/contracts/claude-code.ts";
 import { examAppendix } from "../agent/prompt-segments.ts";
 import { runSyllabusMapper } from "../agent/subagents/syllabus-mapper.ts";
 import { examResearchInstructions, runExamResearcher } from "../agent/subagents/exam-researcher.ts";
+import { runExamSorter } from "../agent/subagents/exam-sorter.ts";
 import { examSearchProvider, readMaterialPart } from "./exam-research-io.ts";
 import fs from "node:fs";
 import os from "node:os";
@@ -156,6 +159,7 @@ export interface ExamsWhatIf {
 
 export function getExamsState(now = Date.now(), whatIf?: ExamsWhatIf): ExamsState {
 	ensureExamReadingHook();
+	ensureExamSortHook();
 	const today = reviewDay(now);
 	let review = getReviewState(now);
 	let records = listExams();
@@ -546,6 +550,93 @@ export function ensureExamReadingHook(): void {
 	for (const exam of listExams()) if (exam.mapping.state === "reading") advanceReading(exam.id);
 }
 
+// ─── sorting ideas born in exam sessions (owner-approved 2026-11-06) ────────
+
+const SORT_KEY = "__npExamSort";
+interface SortState {
+	timer: ReturnType<typeof setTimeout> | null;
+	running: boolean;
+	again: boolean;
+}
+const sortState = (): SortState => {
+	const g = globalThis as unknown as Record<string, SortState | undefined>;
+	return (g[SORT_KEY] ??= { timer: null, running: false, again: false });
+};
+
+/** Sort every exam's unsorted born ideas: «Profundizar» ones straight to
+ *  ampliación; teach/consolidation ones through the sorter (cheap slot).
+ *  Single-flight; a failure leaves them unsorted for the next pass. */
+export async function sortExamIdeas(): Promise<void> {
+	const st = sortState();
+	if (st.running) {
+		st.again = true;
+		return;
+	}
+	st.running = true;
+	try {
+		const review = getReviewState();
+		const nodes = new Map(stores.graphStore.readNodes().map((n) => [n.id, n]));
+		for (const exam of listExams()) {
+			if (exam.status === "archived") continue;
+			for (const pending of pendingSorts(exam, review.chats, review.nodesBornIn)) {
+				const point = allPoints(exam).find((p) => p.id === pending.pointId);
+				if (!point?.targets) continue;
+				const sorted = new Map<string, string>(pending.deepen.map((id) => [id, "extension"]));
+				const teach = pending.teach.filter((id) => nodes.has(id));
+				if (teach.length > 0) {
+					const spec = resolveRoleSpec("extractor", stores.settingsStore.readSettings());
+					if (!spec) continue;
+					if (spec.provider === CLAUDE_CODE_PROVIDER) await refreshClaudeCodeStatus().catch(() => null);
+					try {
+						const result = await runExamSorter({
+							engine: piEngineForSpec(spec),
+							input: {
+								point: point.text,
+								targets: point.targets.map((x) => ({ id: x.id, statement: x.statement })),
+								ideas: teach.map((id) => ({ id, name: nodes.get(id)!.name, statement: nodes.get(id)!.statement })),
+							},
+						});
+						for (const [id, where] of result) sorted.set(id, where);
+					} catch (err) {
+						console.error(`[exams] sorting ideas for ${exam.id}/${point.id} failed:`, err);
+					}
+				}
+				if (sorted.size === 0) continue;
+				const current = readExam(exam.id);
+				if (current) save({ ...touch(current), blocks: applySort(current.blocks, point.id, sorted) });
+			}
+		}
+	} finally {
+		st.running = false;
+		if (st.again) {
+			st.again = false;
+			scheduleExamSort();
+		}
+	}
+}
+
+function scheduleExamSort(): void {
+	const st = sortState();
+	if (st.timer) clearTimeout(st.timer);
+	st.timer = setTimeout(() => {
+		st.timer = null;
+		void sortExamIdeas().catch((err) => console.error("[exams] sort failed:", err));
+	}, 3000);
+}
+
+const SORT_HOOK_KEY = "__npExamSortHook";
+/** Extraction phases end with activity-changed: re-check then. */
+export function ensureExamSortHook(): void {
+	if (process.env.NODE_ENV === "test") return;
+	const g = globalThis as unknown as Record<string, boolean | undefined>;
+	if (g[SORT_HOOK_KEY]) return;
+	g[SORT_HOOK_KEY] = true;
+	subscribe((event) => {
+		if (event.type === "activity-changed") scheduleExamSort();
+	});
+	scheduleExamSort();
+}
+
 // ─── materials (owner 2026-11-06) ───────────────────────────────────────────
 
 export function addExamMaterial(id: string, input: { kind: "file"; name: string; bytes: Uint8Array } | { kind: "link"; url: string; name?: string }, now = Date.now()): ParseResult<ExamMaterial> {
@@ -803,7 +894,7 @@ export type ExamSessionStart = { ok: true; session: StartedExamSession } | { ok:
 
 export const MOCK_PROBLEMS = 10;
 
-const isSessionKind = (v: unknown): v is ExamSessionKind => v === "placement" || v === "practice" || v === "review" || v === "teach" || v === "mock";
+const isSessionKind = (v: unknown): v is ExamSessionKind => v === "placement" || v === "practice" || v === "review" || v === "teach" || v === "mock" || v === "deepen";
 
 export function parseSessionStart(body: unknown): ParseResult<{ kind: ExamSessionKind; pointId?: string }> {
 	const raw = asObject(body);
@@ -885,12 +976,29 @@ export function startExamSession(id: string, kind: ExamSessionKind, pointId: str
 			if (!point) return { ok: false, status: 409, error: "no point to teach" };
 			const short = point.need === "consolidate";
 			const title = t(locale, "exams.session.teachTitle", { point: point.text.length > 60 ? `${point.text.slice(0, 57)}…` : point.text, exam });
-			const chat = createChat(title, undefined, { exam: { id, kind: "teach", pointId: point.id, ...(short ? { short: true } : {}) } });
+			// Researched: the unlinked targets it establishes (consolidate:
+			// the ones the placement showed known), frozen in the link.
+			const targetIds = point.targets
+				? point.targets.filter((x) => x.nodeIds.length === 0 && (short ? x.state === "consolidate" : true)).map((x) => x.id)
+				: undefined;
+			const chat = createChat(title, undefined, { exam: { id, kind: "teach", pointId: point.id, ...(short ? { short: true } : {}), ...(targetIds?.length ? { targetIds } : {}) } });
 			stampStrongModel(chat.id);
 			const toTeach = point.nodeIds.filter((n) => status.ideas.find((i) => i.nodeId === n)?.toTeach);
 			if (toTeach.length) seedGraphContext(chat.id, picksOf(toTeach));
 			const opening = t(locale, short ? "exams.session.consolidateOpening" : "exams.session.teachOpening", { exam, point: point.text });
 			return { ok: true, session: { id: chat.id, title: chat.title, opening, kind } };
+		}
+		case "deepen": {
+			// «Profundizar» (owner 2026-11-06): on demand, outside the plan,
+			// from a point that already has ideas; what is born here is
+			// «ampliación».
+			const point = pointId ? status.points.find((p) => p.id === pointId) : undefined;
+			if (!point || (point.nodeIds.length === 0 && !point.taughtSession)) return { ok: false, status: 409, error: "nothing to deepen yet" };
+			const short = point.text.length > 60 ? `${point.text.slice(0, 57)}…` : point.text;
+			const chat = createChat(t(locale, "exams.session.deepenTitle", { point: short }), undefined, { exam: { id, kind: "deepen", pointId: point.id } });
+			stampStrongModel(chat.id);
+			seedGraphContext(chat.id, picksOf(point.nodeIds));
+			return { ok: true, session: { id: chat.id, title: chat.title, opening: t(locale, "exams.session.deepenOpening", { point: point.text }), kind } };
 		}
 		case "mock": {
 			const ids = spread(status.ideas.map((i) => i.nodeId), status, MOCK_PROBLEMS);
@@ -915,11 +1023,16 @@ export function examSessionAppendix(record: Pick<ChatRecord, "exam">): string | 
 	if (!exam) return undefined;
 	const base = { title: exam.title, date: exam.examDate, mode: exam.standard.mode };
 	const pointText = new Map(allPoints(exam).map((p) => [p.id, p.text]));
+	const targetText = new Map(allPoints(exam).flatMap((p) => (p.targets ?? []).map((x) => [x.id, x.statement] as const)));
+	const targetList = (ids: readonly string[]) => ids.filter((x) => targetText.has(x)).map((x) => `- ${targetText.get(x)}`).join("\n");
 	switch (link.kind) {
 		case "placement": {
 			const ids = (link.pointIds ?? []).filter((p) => pointText.has(p));
-			const points = ids.length ? `${examAppendix("placement-points", { points: ids.map((p) => `  - [${p}] ${pointText.get(p)}`).join("\n") })}\n` : "";
-			return examAppendix("placement", { ...base, threshold: effectiveSettings().review.confidenceThreshold, points, andPoints: ids.length ? " and point" : "" });
+			const tids = (link.pointIds ?? []).filter((p) => targetText.has(p));
+			const points =
+				(ids.length ? `${examAppendix("placement-points", { points: ids.map((p) => `  - [${p}] ${pointText.get(p)}`).join("\n") })}\n` : "") +
+				(tids.length ? `${examAppendix("placement-targets", { targets: tids.map((p) => `  - [${p}] ${targetText.get(p)}`).join("\n") })}\n` : "");
+			return examAppendix("placement", { ...base, threshold: effectiveSettings().review.confidenceThreshold, points, andPoints: ids.length || tids.length ? " and point" : "" });
 		}
 		case "practice": {
 			const ideas = Object.entries(link.levels ?? {}).map(([id, level]) => `- [${id}] reached: ${MODE_WORD[level] ?? "none yet"}`).join("\n");
@@ -927,9 +1040,15 @@ export function examSessionAppendix(record: Pick<ChatRecord, "exam">): string | 
 		}
 		case "teach": {
 			const point = (link.pointId && pointText.get(link.pointId)) || "";
+			const list = targetList(link.targetIds ?? []);
+			const targets = list ? `\nThe target ideas to establish:\n${list}\n` : "";
 			return link.short
-				? examAppendix("consolidate", { ...base, point, minutes: effectiveSettings().exams.consolidateMinutes })
-				: examAppendix("teach", { ...base, point });
+				? examAppendix("consolidate", { ...base, point, minutes: effectiveSettings().exams.consolidateMinutes, targets })
+				: examAppendix("teach", { ...base, point, targets });
+		}
+		case "deepen": {
+			const point = (link.pointId && pointText.get(link.pointId)) || "";
+			return examAppendix("deepen", { ...base, point });
 		}
 		case "mock":
 			return examAppendix("mock", { ...base, n: MOCK_PROBLEMS });
