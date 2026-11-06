@@ -7,6 +7,8 @@ name: AUR (naipes-bin)
 # Secret: AUR_SSH_PRIVATE_KEY — a key dedicated to this, whose public half
 # is on the owner's aur.archlinux.org account. Nothing else is trusted with
 # it: no third-party action, and the AUR host key is pinned below.
+# Without the secret (AUR registration was closed when this shipped,
+# 2026-11-06) the job ends green with a notice and publishes nothing.
 on:
   release:
     types: [published]
@@ -32,12 +34,26 @@ jobs:
     container: archlinux:base-devel
     timeout-minutes: 15
     steps:
+      - name: AUR key configured?
+        id: key
+        env:
+          AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$AUR_KEY" ]; then
+            echo "::notice::AUR_SSH_PRIVATE_KEY is not configured — skipping the AUR publish"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Tools
+        if: steps.key.outputs.present == 'true'
         run: pacman -Syu --noconfirm --needed git openssh
       - uses: actions/checkout@v7
+        if: steps.key.outputs.present == 'true'
         with:
           persist-credentials: false
       - name: Version
+        if: steps.key.outputs.present == 'true'
         id: version
         env:
           RAW: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.event.release.tag_name }}
@@ -47,6 +63,7 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
       # makepkg refuses to run as root.
       - name: PKGBUILD + .SRCINFO for this release
+        if: steps.key.outputs.present == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -54,6 +71,7 @@ jobs:
           chown -R builder packaging/aur
           su builder -c "bash packaging/aur/update.sh '$VERSION'"
       - name: Push to the AUR
+        if: steps.key.outputs.present == 'true'
         env:
           AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           VERSION: ${{ steps.version.outputs.version }}
