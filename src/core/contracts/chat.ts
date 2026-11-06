@@ -80,6 +80,11 @@ export interface ChatExamLink {
 	kind: ExamSessionKind;
 	pointId?: string;
 	short?: boolean;
+	/** Placement: the «falta» points this session probes (frozen at
+	 *  creation — a stable system prompt). */
+	pointIds?: string[];
+	/** Practice: each picked idea's reached mode level at creation. */
+	levels?: Record<string, number>;
 }
 
 /** The chat record format this build writes and understands. */

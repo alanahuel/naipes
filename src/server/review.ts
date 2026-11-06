@@ -47,6 +47,9 @@ import {
 	writeReviewSources,
 } from "../store/review.ts";
 import { createChat, seedGraphContext, stampStrongModel } from "./chats.ts";
+import { deadlineDue, examNodeIds, isLiveExam, type ExamDeadline, type ExamRecord } from "../core/exams.ts";
+import { examsRevision, listExams } from "../store/exams.ts";
+import type { ChatExamLink } from "../core/contracts.ts";
 import { emit } from "../core/events.ts";
 import { graphRevision } from "./graph.ts";
 import { effectiveSettings, stores } from "./stores.ts";
@@ -71,9 +74,10 @@ function chatsRevision(): number {
 	return revision;
 }
 
-interface LoadedChat extends ReviewChat {
+export interface LoadedChat extends ReviewChat {
 	title: string;
 	review?: { day: string };
+	exam?: ChatExamLink;
 }
 
 function readAllChats(): LoadedChat[] {
@@ -81,7 +85,7 @@ function readAllChats(): LoadedChat[] {
 	for (const summary of stores.chatStore.listChats()) {
 		const record = stores.chatStore.getChat(summary.id);
 		if (record) {
-			out.push({ id: record.id, kind: record.kind, createdAt: record.createdAt, messages: record.messages, title: record.title, review: record.review });
+			out.push({ id: record.id, kind: record.kind, createdAt: record.createdAt, messages: record.messages, title: record.title, review: record.review, exam: record.exam });
 		}
 	}
 	return out;
@@ -107,6 +111,14 @@ export interface ReviewState {
 	reviewDays: string[];
 	/** Graph propositions by id — statements for review picks. */
 	statements: Map<string, string>;
+	/** Graph proposition names by id. */
+	names: Map<string, string>;
+	/** Every chat record (the exam service reads them). */
+	chats: LoadedChat[];
+	/** chat id → propositions with provenance in it. */
+	nodesBornIn: Map<string, string[]>;
+	/** The live exams this state was computed with. */
+	exams: ExamRecord[];
 }
 
 const groupKey = (g: ReviewGroup) => `${g.kind}:${g.id}`;
@@ -114,13 +126,15 @@ const groupKey = (g: ReviewGroup) => `${g.kind}:${g.id}`;
 let cache: { key: string; state: ReviewState } | null = null;
 
 const cacheKey = (settingsJson: string, now: number) =>
-	[graphRevision(), chatsRevision(), reviewFilesRevision(), settingsJson, Math.floor(now / BUCKET_MS)].join("|");
+	[graphRevision(), chatsRevision(), reviewFilesRevision(), examsRevision(), settingsJson, Math.floor(now / BUCKET_MS)].join("|");
 
 /** The current review state; persists today's intake as a side effect. */
 export function getReviewState(now = Date.now()): ReviewState {
-	const settings = effectiveSettings().review;
+	const effective = effectiveSettings();
+	const settings = effective.review;
+	const finalWindowDays = effective.exams.finalWindowDays;
 	const sources = ensureReviewSources(now);
-	const settingsJson = JSON.stringify(settings);
+	const settingsJson = JSON.stringify([settings, finalWindowDays]);
 	const key = cacheKey(settingsJson, now);
 	if (cache?.key === key) return cache.state;
 
@@ -128,7 +142,31 @@ export function getReviewState(now = Date.now()): ReviewState {
 	for (const s of stores.graphStore.readSources()) sourcePaths[s.id] = s.filePath;
 	const nodes = getGraph(stores.graphStore).nodes;
 	const chats = readAllChats();
-	const model = computeReview({ now, nodes, chats, sourcePaths, sources, intake: readIntake(), settings });
+	const nodesBornIn = new Map<string, string[]>();
+	for (const node of nodes) {
+		for (const p of node.provenance) {
+			const list = nodesBornIn.get(p.chatId);
+			if (!list) nodesBornIn.set(p.chatId, [node.id]);
+			else if (list[list.length - 1] !== node.id) list.push(node.id);
+		}
+	}
+	// Live exams («Exámenes», owner 2026-11-05): their ideas join Repaso
+	// with a deadline-aware due (src/core/exams.ts deadlineDue).
+	const today = reviewDay(now);
+	const exams = listExams().filter((e) => isLiveExam(e, today));
+	const deadlinesOf = new Map<string, ExamDeadline[]>();
+	for (const exam of exams) {
+		const deadline: ExamDeadline = { examId: exam.id, nodeIds: examNodeIds(exam, chats, nodesBornIn), examDate: exam.examDate, recall: exam.standard.recall, finalWindowDays };
+		for (const id of deadline.nodeIds) deadlinesOf.set(id, [...(deadlinesOf.get(id) ?? []), deadline]);
+	}
+	const examInput = deadlinesOf.size
+		? {
+				nodeIds: new Set(deadlinesOf.keys()),
+				due: (nodeId: string, card: { due: number; stability: number; lastReview: number }) =>
+					Math.min(...(deadlinesOf.get(nodeId) ?? []).map((deadline) => deadlineDue({ ...card, targetRetention: settings.targetRetention, deadline })), card.due),
+			}
+		: undefined;
+	const model = computeReview({ now, nodes, chats, sourcePaths, sources, intake: readIntake(), settings, exams: examInput });
 	if (model.newIntake.length > 0) appendIntake(model.newIntake);
 
 	const labels: Record<string, string> = {};
@@ -158,6 +196,10 @@ export function getReviewState(now = Date.now()): ReviewState {
 		sources,
 		reviewDays: chats.filter((c) => c.review?.day).map((c) => c.review!.day),
 		statements: new Map(nodes.map((n) => [n.id, n.statement])),
+		names: new Map(nodes.map((n) => [n.id, n.name])),
+		chats,
+		nodesBornIn,
+		exams,
 	};
 	// The intake append moved the review files' mtime: re-key so the next
 	// read hits the cache instead of recomputing the same day.
@@ -226,14 +268,15 @@ export interface StartedReview {
 }
 
 /** Create the next review practice session, or null when nothing is due. */
-export function startReviewSession(now = Date.now()): StartedReview | null {
+export function startReviewSession(now = Date.now(), scope?: { nodeIds: ReadonlySet<string>; exam: ChatExamLink; title: string }): StartedReview | null {
 	const state = getReviewState(now);
-	const batch = selectBatch(dueToday(state.model.items, now), effectiveSettings().review.batchSize);
+	const due = dueToday(state.model.items, now).filter((i) => !scope || scope.nodeIds.has(i.nodeId));
+	const batch = selectBatch(due, effectiveSettings().review.batchSize);
 	if (batch.length === 0) return null;
 	const locale = interfaceLocale();
 	const date = new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" }).format(new Date(now));
-	const title = t(locale, "review.sessionTitle", { date });
-	const chat = createChat(title, "practice", { review: { day: state.model.today } });
+	const title = scope?.title ?? t(locale, "review.sessionTitle", { date });
+	const chat = createChat(title, "practice", { review: { day: state.model.today }, ...(scope ? { exam: scope.exam } : {}) });
 	stampStrongModel(chat.id);
 	seedGraphContext(
 		chat.id,
@@ -253,7 +296,7 @@ export interface ReviewNotice {
 }
 
 /** "Estoicismo (6), FÍSICA (4) y 1 tema más." */
-function groupsSentence(groups: ReviewSummary["due"], locale: Locale): string {
+export function groupsSentence(groups: ReviewSummary["due"], locale: Locale): string {
 	const part = (g: ReviewSummary["due"][number]) => t(locale, "review.notice.group", { label: g.label, count: g.nodeIds.length });
 	const sorted = [...groups].sort((a, b) => b.nodeIds.length - a.nodeIds.length);
 	if (sorted.length === 1) return t(locale, "review.notice.groupsOne", { a: part(sorted[0]!) });

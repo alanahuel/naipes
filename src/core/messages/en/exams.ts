@@ -1,0 +1,37 @@
+import type { Message } from "../../i18n.ts";
+import type es from "../es/exams.ts";
+
+/** Exams with a deadline (notices, sessions, tab — owner 2026-11-05). */
+export default {
+	"exams.preset.pass": "Pass",
+	"exams.preset.merit": "Merit",
+	"exams.preset.distinction": "Distinction",
+	"exams.preset.custom": "your target",
+	"exams.mode.recall": "Recall",
+	"exams.mode.discrimination": "Discriminate",
+	"exams.mode.composition": "Compose",
+	"exams.session.placementTitle": "Placement test · {exam}",
+	"exams.session.practiceTitle": "Practice · {exam}",
+	"exams.session.reviewTitle": "Review · {exam}",
+	"exams.session.mockTitle": "Mock exam · {exam}",
+	"exams.session.teachTitle": "{point} · {exam}",
+	"exams.session.placementOpening": "Let’s start the placement test.",
+	"exams.session.practiceOpening": "Let’s start practicing for the exam.",
+	"exams.session.reviewOpening": "Let’s start the review.",
+	"exams.session.mockOpening": "Let’s start the mock exam.",
+	"exams.session.teachOpening": "I want to learn this for my exam «{exam}»: {point}",
+	"exams.session.consolidateOpening": "I want to consolidate this for my exam «{exam}»: {point}",
+	"exams.notice.digestLine": "{exam}: ~{min} min today.",
+	"exams.notice.studyTitle": "Time to study for {exam}",
+	"exams.notice.studyBody": "~{min} min in your plan. Click to start.",
+	"exams.notice.eveningTitle": "Today’s plan for {exam} is still waiting",
+	"exams.notice.eveningBody": "~{min} min left.",
+	"exams.notice.eveningLine": "{exam}: ~{min} min left.",
+	"exams.notice.belowTitle": "{exam}: you won’t reach the target",
+	"exams.notice.belowBody": "At this pace you reach {level}. Check the plan.",
+	"exams.notice.belowNoneBody": "At this pace you don’t reach Pass. Check the plan.",
+	"exams.notice.weekTitle": "{exam} is in 7 days",
+	"exams.notice.weekBody": "{n}% of the syllabus is at {level} level.",
+	"exams.notice.eveTitle": "{exam} is tomorrow",
+	"exams.notice.eveBody": "Do the final review and get some rest.",
+} satisfies Record<keyof typeof es, Message>;

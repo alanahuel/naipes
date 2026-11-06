@@ -7,6 +7,7 @@ import {
 	type TeachingAgent,
 } from "../agent/teacher-agent.ts";
 import { reviewSessionAppendix } from "../agent/prompt-segments.ts";
+import { examSessionAppendix } from "./exams.ts";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
 import { connectionBackgroundAllowed, connectionScopeCurrent, isSubscriptionProvider } from "../agent/subscription-connections.ts";
 import { nativeSubscriptionError } from "../agent/subscription-stream.ts";
@@ -437,7 +438,13 @@ export async function handleChatInput(
 		promptSwitches: effective.agent.prompts,
 		// Review sessions («Repaso», 2026-11-04): the practice agent gets
 		// the review appendix (cover each due idea once, recall first).
-		...(record.kind === "practice" && record.review ? { promptAppendix: reviewSessionAppendix() } : {}),
+		// Exam sessions («Exámenes», 2026-11-05): the exam appendix (placement,
+		// practice, teach/consolidate, mock) — built from the record's frozen
+		// exam link; an exam review block keeps the review appendix alone.
+		...(() => {
+			const parts = [record.kind === "practice" && record.review ? reviewSessionAppendix() : "", examSessionAppendix(record) ?? ""].filter(Boolean);
+			return parts.length ? { promptAppendix: parts.join("\n\n") } : {};
+		})(),
 	};
 	// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
 	// session builds the practitioner from turn 1 — no prober→teacher

@@ -149,3 +149,28 @@ export function allSegmentPaths(): string[] {
 	}
 	return [...paths].sort();
 }
+
+// ─── exam appendices («Exámenes», owner-approved texts 2026-11-06) ──────────
+
+export type ExamAppendixName = "placement" | "placement-points" | "practice" | "teach" | "consolidate" | "mock";
+
+const examTemplates = new Map<ExamAppendixName, string>();
+
+function examTemplate(name: ExamAppendixName): string {
+	let text = examTemplates.get(name);
+	if (text === undefined) {
+		try {
+			text = fs.readFileSync(path.join(PROMPTS_DIR, "exams", `${name}.md`), "utf-8").trim();
+		} catch {
+			text = "";
+		}
+		examTemplates.set(name, text);
+	}
+	return text;
+}
+
+/** One exam appendix with its {placeholders} filled (unknown ones stay). */
+export function examAppendix(name: ExamAppendixName, vars: Record<string, string | number>): string {
+	return examTemplate(name).replace(/\{(\w+)\}/g, (whole, key: string) => (key in vars ? String(vars[key]) : whole));
+}
+

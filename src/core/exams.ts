@@ -311,6 +311,22 @@ export function deadlineDue(input: {
 	return due;
 }
 
+/** An exam's ideas: the mapped ones ∪ those born in its own teach
+ *  sessions (a taught «falta» point joins the exam through them). */
+export function examNodeIds(exam: Pick<ExamRecord, "id" | "blocks">, chats: ReadonlyArray<Pick<ExamChat, "id" | "exam">>, nodesBornIn: ReadonlyMap<string, readonly string[]>): string[] {
+	const out = new Set<string>();
+	for (const p of allPoints(exam)) for (const id of p.nodeIds) out.add(id);
+	for (const chat of chats) {
+		if (chat.exam?.id !== exam.id || chat.exam.kind !== "teach") continue;
+		for (const id of nodesBornIn.get(chat.id) ?? []) out.add(id);
+	}
+	return [...out];
+}
+
+/** An exam counts (plans, review dues) while active and not yet past. */
+export const isLiveExam = (exam: Pick<ExamRecord, "status" | "examDate">, today: string): boolean =>
+	exam.status === "active" && exam.examDate >= today;
+
 // ─── the reached mode ───────────────────────────────────────────────────────
 
 export interface IdeaLevel {
@@ -916,4 +932,59 @@ export function todayBlocks(input: {
 		blocks.push({ kind: "teach", minutes: Math.min(left, short ? durations.consolidate : durations.teach), nodeIds: next.nodeIds, pointId: next.id, short });
 	}
 	return blocks;
+}
+
+// ─── syllabus candidates (the mapper's input, owner-approved 2026-11-06) ────
+
+/** Candidates handed to the mapper at most. */
+export const MAX_SYLLABUS_CANDIDATES = 400;
+/** Word-overlap hits kept per syllabus line. */
+const HITS_PER_LINE = 8;
+
+const normalizeWord = (w: string) => w.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+const wordsOf = (text: string): Set<string> =>
+	new Set((text.match(/[\p{L}\p{N}]+/gu) ?? []).map(normalizeWord).filter((w) => w.length >= 4));
+
+/**
+ * The propositions the mapper may link: every idea of the syllabus areas,
+ * then — per syllabus line — the ideas sharing the most words with it
+ * (≥ 1 word of 4+ letters, accents folded), capped. Pure, deterministic.
+ */
+export function syllabusCandidates(input: {
+	text: string;
+	nodes: ReadonlyArray<{ id: string; name: string; statement: string; aliases?: readonly string[] }>;
+	areaNodeIds: ReadonlySet<string>;
+	cap?: number;
+}): string[] {
+	const cap = input.cap ?? MAX_SYLLABUS_CANDIDATES;
+	const out: string[] = [];
+	const seen = new Set<string>();
+	const push = (id: string) => {
+		if (out.length < cap && !seen.has(id)) {
+			seen.add(id);
+			out.push(id);
+		}
+	};
+	for (const n of input.nodes) if (input.areaNodeIds.has(n.id)) push(n.id);
+	const indexed = input.nodes.map((n) => ({ id: n.id, words: wordsOf([n.name, n.statement, ...(n.aliases ?? [])].join(" ")) }));
+	for (const line of input.text.split("\n")) {
+		if (out.length >= cap) break;
+		const words = wordsOf(line);
+		if (words.size === 0) continue;
+		const scored: Array<{ id: string; score: number }> = [];
+		for (const n of indexed) {
+			let score = 0;
+			for (const w of words) if (n.words.has(w)) score++;
+			if (score > 0) scored.push({ id: n.id, score });
+		}
+		scored.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : 1));
+		for (const hit of scored.slice(0, HITS_PER_LINE)) push(hit.id);
+	}
+	return out;
+}
+
+/** Give mapped blocks stable ids (b1…, p1…), in order. */
+export function numberBlocks(blocks: ReadonlyArray<{ title: string; points: ReadonlyArray<{ text: string; nodeIds: readonly string[] }> }>): SyllabusBlock[] {
+	let p = 0;
+	return blocks.map((b, i) => ({ id: `b${i + 1}`, title: b.title, points: b.points.map((pt) => ({ id: `p${++p}`, text: pt.text, nodeIds: [...pt.nodeIds] })) }));
 }

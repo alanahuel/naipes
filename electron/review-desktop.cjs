@@ -61,11 +61,13 @@ function trayLabels(language, dueCount) {
 		: { open: "Abrir Naipes", review: n > 0 ? `Repasar ahora (${n})` : "Repasar ahora", quit: "Salir", tooltip: n > 0 ? `Naipes — ${n} por repasar` : "Naipes" };
 }
 
-/** The renderer paths the shell may navigate to (np:navigate allow-list). */
-const NAVIGABLE_PATHS = new Set(["/review"]);
+/** The renderer paths the shell may navigate to (np:navigate allow-list):
+ *  Repaso, the exams list, and one exam («Exámenes», 2026-11-05). */
+const NAVIGABLE_PATHS = new Set(["/review", "/exams"]);
+const EXAM_PATH = /^\/exams\/exam_[a-z0-9_]{4,60}$/;
 
 function isNavigablePath(p) {
-	return typeof p === "string" && NAVIGABLE_PATHS.has(p);
+	return typeof p === "string" && (NAVIGABLE_PATHS.has(p) || EXAM_PATH.test(p));
 }
 
 module.exports = {

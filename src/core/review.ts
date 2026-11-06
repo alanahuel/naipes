@@ -141,6 +141,9 @@ export interface ReviewChat {
 	kind?: "teach" | "practice";
 	createdAt: string;
 	messages: readonly NpMessage[];
+	/** An exam session («Exámenes»): a mock exam never grades anything —
+	 *  it is informative only (owner, 2026-11-05). */
+	exam?: { kind: string };
 }
 
 type Block = AssistantMessage["content"][number];
@@ -497,6 +500,7 @@ export function computeReview(input: ReviewInput): ReviewModel {
 		}
 	}
 	for (const chat of input.chats) {
+		if (chat.exam?.kind === "mock") continue;
 		if ((chat.kind ?? "teach") === "practice") practiceEvents(chat, known, settings.confidenceThreshold).forEach(add);
 		else {
 			const byMessage = nodesOfMessageByChat.get(chat.id);

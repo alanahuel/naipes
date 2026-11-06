@@ -90,6 +90,13 @@ export const problemInputObject = Type.Object({
 	modelSolution: Type.String({
 		description: "REQUIRED — the full solution, moves in order, committed BEFORE the learner sees the problem. This IS the reveal — conclude shows it verbatim; never re-author it.",
 	}),
+	syllabusPoint: Type.Optional(
+		Type.String({
+			description:
+				"Placement tests only: the id of the syllabus point this problem probes, when the session instructions " +
+				"list it as having nothing in the map (then omit target). Omit in every other case.",
+		}),
+	),
 });
 
 export type ProblemInput = Static<typeof problemInputObject>;

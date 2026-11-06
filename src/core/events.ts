@@ -54,6 +54,12 @@ export interface ServerEvents {
 	 *  the bell adds it. `count` = ideas due at send time. Not chat-scoped
 	 *  (`chatId` stays absent — listeners read it off any event). */
 	"review-notice": { kind: "digest" | "evening"; count: number; chatId?: undefined };
+	/** An exam record or its derived plan changed («Exámenes», 2026-11-05):
+	 *  create, mapping transitions, edits, exam sessions started. */
+	"exams-changed": { examId: string; chatId?: undefined };
+	/** A one-off exam notice went out (below target / 7 days / 1 day): the
+	 *  bell adds it and opens the exam. */
+	"exam-notice": { examId: string; kind: "below" | "week" | "eve"; title: string; body: string; chatId?: undefined };
 	/** A knowledge-folder document needs the user (phase 2, 2026-11-04):
 	 *  `pending` = over the confirmation threshold, waiting for «Leer» /
 	 *  «Ahora no» (`runs` estimated, `pages` for a PDF); `ocr-missing` =
@@ -81,6 +87,8 @@ export const SERVER_EVENT_TYPES = [
 	"record-changed",
 	"compaction-changed",
 	"review-notice",
+	"exams-changed",
+	"exam-notice",
 	"vault-notice",
 ] as const satisfies readonly ServerEventType[];
 

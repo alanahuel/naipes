@@ -12,6 +12,7 @@ import esKeyboard from "./es/keyboard.ts";
 import esSession from "./es/session.ts";
 import esSettings from "./es/settings.ts";
 import esReview from "./es/review.ts";
+import esExams from "./es/exams.ts";
 import esShell from "./es/shell.ts";
 import enArtifacts from "./en/artifacts.ts";
 import enCommon from "./en/common.ts";
@@ -20,13 +21,14 @@ import enKeyboard from "./en/keyboard.ts";
 import enSession from "./en/session.ts";
 import enSettings from "./en/settings.ts";
 import enReview from "./en/review.ts";
+import enExams from "./en/exams.ts";
 import enShell from "./en/shell.ts";
 
-const es = { ...esCommon, ...esSession, ...esGraph, ...esArtifacts, ...esSettings, ...esKeyboard, ...esShell, ...esReview };
+const es = { ...esCommon, ...esSession, ...esGraph, ...esArtifacts, ...esSettings, ...esKeyboard, ...esShell, ...esReview, ...esExams };
 
 /** Every interface string's key. */
 export type MessageKey = keyof typeof es;
 
-const en: Record<MessageKey, Message> = { ...enCommon, ...enSession, ...enGraph, ...enArtifacts, ...enSettings, ...enKeyboard, ...enShell, ...enReview };
+const en: Record<MessageKey, Message> = { ...enCommon, ...enSession, ...enGraph, ...enArtifacts, ...enSettings, ...enKeyboard, ...enShell, ...enReview, ...enExams };
 
 export const MESSAGES: Record<Locale, Record<MessageKey, Message>> = { es, en };

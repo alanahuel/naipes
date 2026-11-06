@@ -901,11 +901,12 @@ async function askReviewNotice(kind) {
 	return res.json();
 }
 
-function showReviewNotification(title, body) {
+function showReviewNotification(title, body, path) {
 	try {
 		if (!Notification?.isSupported?.()) return;
 		const notice = new Notification({ title, body });
-		notice.on("click", () => showWindow("/review"));
+		// Exam notices name their page (allow-listed in showWindow).
+		notice.on("click", () => showWindow(typeof path === "string" ? path : "/review"));
 		notice.show();
 	} catch (err) {
 		log(`review notification failed: ${err?.message ?? err}`);
@@ -920,7 +921,7 @@ async function reviewTick() {
 			for (const kind of ["digest", "evening"]) {
 				const answer = await askReviewNotice(kind);
 				if (typeof answer?.count === "number") reviewDueCount = answer.count;
-				if (answer?.notify && typeof answer.title === "string") showReviewNotification(answer.title, answer.body ?? "");
+				if (answer?.notify && typeof answer.title === "string") showReviewNotification(answer.title, answer.body ?? "", answer.path);
 			}
 			if (reviewClockFailing) log("review clock: server reachable again");
 			reviewClockFailing = false;
