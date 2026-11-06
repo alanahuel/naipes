@@ -17,17 +17,23 @@ import {
 	examWork,
 	infeasibility,
 	isExamDate,
-	isInFolder,
+	EMPTY_EXAM_CONTEXT,
+	foldersToRead,
+	inExamScope,
 	isLiveExam,
 	knowledgeFolders,
-	type KnowledgeFolder,
+	MAX_EXAM_MATERIALS,
+	sanitizeContext,
+	sanitizeScope,
+	CURRENT_EXAM_VERSION,
+	type ExamMaterial,
+	type VaultFolderInfo,
 	measureDurations,
 	MODE_LEVEL,
 	numberBlocks,
 	planBudget,
 	PRESET_ORDER,
 	presetStandard,
-	reduceFolders,
 	sanitizeBlocks,
 	sanitizeStandard,
 	syllabusCandidates,
@@ -57,6 +63,8 @@ import { getReviewState, groupsSentence, resetReviewCache, startReviewSession, s
 import { appendReviewNotice, readReviewNotices } from "../store/review.ts";
 import { DAY_ROLLOVER_HOUR, shouldSendNotice, type ReviewNoticeKind } from "../core/review.ts";
 import { effectiveSettings, stores } from "./stores.ts";
+import { decidePendingDocument, onVaultNoteSettled, reconfigureVault, vaultFolderTree, vaultNoteState, vaultNotesUnder } from "./vault.ts";
+import { materialPath, removeMaterialFile, writeMaterialFile } from "../store/exams.ts";
 
 // ─── i18n ───────────────────────────────────────────────────────────────────
 
@@ -138,6 +146,7 @@ export interface ExamsWhatIf {
 }
 
 export function getExamsState(now = Date.now(), whatIf?: ExamsWhatIf): ExamsState {
+	ensureExamReadingHook();
 	const today = reviewDay(now);
 	let review = getReviewState(now);
 	let records = listExams();
@@ -242,6 +251,7 @@ export function examDetailView(id: string, now = Date.now()): ExamDetailView | n
 		durations: state.durations,
 		weeklyMinutes: effectiveSettings().exams.weeklyMinutes,
 		startedToday: c.startedToday,
+		reading: readingProgress(c.record),
 	};
 }
 
@@ -286,6 +296,7 @@ export interface ExamCreateBody {
 	title: string;
 	examDate: string;
 	standard: ExamStandard;
+	context: ExamRecord["context"];
 	syllabus: ExamRecord["syllabus"];
 }
 
@@ -301,19 +312,21 @@ export function parseExamCreate(body: unknown): ParseResult<ExamCreateBody> {
 	const syllabus = asObject(raw.syllabus) ?? {};
 	const text = typeof syllabus.text === "string" ? syllabus.text : "";
 	if (text.length > MAX_SYLLABUS_CHARS) return { ok: false, error: `syllabus text over ${MAX_SYLLABUS_CHARS} characters` };
-	if (syllabus.folders !== undefined && !Array.isArray(syllabus.folders)) return { ok: false, error: "folders must be a list of folder paths" };
-	const folders = reduceFolders(
-		(Array.isArray(syllabus.folders) ? syllabus.folders : []).filter((f): f is string => typeof f === "string" && f.length > 0 && f.length < 1024),
-	);
+	for (const key of ["folders", "directFolders"] as const) {
+		if (syllabus[key] !== undefined && !Array.isArray(syllabus[key])) return { ok: false, error: `${key} must be a list of folder paths` };
+	}
+	const paths = (v: unknown) => (Array.isArray(v) ? v : []).filter((f): f is string => typeof f === "string" && f.length > 0 && f.length < 1024);
+	const scope = sanitizeScope(paths(syllabus.folders), paths(syllabus.directFolders));
 	const fileName = typeof syllabus.fileName === "string" && syllabus.fileName.length <= 500 ? syllabus.fileName : null;
-	if (!text.trim() && folders.length === 0) return { ok: false, error: "the syllabus needs text, a file or folders" };
-	return { ok: true, value: { title, examDate: raw.examDate, standard, syllabus: { text, fileName, folders } } };
+	if (!text.trim() && scope.folders.length === 0 && scope.directFolders.length === 0) return { ok: false, error: "the syllabus needs text, a file or folders" };
+	if (raw.context !== undefined && (raw.context === null || typeof raw.context !== "object")) return { ok: false, error: "context must be an object" };
+	return { ok: true, value: { title, examDate: raw.examDate, standard, context: sanitizeContext(raw.context), syllabus: { text, fileName, ...scope } } };
 }
 
 export function createExam(body: ExamCreateBody, now = Date.now()): ExamRecord {
 	const at = new Date(now).toISOString();
 	const exam: ExamRecord = {
-		version: 1,
+		version: CURRENT_EXAM_VERSION,
 		id: newExamId(),
 		title: body.title,
 		examDate: body.examDate,
@@ -322,6 +335,8 @@ export function createExam(body: ExamCreateBody, now = Date.now()): ExamRecord {
 		status: "draft",
 		standard: body.standard,
 		syllabus: body.syllabus,
+		context: body.context ?? { ...EMPTY_EXAM_CONTEXT },
+		materials: [],
 		blocks: [],
 		mapping: { state: "none" },
 		priorityBlocks: [],
@@ -420,9 +435,11 @@ export function deleteExam(id: string): boolean {
 
 // ─── knowledge folders (the wizard's tree, owner 2026-11-06) ────────────────
 
-/** Every knowledge folder holding ideas, with recursive idea counts —
- *  counted per idea by its birth note's path, like the mapping does. */
-export function listKnowledgeFolders(): KnowledgeFolder[] {
+/** The wizard's tree (owner 2026-11-06): every knowledge-folder folder
+ *  holding notes — read or not — with recursive idea counts (per idea, by
+ *  its birth note's path) and note counts. Without a knowledge folder,
+ *  the folders the graph's ideas came from. */
+export function listExamFolders(): { folders: VaultFolderInfo[]; watched: string[] } {
 	const sourcePaths: Record<string, string> = {};
 	for (const s of stores.graphStore.readSources()) sourcePaths[s.id] = s.filePath;
 	const paths: string[] = [];
@@ -431,24 +448,163 @@ export function listKnowledgeFolders(): KnowledgeFolder[] {
 		const filePath = birth ? sourcePaths[birth] : undefined;
 		if (filePath !== undefined) paths.push(filePath);
 	}
-	return knowledgeFolders(paths);
+	const ideas = new Map(knowledgeFolders(paths).map((f) => [f.path, f.count]));
+	const tree = vaultFolderTree();
+	if (!tree) {
+		return { folders: [...ideas].map(([path, count]) => ({ path, ideas: count, notes: 0, unread: 0, direct: 0, directUnread: 0 })), watched: [] };
+	}
+	return { folders: tree.folders.map((f) => ({ ...f, ideas: ideas.get(f.path) ?? 0 })), watched: tree.watched };
 }
+
+// ─── reading unread folders before the mapping (owner 2026-11-06) ──────────
+
+/** Add folders to Settings → Knowledge (the connection reads whole
+ *  folders) and restart the connection so it reads them. */
+function addKnowledgeFolders(added: readonly string[]): void {
+	if (added.length === 0) return;
+	const record = stores.settingsStore.readSettings() ?? { version: 1 };
+	const current = record.obsidian?.folders ?? effectiveSettings().obsidian.folders;
+	const folders = [...current];
+	for (const f of added) if (!folders.some((w) => f === w || f.startsWith(`${w}/`))) folders.push(f);
+	stores.settingsStore.writeSettings({ ...record, obsidian: { ...(record.obsidian ?? {}), enabled: true, folders } });
+	reconfigureVault();
+}
+
+/** What «Leer y mapear» will add (the wizard's notice): folders + their
+ *  unread note counts. Pure over the current tree. */
+export function readingPlan(scope: { folders: readonly string[]; directFolders: readonly string[] }): Array<{ path: string; unread: number }> {
+	const tree = listExamFolders();
+	const byPath = new Map(tree.folders.map((f) => [f.path, f]));
+	return foldersToRead(scope, tree.folders, tree.watched).map((path) => ({ path, unread: byPath.get(path)?.unread ?? 0 }));
+}
+
+/** The notes of the exam scope that the graph doesn't have yet. */
+function scopeNotesToRead(exam: ExamRecord): string[] {
+	const roots = [...exam.syllabus.folders, ...exam.syllabus.directFolders];
+	return vaultNotesUnder(roots)
+		.filter((rel) => inExamScope(rel, exam.syllabus))
+		.filter((rel) => vaultNoteState(rel).state !== "done");
+}
+
+export interface ReadingProgress {
+	total: number;
+	done: number;
+	failed: Array<{ path: string; error: string }>;
+}
+
+export function readingProgress(exam: ExamRecord): ReadingProgress | null {
+	if (!exam.reading) return null;
+	let done = 0;
+	const failed: Array<{ path: string; error: string }> = [];
+	for (const rel of exam.reading.paths) {
+		const st = vaultNoteState(rel);
+		if (st.state === "done") done++;
+		else if (st.state === "failed") failed.push({ path: rel, error: st.error ?? "" });
+	}
+	return { total: exam.reading.paths.length, done, failed };
+}
+
+/** A reading exam whose notes all settled moves on to the mapping; a
+ *  big document waiting for «Leer» in its scope is confirmed (the
+ *  learner already said «Leer y mapear»). */
+function advanceReading(id: string): void {
+	const exam = readExam(id);
+	if (!exam || exam.mapping.state !== "reading" || !exam.reading) return;
+	let open = 0;
+	for (const rel of exam.reading.paths) {
+		const st = vaultNoteState(rel).state;
+		if (st === "waiting") decidePendingDocument(rel, "read");
+		if (st === "waiting" || st === "pending") open++;
+	}
+	if (open > 0) return;
+	const progress = readingProgress(exam)!;
+	save({ ...touch(exam), reading: { ...exam.reading, failed: progress.failed } });
+	beginMapping(id);
+}
+
+const READ_HOOK_KEY = "__npExamReadHook";
+/** One vault listener per process: every settled note re-checks the
+ *  exams that are reading. */
+export function ensureExamReadingHook(): void {
+	const g = globalThis as unknown as Record<string, boolean | undefined>;
+	if (g[READ_HOOK_KEY]) return;
+	g[READ_HOOK_KEY] = true;
+	onVaultNoteSettled(() => {
+		for (const exam of listExams()) if (exam.mapping.state === "reading") advanceReading(exam.id);
+	});
+	// Exams left reading by a previous run continue (the connection
+	// re-queues their notes at boot).
+	for (const exam of listExams()) if (exam.mapping.state === "reading") advanceReading(exam.id);
+}
+
+// ─── materials (owner 2026-11-06) ───────────────────────────────────────────
+
+export function addExamMaterial(id: string, input: { kind: "file"; name: string; bytes: Uint8Array } | { kind: "link"; url: string; name?: string }, now = Date.now()): ParseResult<ExamMaterial> {
+	const exam = readExam(id);
+	if (!exam) return { ok: false, error: "not_found" };
+	if (exam.materials.length >= MAX_EXAM_MATERIALS) return { ok: false, error: `at most ${MAX_EXAM_MATERIALS} materials` };
+	const base = { id: `mat_${now.toString(36)}_${crypto.randomUUID().slice(0, 6)}`, addedAt: new Date(now).toISOString() };
+	let material: ExamMaterial;
+	if (input.kind === "file") {
+		const name = input.name.slice(0, 500) || "material";
+		material = { ...base, kind: "file", name, file: writeMaterialFile(id, name, input.bytes) };
+	} else {
+		if (!/^https?:\/\//i.test(input.url) || input.url.length > 2000) return { ok: false, error: "url must be http(s)" };
+		material = { ...base, kind: "link", name: (input.name ?? input.url).slice(0, 500), url: input.url };
+	}
+	save({ ...touch(exam, now), materials: [...exam.materials, material] });
+	return { ok: true, value: material };
+}
+
+export function removeExamMaterial(id: string, materialId: string): boolean {
+	const exam = readExam(id);
+	const material = exam?.materials.find((m) => m.id === materialId);
+	if (!exam || !material) return false;
+	if (material.file) removeMaterialFile(id, material.file);
+	save({ ...touch(exam), materials: exam.materials.filter((m) => m.id !== materialId) });
+	return true;
+}
+
+export { materialPath };
 
 // ─── the syllabus mapping job ───────────────────────────────────────────────
 
 export type MappingStart = { ok: true } | { ok: false; status: 404 | 409 | 503; error: string };
 
 /** Start mapping (fire-and-forget); the record's `mapping` tells the
- *  outcome, and `exams-changed` announces every transition. */
+ *  outcome, and `exams-changed` announces every transition. When the
+ *  scope holds unread folders they are added to the knowledge folders and
+ *  read first (state «reading»); the mapping then starts on its own. */
 export function startExamMapping(id: string, now = Date.now()): MappingStart {
+	const exam = readExam(id);
+	if (!exam) return { ok: false, status: 404, error: "not_found" };
+	if (running().has(id) || exam.mapping.state === "reading") return { ok: false, status: 409, error: "mapping already running" };
+	const spec = resolveRoleSpec("syllabusMapper", stores.settingsStore.readSettings());
+	if (!spec) return { ok: false, status: 503, error: "models_not_configured" };
+	const added = readingPlan(exam.syllabus).map((f) => f.path);
+	addKnowledgeFolders(added);
+	const paths = scopeNotesToRead(exam);
+	if (paths.length > 0) {
+		ensureExamReadingHook();
+		save({ ...touch(exam, now), mapping: { state: "reading", at: new Date(now).toISOString() }, reading: { added, paths, failed: [] } });
+		advanceReading(id);
+		return { ok: true };
+	}
+	return beginMapping(id, now);
+}
+
+function beginMapping(id: string, now = Date.now()): MappingStart {
 	const exam = readExam(id);
 	if (!exam) return { ok: false, status: 404, error: "not_found" };
 	if (running().has(id)) return { ok: false, status: 409, error: "mapping already running" };
 	const spec = resolveRoleSpec("syllabusMapper", stores.settingsStore.readSettings());
-	if (!spec) return { ok: false, status: 503, error: "models_not_configured" };
+	if (!spec) {
+		save({ ...touch(exam, now), mapping: { state: "error", error: "models_not_configured", at: new Date(now).toISOString() } });
+		return { ok: false, status: 503, error: "models_not_configured" };
+	}
 	running().add(id);
 	save({ ...touch(exam, now), mapping: { state: "running", at: new Date(now).toISOString() } });
-	void runMapping(exam, piEngineForSpec(spec)).finally(() => running().delete(id));
+	void runMapping(readExam(id)!, piEngineForSpec(spec)).finally(() => running().delete(id));
 	return { ok: true };
 }
 
@@ -457,12 +613,11 @@ async function runMapping(exam: ExamRecord, engine: ReturnType<typeof piEngineFo
 		const nodes = stores.graphStore.readNodes();
 		const sourcePaths: Record<string, string> = {};
 		for (const s of stores.graphStore.readSources()) sourcePaths[s.id] = s.filePath;
-		const folders = exam.syllabus.folders;
 		const folderNodeIds = new Set<string>();
 		for (const node of nodes) {
 			const birth = node.provenance[0]?.chatId;
 			const filePath = birth ? sourcePaths[birth] : undefined;
-			if (filePath !== undefined && folders.some((f) => isInFolder(filePath, f))) folderNodeIds.add(node.id);
+			if (filePath !== undefined && inExamScope(filePath, exam.syllabus)) folderNodeIds.add(node.id);
 		}
 		const ids = syllabusCandidates({ text: exam.syllabus.text, nodes, folderNodeIds });
 		const byId = new Map(nodes.map((n) => [n.id, n]));

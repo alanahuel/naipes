@@ -72,10 +72,39 @@ export function deleteExam(id: string): boolean {
 	if (!isExamId(id)) return false;
 	try {
 		fs.unlinkSync(fileOf(id));
-		return true;
 	} catch {
 		return false;
 	}
+	fs.rmSync(materialsDir(id), { recursive: true, force: true });
+	return true;
+}
+
+// ─── materials (owner 2026-11-06): research sources stored with the exam ────
+
+/** data/exams/<id>/materials — one stored copy per material file. */
+export const materialsDir = (id: string) => path.join(EXAM_FILES.dir, id, "materials");
+
+const SAFE_FILE_RE = /^[\w.-]{1,200}$/;
+
+/** Store a material's bytes under a fresh safe name; returns that name. */
+export function writeMaterialFile(id: string, originalName: string, bytes: Uint8Array): string {
+	if (!isExamId(id)) throw new Error(`invalid exam id: ${id}`);
+	const ext = (path.extname(originalName).toLowerCase().match(/^\.[a-z0-9]{1,8}$/) ?? [""])[0];
+	const name = `m_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}${ext}`;
+	fs.mkdirSync(materialsDir(id), { recursive: true });
+	fs.writeFileSync(path.join(materialsDir(id), name), bytes);
+	return name;
+}
+
+/** The absolute path of a stored material (null = bad name). */
+export function materialPath(id: string, file: string): string | null {
+	if (!isExamId(id) || !SAFE_FILE_RE.test(file) || file.startsWith(".")) return null;
+	return path.join(materialsDir(id), file);
+}
+
+export function removeMaterialFile(id: string, file: string): void {
+	const p = materialPath(id, file);
+	if (p) fs.rmSync(p, { force: true });
 }
 
 /** Max mtime over the exam files (part of the server cache key). */

@@ -30,7 +30,6 @@ import {
 	MODE_LEVEL,
 	PRESET_ORDER,
 	presetStandard,
-	reduceFolders,
 	type DemandMode,
 	type ExamBlock,
 	type ExamDetailView,
@@ -39,7 +38,15 @@ import {
 	type ExamStandard,
 	type ExamSummaryView,
 	type IdeaStatus,
-	type KnowledgeFolder,
+	type VaultFolderInfo,
+	type FolderCheck,
+	type ExamContext,
+	type ExamContextKind,
+	EMPTY_EXAM_CONTEXT,
+	EXAM_CONTEXT_KINDS,
+	folderCheck,
+	toggleFolder,
+	selectionScope,
 	type MessageKey,
 	type PointStatus,
 	type SyllabusBlock,
@@ -49,7 +56,6 @@ import {
 
 interface ExamsListResponse {
 	exams: ExamSummaryView[];
-	folders: KnowledgeFolder[];
 }
 
 function useFresh<T>(url: string | null) {
@@ -348,21 +354,39 @@ const shortFolder = (path: string) => {
 	return (segs.length > 2 ? ["…", ...segs.slice(-2)] : segs).join(" › ");
 };
 
+/** «(42 ideas)» · «(12 notas · sin leer)» · «(2 ideas · 30 notas sin leer)». */
+export function folderCountLabel(f: Pick<VaultFolderInfo, "ideas" | "unread">, t: Translate): string {
+	if (f.unread > 0 && f.ideas > 0) return t("exams.folders.mixed", { ideas: f.ideas, unread: f.unread });
+	if (f.unread > 0) return t("exams.folders.unread", { n: f.unread });
+	return t("exams.folders.ideas", { n: f.ideas });
+}
+
+/** A checkbox that can show «–» (indeterminate is a DOM property). */
+function TriCheckbox({ state, onChange, label }: { state: FolderCheck; onChange: () => void; label?: string }) {
+	const ref = useRef<HTMLInputElement>(null);
+	useEffect(() => {
+		if (ref.current) ref.current.indeterminate = state === "partial";
+	}, [state]);
+	return <input ref={ref} type="checkbox" checked={state === "on"} aria-checked={state === "partial" ? "mixed" : state === "on"} aria-label={label} onChange={onChange} className="accent-primary" />;
+}
+
 /**
- * The wizard's folder tree (owner 2026-11-06): every knowledge folder
- * with ideas, collapsed to the first level, names as on disk, recursive
- * counts. Checking a folder includes everything below it — descendants
- * show checked + dimmed and can't be unchecked alone. The search filters
- * by name (accents folded): matches stay with their ancestors, which open
- * on their own; clearing it restores the hand-opened state. Below, the
- * selected folders with a × each.
+ * The wizard's folder tree (owner 2026-11-06): every knowledge-folder
+ * folder holding notes, read or not, collapsed to the first level, names
+ * as on disk, recursive counts. A click sets a folder's whole subtree (or
+ * clears it when it is fully on); any descendant can then be unchecked
+ * at any depth — the folder shows «–» and its loose notes stay in. The
+ * search filters by name (accents folded): matches stay with their
+ * ancestors, which open on their own; clearing it restores the
+ * hand-opened state. Below, the chosen folders with a × each.
  */
-export function FolderPicker({ folders, selected, onChange }: { folders: KnowledgeFolder[]; selected: string[]; onChange: (next: string[]) => void }) {
+export function FolderPicker({ folders, flagged, onChange }: { folders: VaultFolderInfo[]; flagged: ReadonlySet<string>; onChange: (next: Set<string>) => void }) {
 	const t = useT();
 	const [open, setOpen] = useState<Set<string>>(() => new Set());
 	const [query, setQuery] = useState("");
+	const all = useMemo(() => folders.map((f) => f.path), [folders]);
 	const children = useMemo(() => {
-		const map = new Map<string, KnowledgeFolder[]>();
+		const map = new Map<string, VaultFolderInfo[]>();
 		for (const f of folders) {
 			const parent = parentOf(f.path);
 			map.set(parent, [...(map.get(parent) ?? []), f]);
@@ -371,8 +395,6 @@ export function FolderPicker({ folders, selected, onChange }: { folders: Knowled
 		return map;
 	}, [folders]);
 	const q = foldText(query.trim());
-	// While searching: matches, their ancestors (forced open) and — under an
-	// opened match — its subtree.
 	const filter = useMemo(() => {
 		if (!q) return null;
 		const matches = new Set(folders.filter((f) => foldText(folderName(f.path)).includes(q)).map((f) => f.path));
@@ -380,8 +402,6 @@ export function FolderPicker({ folders, selected, onChange }: { folders: Knowled
 		for (const m of matches) for (let p = parentOf(m); p; p = parentOf(p)) ancestors.add(p);
 		return { matches, ancestors };
 	}, [folders, q]);
-	const covered = (path: string) => selected.some((s) => path.startsWith(`${s}/`));
-	const toggle = (path: string) => onChange(selected.includes(path) ? selected.filter((s) => s !== path) : reduceFolders([...selected, path]));
 	const toggleOpen = (path: string) =>
 		setOpen((prev) => {
 			const next = new Set(prev);
@@ -389,6 +409,16 @@ export function FolderPicker({ folders, selected, onChange }: { folders: Knowled
 			else next.add(path);
 			return next;
 		});
+	const scope = useMemo(() => selectionScope(flagged, all), [flagged, all]);
+	const chips = [...scope.folders.map((path) => ({ path, partial: false })), ...scope.directFolders.map((path) => ({ path, partial: true }))].sort((a, b) =>
+		a.path.localeCompare(b.path),
+	);
+	const clear = (path: string) => {
+		const next = new Set(flagged);
+		next.delete(path);
+		for (const p of all) if (p.startsWith(`${path}/`)) next.delete(p);
+		onChange(next);
+	};
 
 	const renderLevel = (parent: string, depth: number, insideMatch: boolean): React.ReactNode[] =>
 		(children.get(parent) ?? []).flatMap((f) => {
@@ -397,11 +427,10 @@ export function FolderPicker({ folders, selected, onChange }: { folders: Knowled
 			const kids = children.has(f.path);
 			const forced = filter !== null && filter.ancestors.has(f.path);
 			const expanded = kids && (forced || open.has(f.path));
-			const isCovered = covered(f.path);
-			const checked = isCovered || selected.includes(f.path);
 			const name = folderName(f.path);
+			const check = folderCheck(f.path, flagged, all);
 			return [
-				<li key={f.path} data-testid="exam-folder" data-path={f.path}>
+				<li key={f.path} data-testid="exam-folder" data-path={f.path} data-check={check}>
 					<div className="flex items-center gap-1.5 rounded-md py-0.5 pr-2 hover:bg-accent/60" style={{ paddingLeft: `${depth * 1.25}rem` }}>
 						{kids ? (
 							<button
@@ -417,12 +446,12 @@ export function FolderPicker({ folders, selected, onChange }: { folders: Knowled
 						) : (
 							<span className="size-5 shrink-0" />
 						)}
-						<label className={cn("flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm", isCovered && "cursor-default opacity-55")}>
-							<input type="checkbox" checked={checked} disabled={isCovered} onChange={() => toggle(f.path)} className="accent-primary" />
+						<label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm">
+							<TriCheckbox state={check} onChange={() => onChange(toggleFolder(f.path, flagged, all))} />
 							<span className="truncate" title={f.path}>
 								{name}
 							</span>
-							<span className="shrink-0 text-muted-foreground">({f.count})</span>
+							<span className={cn("shrink-0", f.ideas === 0 && f.unread > 0 ? "text-muted-foreground/70" : "text-muted-foreground")}>({folderCountLabel(f, t)})</span>
 						</label>
 					</div>
 					{expanded && <ul>{renderLevel(f.path, depth + 1, insideMatch || isMatch)}</ul>}
@@ -445,13 +474,13 @@ export function FolderPicker({ folders, selected, onChange }: { folders: Knowled
 			<div className="max-h-80 overflow-y-auto rounded-[10px] border px-1 py-1.5">
 				{rows.length > 0 ? <ul>{rows}</ul> : <p className="px-2 py-1 text-sm text-muted-foreground">{t("exams.wizard.folderNoMatch")}</p>}
 			</div>
-			{selected.length > 0 && (
+			{chips.length > 0 && (
 				<div className="flex flex-wrap items-center gap-2 text-sm" data-testid="exam-folders-selected">
 					<span className="text-muted-foreground">{t("exams.wizard.foldersSelected")}</span>
-					{selected.map((path) => (
-						<span key={path} title={path} className="inline-flex items-center gap-1 rounded-full border border-primary bg-primary/10 py-0.5 pl-3 pr-1">
-							{shortFolder(path)}
-							<button type="button" aria-label={t("exams.wizard.folderRemove", { name: folderName(path) })} onClick={() => onChange(selected.filter((s) => s !== path))} className="grid size-5 place-items-center rounded-full hover:bg-accent">
+					{chips.map(({ path, partial }) => (
+						<span key={path} title={path} className={cn("inline-flex items-center gap-1 rounded-full border py-0.5 pl-3 pr-1", partial ? "border-primary/50 bg-primary/5" : "border-primary bg-primary/10")}>
+							{partial ? `${shortFolder(path)} (–)` : shortFolder(path)}
+							<button type="button" aria-label={t("exams.wizard.folderRemove", { name: folderName(path) })} onClick={() => clear(path)} className="grid size-5 place-items-center rounded-full hover:bg-accent">
 								<XIcon className="size-3" />
 							</button>
 						</span>
@@ -462,19 +491,164 @@ export function FolderPicker({ folders, selected, onChange }: { folders: Knowled
 	);
 }
 
-/** Step 1 — name, date, syllabus text / file / folders → create + map. */
+const fieldInput = "rounded-[10px] border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50";
+
+/** «Contexto (opcional)» (owner 2026-11-06): steers the research. */
+export function ContextFields({ value, onChange }: { value: ExamContext; onChange: (next: ExamContext) => void }) {
+	const t = useT();
+	const set = (k: keyof ExamContext) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+		onChange({ ...value, [k]: k === "kind" ? ((e.target.value || null) as ExamContextKind | null) : e.target.value });
+	const field = (k: "name" | "institution" | "location" | "sitting", maxLength: number) => (
+		<label className="flex flex-col gap-1 text-sm">
+			<span className="text-muted-foreground">{t(`exams.context.${k}`)}</span>
+			<input value={value[k]} onChange={set(k)} maxLength={maxLength} data-testid={`exam-context-${k}`} className={fieldInput} />
+		</label>
+	);
+	return (
+		<fieldset className="flex flex-col gap-3 px-1" data-testid="exam-context">
+			<legend className="mb-1 text-sm text-muted-foreground">{t("exams.context.title")}</legend>
+			<div className="grid gap-3 sm:grid-cols-2">
+				<label className="flex flex-col gap-1 text-sm">
+					<span className="text-muted-foreground">{t("exams.context.kind")}</span>
+					<select value={value.kind ?? ""} onChange={set("kind")} data-testid="exam-context-kind" className={fieldInput}>
+						<option value="">—</option>
+						{EXAM_CONTEXT_KINDS.map((k) => (
+							<option key={k} value={k}>
+								{t(`exams.context.kind.${k}`)}
+							</option>
+						))}
+					</select>
+				</label>
+				{field("name", 300)}
+				{field("institution", 300)}
+				{field("location", 300)}
+				{field("sitting", 100)}
+			</div>
+			<label className="flex flex-col gap-1 text-sm">
+				<span className="text-muted-foreground">{t("exams.context.goal")}</span>
+				<textarea value={value.goal} onChange={set("goal")} maxLength={2000} rows={2} data-testid="exam-context-goal" className={fieldInput} />
+			</label>
+		</fieldset>
+	);
+}
+
+/** A material chosen in step 1, uploaded once the exam exists. */
+export type DraftMaterial = { key: string; kind: "file"; file: File } | { key: string; kind: "link"; url: string };
+
+const MATERIAL_ACCEPT = ".pdf,.docx,.epub,.md,.txt,.png,.jpg,.jpeg,.webp,.heic";
+
+/** «Materiales» (owner 2026-11-06): research sources, not syllabus. */
+export function MaterialsZone({ value, onChange }: { value: DraftMaterial[]; onChange: (next: DraftMaterial[]) => void }) {
+	const t = useT();
+	const ref = useRef<HTMLInputElement>(null);
+	const [link, setLink] = useState("");
+	const validLink = /^https?:\/\/\S+$/i.test(link.trim());
+	const addLink = () => {
+		if (!validLink) return;
+		onChange([...value, { key: localId("l_"), kind: "link", url: link.trim() }]);
+		setLink("");
+	};
+	return (
+		<fieldset className="flex flex-col gap-2 px-1" data-testid="exam-materials">
+			<legend className="mb-1 text-sm text-muted-foreground">{t("exams.materials.title")}</legend>
+			<p className="text-sm text-muted-foreground">{t("exams.materials.hint")}</p>
+			<div className="flex flex-wrap items-center gap-2 text-sm">
+				<input
+					ref={ref}
+					type="file"
+					multiple
+					accept={MATERIAL_ACCEPT}
+					className="hidden"
+					data-testid="exam-materials-input"
+					onChange={(e) => {
+						const files = [...(e.target.files ?? [])];
+						if (files.length) onChange([...value, ...files.map((file) => ({ key: localId("f_"), kind: "file" as const, file }))]);
+						e.target.value = "";
+					}}
+				/>
+				<button type="button" className={quietBtn} onClick={() => ref.current?.click()}>
+					{t("exams.materials.addFiles")}
+				</button>
+				<span className="text-muted-foreground">{t("exams.materials.formats")}</span>
+			</div>
+			<div className="flex gap-2">
+				<input
+					value={link}
+					onChange={(e) => setLink(e.target.value)}
+					onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addLink())}
+					placeholder={t("exams.materials.linkPlaceholder")}
+					data-testid="exam-materials-link"
+					className={cn(fieldInput, "min-w-0 flex-1")}
+				/>
+				<button type="button" className={quietBtn} disabled={!validLink} onClick={addLink}>
+					{t("exams.materials.addLink")}
+				</button>
+			</div>
+			{value.length > 0 && (
+				<ul className="flex flex-col gap-1 text-sm" data-testid="exam-materials-list">
+					{value.map((m) => {
+						const name = m.kind === "file" ? m.file.name : m.url;
+						return (
+							<li key={m.key} className="flex items-center justify-between gap-2 rounded-md border px-2 py-1">
+								<span className="min-w-0 truncate" title={name}>
+									{name}
+								</span>
+								<button type="button" aria-label={t("exams.materials.remove", { name })} onClick={() => onChange(value.filter((x) => x.key !== m.key))} className="grid size-5 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground">
+									<XIcon className="size-3" />
+								</button>
+							</li>
+						);
+					})}
+				</ul>
+			)}
+		</fieldset>
+	);
+}
+
+/** Upload step 1's materials to the created exam (best effort: a failed
+ *  one is reported, the rest still go). */
+async function uploadMaterials(examId: string, materials: DraftMaterial[]): Promise<string[]> {
+	const failed: string[] = [];
+	for (const m of materials) {
+		let ok = false;
+		if (m.kind === "file") {
+			const form = new FormData();
+			form.append("file", m.file);
+			ok = (await fetch(`/api/exams/${examId}/materials`, { method: "POST", body: form }).catch(() => null))?.ok ?? false;
+		} else {
+			ok = (await sendJson(`/api/exams/${examId}/materials`, "POST", { url: m.url })).ok;
+		}
+		if (!ok) failed.push(m.kind === "file" ? m.file.name : m.url);
+	}
+	return failed;
+}
+
+/** Step 1 — name, date, syllabus text / file, materials, folders, context
+ *  → create + map (reading unread folders first, after a notice). */
 export function NewExamWizard() {
 	const t = useT();
 	const router = useRouter();
-	const { data } = useExams();
+	const { data: tree } = useFresh<{ folders: VaultFolderInfo[]; watched: string[] }>("/api/exams/folders");
 	const [title, setTitle] = useState("");
 	const [date, setDate] = useState("");
 	const [text, setText] = useState("");
 	const [fileName, setFileName] = useState<string | null>(null);
-	const [folders, setFolders] = useState<string[]>([]);
+	const [flagged, setFlagged] = useState<Set<string>>(() => new Set());
+	const [context, setContext] = useState<ExamContext>({ ...EMPTY_EXAM_CONTEXT });
+	const [materials, setMaterials] = useState<DraftMaterial[]>([]);
+	const [toRead, setToRead] = useState<Array<{ path: string; unread: number }> | null>(null);
 	const [state, setState] = useState<"idle" | "reading" | "creating" | "error">("idle");
 	const [error, setError] = useState<string | null>(null);
 	const fileRef = useRef<HTMLInputElement>(null);
+	const all = useMemo(() => (tree?.folders ?? []).map((f) => f.path), [tree]);
+	const scope = useMemo(() => selectionScope(flagged, all), [flagged, all]);
+
+	// The sitting defaults to the exam date's year until the learner types one.
+	const onDate = (value: string) => {
+		const year = /^\d{4}/.exec(value)?.[0] ?? "";
+		setContext((c) => (c.sitting === "" || c.sitting === /^\d{4}/.exec(date)?.[0] ? { ...c, sitting: year } : c));
+		setDate(value);
+	};
 
 	const onFile = async (file: File) => {
 		setState("reading");
@@ -493,20 +667,36 @@ export function NewExamWizard() {
 		setState("idle");
 	};
 
-	const ready = title.trim().length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date) && (text.trim().length > 0 || folders.length > 0);
-	const submit = async () => {
-		if (!ready) return;
+	const hasScope = scope.folders.length > 0 || scope.directFolders.length > 0;
+	const ready = title.trim().length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date) && (text.trim().length > 0 || hasScope);
+
+	const create = async () => {
 		setState("creating");
 		setError(null);
-		const created = await sendJson("/api/exams", "POST", { title: title.trim(), examDate: date, syllabus: { text, fileName, folders } });
+		const created = await sendJson("/api/exams", "POST", { title: title.trim(), examDate: date, context, syllabus: { text, fileName, ...scope } });
 		const id = (created.body.exam as { id?: string } | undefined)?.id;
 		if (!created.ok || !id) {
 			setState("error");
 			setError(typeof created.body.error === "string" ? created.body.error : t("exams.wizard.createFailed"));
 			return;
 		}
+		await uploadMaterials(id, materials);
 		await sendJson(`/api/exams/${id}/map`, "POST");
 		router.push(`/exams/${id}`);
+	};
+
+	/** «Mapear»: unread folders in the scope → the notice first. */
+	const submit = async () => {
+		if (!ready) return;
+		if (hasScope) {
+			const plan = await sendJson("/api/exams/folders", "POST", scope);
+			const add = (plan.body.add as Array<{ path: string; unread: number }> | undefined) ?? [];
+			if (add.length > 0) {
+				setToRead(add);
+				return;
+			}
+		}
+		await create();
 	};
 
 	return (
@@ -522,7 +712,7 @@ export function NewExamWizard() {
 						</label>
 						<label className="flex flex-col gap-1 text-sm">
 							<span className="text-muted-foreground">{t("exams.wizard.date")}</span>
-							<input type="date" value={date} onChange={(e) => setDate(e.target.value)} data-testid="exam-date" className="rounded-[10px] border bg-background px-3 py-2 outline-none focus:border-primary/50" />
+							<input type="date" value={date} onChange={(e) => onDate(e.target.value)} data-testid="exam-date" className="rounded-[10px] border bg-background px-3 py-2 outline-none focus:border-primary/50" />
 						</label>
 					</div>
 					<textarea
@@ -540,13 +730,40 @@ export function NewExamWizard() {
 						</button>
 						<span className="text-muted-foreground">{fileName ?? t("exams.wizard.formats")}</span>
 					</div>
-					{(data?.folders.length ?? 0) > 0 && <FolderPicker folders={data!.folders} selected={folders} onChange={setFolders} />}
+					<MaterialsZone value={materials} onChange={setMaterials} />
+					{(tree?.folders.length ?? 0) > 0 && <FolderPicker folders={tree!.folders} flagged={flagged} onChange={setFlagged} />}
+					<ContextFields value={context} onChange={setContext} />
+					{toRead && (
+						<div role="dialog" aria-labelledby="exam-read-title" className="mx-1 flex flex-col gap-2 rounded-xl border border-primary/40 bg-primary/5 p-4 text-sm" data-testid="exam-read-notice">
+							<p id="exam-read-title" className="font-medium">
+								{t("exams.read.notice")}
+							</p>
+							<ul className="list-disc pl-5">
+								{toRead.map((f) => (
+									<li key={f.path} title={f.path}>
+										{t("exams.read.item", { path: shortFolder(f.path), n: f.unread })}
+									</li>
+								))}
+							</ul>
+							<p className="text-muted-foreground">{t("exams.read.after")}</p>
+							<div className="flex justify-end gap-2">
+								<button type="button" className={quietBtn} onClick={() => setToRead(null)}>
+									{t("exams.read.cancel")}
+								</button>
+								<button type="button" className={primaryBtn} disabled={state === "creating"} onClick={() => void create()} data-testid="exam-read-confirm">
+									{t("exams.read.confirm")}
+								</button>
+							</div>
+						</div>
+					)}
 					{error && <p role="alert" className="px-1 text-sm text-warn">{error}</p>}
-					<div className="flex justify-end px-1">
-						<button type="button" className={primaryBtn} disabled={!ready || state === "creating" || state === "reading"} onClick={() => void submit()} data-testid="exam-map">
-							{state === "creating" ? t("exams.wizard.creating") : t("exams.wizard.map")}
-						</button>
-					</div>
+					{!toRead && (
+						<div className="flex justify-end px-1">
+							<button type="button" className={primaryBtn} disabled={!ready || state === "creating" || state === "reading"} onClick={() => void submit()} data-testid="exam-map">
+								{state === "creating" ? t("exams.wizard.creating") : t("exams.wizard.map")}
+							</button>
+						</div>
+					)}
 				</section>
 			</div>
 		</div>
@@ -604,6 +821,13 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 		onDone();
 	};
 
+	if (mapping.state === "reading") {
+		return (
+			<p className="px-1 text-sm text-muted-foreground" data-testid="exam-reading" aria-live="polite">
+				{t("exams.wizard.readingFolders", { done: exam.reading?.done ?? 0, total: exam.reading?.total ?? 0 })}
+			</p>
+		);
+	}
 	if (mapping.state === "running") {
 		return (
 			<p className="px-1 text-sm text-muted-foreground" data-testid="exam-mapping-running">
@@ -622,6 +846,11 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 		<section className="flex flex-col gap-4" data-testid="exam-mapping">
 			<SectionTitle>{t("exams.wizard.review")}</SectionTitle>
 			<p className="px-1 text-sm text-muted-foreground">{t("exams.wizard.reviewHint")}</p>
+			{(exam.reading?.failed.length ?? 0) > 0 && (
+				<p role="status" className="px-1 text-sm text-warn" data-testid="exam-read-failed">
+					{t("exams.wizard.readFailed", { list: exam.reading!.failed.map((f) => folderName(f.path)).join(", ") })}
+				</p>
+			)}
 			{blocks.map((b) => (
 				<div key={b.id} className="overflow-hidden rounded-xl border">
 					<div className="flex items-center gap-2 border-b bg-accent/30 px-2 py-1.5">

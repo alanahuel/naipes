@@ -9,6 +9,14 @@ import {
 	computeExamStatus,
 	coverageWith,
 	deadlineDue,
+	EMPTY_EXAM_CONTEXT,
+	folderCheck,
+	foldersToRead,
+	inExamScope,
+	selectionScope,
+	toggleFolder,
+	sanitizeContext,
+	sanitizeMaterials,
 	examMoment,
 	examWork,
 	ideaLevel,
@@ -75,7 +83,7 @@ function solvedProblem(at: number, args: { target?: string[]; mode?: string; syl
 
 function exam(over: Partial<ExamRecord> = {}): ExamRecord {
 	return {
-		version: 1,
+		version: 2,
 		id: "exam_test_1",
 		title: "Física",
 		examDate: "2026-11-30",
@@ -83,7 +91,9 @@ function exam(over: Partial<ExamRecord> = {}): ExamRecord {
 		updatedAt: new Date(T0).toISOString(),
 		status: "active",
 		standard: presetStandard("merit"),
-		syllabus: { text: "Tema 1", fileName: null, folders: [] },
+		syllabus: { text: "Tema 1", fileName: null, folders: [], directFolders: [] },
+		context: { ...EMPTY_EXAM_CONTEXT },
+		materials: [],
 		blocks: [
 			{ id: "b1", title: "Cinemática", points: [{ id: "pt1", text: "Velocidad", nodeIds: ["n1", "n2"] }, { id: "pt2", text: "Aceleración", nodeIds: [] }] },
 		],
@@ -348,7 +358,7 @@ describe("durations, days, records, settings", () => {
 		assert.deepEqual(sanitizeExamRecord(JSON.parse(JSON.stringify(e))), e);
 		assert.equal(sanitizeExamRecord({ ...e, examDate: "30/11" }), null);
 		assert.equal(sanitizeExamRecord({ ...e, standard: { ...e.standard, recall: 2 } })!.standard.recall, 0.99);
-		assert.throws(() => sanitizeExamRecord({ ...e, version: 2 }));
+		assert.throws(() => sanitizeExamRecord({ ...e, version: 3 }));
 	});
 	it("exams settings: factory, sanitizer, strict body", () => {
 		const resolved = resolveSettings(sanitizeUserSettings({ version: 1, exams: { weeklyMinutes: [1, 2, 3], problemMinutes: 9 } }));
@@ -381,5 +391,63 @@ describe("syllabus folders (owner 2026-11-06: any folder, recursive)", () => {
 	it("legacy drafts: areas «area:X/Y» read back as folders, root area dropped", () => {
 		const legacy = { ...exam(), syllabus: { text: "", fileName: null, areas: ["area:002 - ÁREAS/011. INFORMÁTICA", "area:/"] } };
 		assert.deepEqual(sanitizeExamRecord(legacy)!.syllabus.folders, ["002 - ÁREAS/011. INFORMÁTICA"]);
+	});
+});
+
+describe("folder selection v2 (owner 2026-11-06: tri-state, any depth)", () => {
+	const all = ["A", "A/B", "A/B/C", "A/D", "E"];
+	it("a click on a folder sets its whole subtree; a click on a full one clears it", () => {
+		let flags = toggleFolder("A", new Set(), all);
+		assert.deepEqual([...flags].sort(), ["A", "A/B", "A/B/C", "A/D"]);
+		assert.equal(folderCheck("A", flags, all), "on");
+		flags = toggleFolder("A/B/C", flags, all);
+		assert.equal(folderCheck("A/B/C", flags, all), "off");
+		assert.equal(folderCheck("A/B", flags, all), "partial");
+		assert.equal(folderCheck("A", flags, all), "partial");
+		flags = toggleFolder("A", flags, all); // partial → all on
+		assert.equal(folderCheck("A", flags, all), "on");
+		flags = toggleFolder("A", flags, all);
+		assert.equal(flags.size, 0);
+	});
+	it("selectionScope: highest full folders recursive, the rest loose notes only", () => {
+		let flags = toggleFolder("A", new Set(), all);
+		flags = toggleFolder("A/B/C", flags, all);
+		assert.deepEqual(selectionScope(flags, all), { folders: ["A/D"], directFolders: ["A", "A/B"] });
+		assert.deepEqual(selectionScope(toggleFolder("E", new Set(), all), all), { folders: ["E"], directFolders: [] });
+	});
+	it("inExamScope: recursive folders at any depth, partial folders' loose notes only", () => {
+		const scope = { folders: ["A/D"], directFolders: ["A"] };
+		assert.ok(inExamScope("A/D/x/y.md", scope));
+		assert.ok(inExamScope("A/z.md", scope));
+		assert.ok(!inExamScope("A/B/w.md", scope));
+		assert.ok(!inExamScope("E/v.md", scope));
+	});
+	it("foldersToRead: unread recursive folders + partial folders with unread loose notes, minus watched", () => {
+		const info = (path: string, unread: number, directUnread = 0) => ({ path, ideas: 0, notes: unread, unread, direct: directUnread, directUnread });
+		const infos = [info("A", 9, 2), info("A/B", 3), info("A/D", 4), info("E", 1), info("W", 5)];
+		assert.deepEqual(foldersToRead({ folders: ["A/D", "W"], directFolders: ["A"] }, infos, ["W"]), ["A"]);
+		assert.deepEqual(foldersToRead({ folders: ["A/D"], directFolders: ["A/B"] }, infos, []), ["A/D"]);
+	});
+	it("context and materials sanitize strictly", () => {
+		assert.deepEqual(sanitizeContext({ kind: "school", name: " PAU ", sitting: "2027", junk: 1 }), { ...EMPTY_EXAM_CONTEXT, kind: "school", name: "PAU", sitting: "2027" });
+		assert.equal(sanitizeContext({ kind: "nope" }).kind, null);
+		const at = new Date(T0).toISOString();
+		assert.deepEqual(
+			sanitizeMaterials([
+				{ id: "m1", kind: "file", name: "Tema 1.pdf", file: "m_x.pdf", addedAt: at },
+				{ id: "m2", kind: "file", name: "evil", file: "../x", addedAt: at },
+				{ id: "m3", kind: "link", name: "Guía", url: "https://example.org/g", addedAt: at },
+				{ id: "m4", kind: "link", name: "js", url: "javascript:alert(1)", addedAt: at },
+			]).map((m) => m.id),
+			["m1", "m3"],
+		);
+	});
+	it("records: v1 files read back with an empty context, no materials, no loose-note folders", () => {
+		const legacy = { ...exam(), version: 1, context: undefined, materials: undefined, syllabus: { text: "x", fileName: null, folders: ["A"] } };
+		const read = sanitizeExamRecord(legacy)!;
+		assert.equal(read.version, 2);
+		assert.deepEqual(read.context, EMPTY_EXAM_CONTEXT);
+		assert.deepEqual(read.materials, []);
+		assert.deepEqual(read.syllabus.directFolders, []);
 	});
 });

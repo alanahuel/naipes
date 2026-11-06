@@ -274,6 +274,115 @@ export function deleteSourceTraces(sourceId: string): void {
 	stores.graphStore.deleteSource(sourceId);
 }
 
+// ─── note settlement (exams read unread folders first, owner 2026-11-06) ────
+
+interface SettleHub {
+	listeners: Set<(rel: string) => void>;
+	/** Path → the last extraction error (cleared by a later success). */
+	failed: Map<string, string>;
+}
+
+function settleHub(): SettleHub {
+	const g = globalThis as typeof globalThis & { __npVaultSettle?: SettleHub };
+	return (g.__npVaultSettle ??= { listeners: new Set(), failed: new Map() });
+}
+
+function settle(rel: string, error: string | null): void {
+	const hub = settleHub();
+	if (error === null) hub.failed.delete(rel);
+	else hub.failed.set(rel, error);
+	for (const listener of hub.listeners) {
+		try {
+			listener(rel);
+		} catch (err) {
+			console.error("[vault] settle listener failed:", err);
+		}
+	}
+}
+
+/** Called after each note's processing ends (success or failure). */
+export function onVaultNoteSettled(listener: (rel: string) => void): () => void {
+	const hub = settleHub();
+	hub.listeners.add(listener);
+	return () => hub.listeners.delete(listener);
+}
+
+/** Where one note stands: in the graph, failed, waiting for «Leer» (a
+ *  big document), or not read yet. */
+export function vaultNoteState(rel: string): { state: "done" | "failed" | "waiting" | "pending"; error?: string } {
+	const s = state();
+	if (s?.notes[rel]) return { state: "done" };
+	const error = settleHub().failed.get(rel);
+	if (error !== undefined) return { state: "failed", error };
+	if (s?.pending[rel]) return { state: "waiting" };
+	return { state: "pending" };
+}
+
+/** The knowledge folder's folder tree for the exam wizard (owner
+ *  2026-11-06): every folder holding note files at any depth — hidden
+ *  folders, the output folder and the inbox excluded — with recursive
+ *  and direct counts of notes and of notes the connection does not read.
+ *  null = no knowledge folder configured. */
+export function vaultFolderTree(): { folders: Array<{ path: string; notes: number; unread: number; direct: number; directUnread: number }>; watched: string[] } | null {
+	const { obsidian } = effectiveSettings();
+	const root = configuredRoot(obsidian.vaultPath);
+	if (!root) return null;
+	try {
+		if (!fs.statSync(root).isDirectory()) return null;
+	} catch {
+		return null;
+	}
+	const watched = obsidian.enabled ? obsidian.folders.filter((f) => !isInOutputFolder(f, obsidian.outputFolder)) : [];
+	const inbox = obsidian.suggestFolders ? obsidian.inboxFolder : null;
+	const counts = new Map<string, { notes: number; unread: number; direct: number; directUnread: number }>();
+	const entryOf = (p: string) => {
+		let e = counts.get(p);
+		if (!e) counts.set(p, (e = { notes: 0, unread: 0, direct: 0, directUnread: 0 }));
+		return e;
+	};
+	const walk = (rel: string) => {
+		let entries: fs.Dirent[];
+		try {
+			entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			if (entry.name.startsWith(".")) continue;
+			const child = rel ? `${rel}/${entry.name}` : entry.name;
+			if (isInOutputFolder(child, obsidian.outputFolder)) continue;
+			if (inbox && (child === inbox || child.startsWith(`${inbox}/`))) continue;
+			if (entry.isDirectory()) walk(child);
+			else if (rel && entry.isFile() && isNoteFile(entry.name)) {
+				const unread = !watched.some((w) => child.startsWith(`${w}/`));
+				const segs = rel.split("/");
+				for (let i = 1; i <= segs.length; i++) {
+					const e = entryOf(segs.slice(0, i).join("/"));
+					e.notes++;
+					if (unread) e.unread++;
+				}
+				const own = entryOf(rel);
+				own.direct++;
+				if (unread) own.directUnread++;
+			}
+		}
+	};
+	walk("");
+	const folders = [...counts].map(([p, c]) => ({ path: p, ...c })).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+	return { folders, watched };
+}
+
+/** Every note file in the exam scope under the knowledge folder (paths
+ *  vault-relative), for the read-before-mapping progress. */
+export function vaultNotesUnder(folders: readonly string[]): string[] {
+	const { obsidian } = effectiveSettings();
+	const root = configuredRoot(obsidian.vaultPath);
+	if (!root) return [];
+	const out: string[] = [];
+	for (const f of folders) scanFolder(root, f, obsidian.outputFolder, out);
+	return [...new Set(out)];
+}
+
 function enqueue(rel: string): void {
 	const rt = runtime();
 	if (rt.running.has(rel)) {
@@ -295,9 +404,11 @@ function pump(): void {
 		rt.activeWorkers++;
 		rt.running.add(rel);
 		void processNote(rel)
+			.then(() => settle(rel, null))
 			.catch((err) => {
 				rt.lastError = `${rel}: ${err instanceof Error ? err.message : String(err)}`;
 				console.error(`[vault] ${rel} failed:`, err);
+				settle(rel, err instanceof Error ? err.message : String(err));
 			})
 			.finally(() => {
 				rt.running.delete(rel);

@@ -13,6 +13,9 @@ import {
 	ExamCard,
 	ExamMenu,
 	FolderPicker,
+	folderCountLabel,
+	ContextFields,
+	MaterialsZone,
 	ideaLevelLabel,
 	pointNeedLabel,
 	raiseWeekly,
@@ -132,20 +135,32 @@ describe("exams: static renders", () => {
 		assert.ok(!html.includes('role="menu"'));
 	});
 
-	it("FolderPicker starts collapsed, names as on disk, recursive selection dims descendants", () => {
-		const folders = [
-			{ path: "002 - ÁREAS", count: 5 },
-			{ path: "002 - ÁREAS/011. INFORMÁTICA 💻", count: 4 },
-			{ path: "002 - ÁREAS/011. INFORMÁTICA 💻/Redes", count: 1 },
-			{ path: "INBOX", count: 2 },
-		];
-		const collapsed = renderToStaticMarkup(<FolderPicker folders={folders} selected={[]} onChange={() => {}} />);
+	it("FolderPicker starts collapsed, names as on disk, counts ideas / unread notes, tri-state", () => {
+		const f = (path: string, ideas: number, unread = 0) => ({ path, ideas, notes: ideas + unread, unread, direct: 0, directUnread: 0 });
+		const folders = [f("002 - ÁREAS", 5), f("002 - ÁREAS/011. INFORMÁTICA 💻", 4), f("002 - ÁREAS/011. INFORMÁTICA 💻/Redes", 1), f("INBOX", 0, 3), f("MIX", 2, 30)];
+		const collapsed = renderToStaticMarkup(<FolderPicker folders={folders} flagged={new Set()} onChange={() => {}} />);
 		assert.ok(collapsed.includes("002 - ÁREAS") && collapsed.includes("INBOX"));
 		assert.ok(!collapsed.includes("Redes"), "only the first level shows");
-		assert.ok(collapsed.includes('aria-expanded="false"'));
+		assert.ok(collapsed.includes("(5 ideas)"));
+		assert.ok(collapsed.includes("(3 notes · not read)"));
+		assert.ok(collapsed.includes("(2 ideas · 30 notes not read)"));
 		assert.ok(!collapsed.includes("exam-folders-selected"));
-		const picked = renderToStaticMarkup(<FolderPicker folders={folders} selected={["002 - ÁREAS/011. INFORMÁTICA 💻/Redes"]} onChange={() => {}} />);
-		assert.ok(picked.includes("exam-folders-selected"));
-		assert.ok(picked.includes("… › 011. INFORMÁTICA 💻 › Redes"));
+		const all = folders.map((x) => x.path);
+		const flags = new Set(all.filter((p) => p.startsWith("002") && !p.endsWith("Redes")));
+		const partial = renderToStaticMarkup(<FolderPicker folders={folders} flagged={flags} onChange={() => {}} />);
+		assert.ok(partial.includes('data-check="partial"'));
+		assert.ok(partial.includes("exam-folders-selected"));
+		assert.ok(partial.includes("002 - ÁREAS › 011. INFORMÁTICA 💻 (–)"));
+	});
+	it("folderCountLabel: Spanish texts", () => {
+		assert.equal(folderCountLabel({ ideas: 42, unread: 0 }, es), "42 ideas");
+		assert.equal(folderCountLabel({ ideas: 0, unread: 12 }, es), "12 notas · sin leer");
+		assert.equal(folderCountLabel({ ideas: 2, unread: 30 }, es), "2 ideas · 30 notas sin leer");
+	});
+	it("ContextFields and MaterialsZone render their fields", () => {
+		const ctx = renderToStaticMarkup(<ContextFields value={{ kind: "official", name: "PAU", institution: "", location: "", sitting: "2027", goal: "" }} onChange={() => {}} />);
+		assert.ok(ctx.includes("Context (optional)") && ctx.includes("Sitting / year") && ctx.includes('value="2027"'));
+		const mats = renderToStaticMarkup(<MaterialsZone value={[{ key: "k", kind: "link", url: "https://example.org/guia" }]} onChange={() => {}} />);
+		assert.ok(mats.includes("https://example.org/guia") && mats.includes("Add files"));
 	});
 });

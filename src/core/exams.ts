@@ -95,10 +95,59 @@ export interface SyllabusBlock {
  *  archived = after the date (or by hand). */
 export type ExamStatus = "draft" | "active" | "archived";
 
-export type MappingState = "none" | "running" | "done" | "error";
+/** reading = the chosen unread folders are being read into the graph
+ *  first (owner 2026-11-06); the mapping starts on its own after. */
+export type MappingState = "none" | "reading" | "running" | "done" | "error";
+
+/** The exam's context (owner 2026-11-06, all optional): it steers the
+ *  research toward the right official guide / school / sitting. */
+export type ExamContextKind = "official" | "school" | "certification" | "public" | "personal";
+
+export const EXAM_CONTEXT_KINDS: readonly ExamContextKind[] = ["official", "school", "certification", "public", "personal"];
+
+export interface ExamContext {
+	kind: ExamContextKind | null;
+	/** Exam or subject name («PAU +25 — Matemáticas»). */
+	name: string;
+	/** School or organizing body. */
+	institution: string;
+	/** Country / region / city. */
+	location: string;
+	/** Sitting / year («2027»); the wizard prefills the exam date's year. */
+	sitting: string;
+	/** Free text: what the learner is after. */
+	goal: string;
+}
+
+export const EMPTY_EXAM_CONTEXT: ExamContext = { kind: null, name: "", institution: "", location: "", sitting: "", goal: "" };
+
+/** A research source the learner gave (owner 2026-11-06): a file stored
+ *  with the exam (data/exams/<id>/materials/<file>) or a web link. Never
+ *  syllabus text, never the graph. */
+export interface ExamMaterial {
+	id: string;
+	kind: "file" | "link";
+	/** Display name (the original file name, or the link's URL/label). */
+	name: string;
+	/** kind file: the stored file name inside the materials folder. */
+	file?: string;
+	/** kind link: the URL. */
+	url?: string;
+	addedAt: string;
+}
+
+/** The unread-folder read that runs before the mapping (owner
+ *  2026-11-06): the notes in the exam's scope that were not in the graph
+ *  when it started, and those that failed. */
+export interface ExamReading {
+	/** Folders added to Settings → Knowledge for this exam. */
+	added: string[];
+	paths: string[];
+	failed: Array<{ path: string; error: string }>;
+}
 
 export interface ExamRecord {
-	version: 1;
+	version: 1 | 2;
 	id: string;
 	title: string;
 	/** The exam day, "YYYY-MM-DD" (local). */
@@ -117,9 +166,16 @@ export interface ExamRecord {
 		 *  2026-11-06: any folder, any depth, recursive). Older drafts
 		 *  stored 2nd-level area ids ("area:X/Y"); they read back as "X/Y". */
 		folders: string[];
+		/** Folders left PARTIAL in the tree (owner 2026-11-06): only their
+		 *  own loose notes count — their subfolders count through
+		 *  `folders`. */
+		directFolders: string[];
 	};
+	context: ExamContext;
+	materials: ExamMaterial[];
 	blocks: SyllabusBlock[];
 	mapping: { state: MappingState; error?: string; at?: string };
+	reading?: ExamReading;
 	/** Blocks the learner chose to prioritize when time is short. */
 	priorityBlocks: string[];
 	archivedAt?: string;
@@ -129,7 +185,7 @@ export interface ExamRecord {
 	final?: { coverage: number; preset: ExamPreset | null };
 }
 
-export const CURRENT_EXAM_VERSION = 1;
+export const CURRENT_EXAM_VERSION = 2 as const;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -159,6 +215,95 @@ export const isInFolder = (filePath: string, folder: string): boolean => {
 export function reduceFolders(folders: readonly string[]): string[] {
 	const clean = [...new Set(folders.map(normalizeFolderPath).filter(Boolean))];
 	return clean.filter((f) => !clean.some((other) => other !== f && f.startsWith(`${other}/`)));
+}
+
+/** `folders` reduced; `directFolders` minus any covered by a recursive
+ *  folder (its loose notes are already in). */
+export function sanitizeScope(folders: readonly string[], directFolders: readonly string[]): { folders: string[]; directFolders: string[] } {
+	const recursive = reduceFolders(folders);
+	const direct = [...new Set(directFolders.map(normalizeFolderPath).filter(Boolean))].filter(
+		(d) => !recursive.some((f) => d === f || d.startsWith(`${f}/`)),
+	);
+	return { folders: recursive, directFolders: direct };
+}
+
+const parentFolder = (path: string): string => {
+	const segs = normalizeFolderPath(path).split("/");
+	return segs.slice(0, -1).join("/");
+};
+
+/** Is a note (vault-relative path) inside the exam's folder scope? */
+export function inExamScope(notePath: string, scope: { folders: readonly string[]; directFolders: readonly string[] }): boolean {
+	if (scope.folders.some((f) => isInFolder(notePath, f))) return true;
+	const parent = parentFolder(notePath);
+	return parent.length > 0 && scope.directFolders.includes(parent);
+}
+
+// ─── the folder tree's selection (owner 2026-11-06) ─────────────────────────
+//
+// Each folder carries its own flag = «its loose notes are in». Clicking a
+// folder that is fully on clears its whole subtree; any other click sets
+// the whole subtree. A folder is «on» when it and every descendant are
+// flagged, «partial» when anything in its subtree is flagged, else «off».
+
+export type FolderCheck = "on" | "partial" | "off";
+
+/** Every folder path in `all` strictly below `path`. */
+const descendantsOf = (path: string, all: readonly string[]) => all.filter((p) => p.startsWith(`${path}/`));
+
+export function folderCheck(path: string, flagged: ReadonlySet<string>, all: readonly string[]): FolderCheck {
+	const below = descendantsOf(path, all);
+	const own = flagged.has(path);
+	if (own && below.every((d) => flagged.has(d))) return "on";
+	if (own || below.some((d) => flagged.has(d))) return "partial";
+	return "off";
+}
+
+export function toggleFolder(path: string, flagged: ReadonlySet<string>, all: readonly string[]): Set<string> {
+	const next = new Set(flagged);
+	const subtree = [path, ...descendantsOf(path, all)];
+	if (folderCheck(path, flagged, all) === "on") for (const p of subtree) next.delete(p);
+	else for (const p of subtree) next.add(p);
+	return next;
+}
+
+/** The flags as the exam stores them: the highest fully-on folders
+ *  (recursive — later subfolders join) + the flagged rest (loose notes). */
+export function selectionScope(flagged: ReadonlySet<string>, all: readonly string[]): { folders: string[]; directFolders: string[] } {
+	const on = [...flagged].filter((p) => folderCheck(p, flagged, all) === "on");
+	return sanitizeScope(on, [...flagged]);
+}
+
+/** One folder of the knowledge folder for the wizard's tree (owner
+ *  2026-11-06: every folder holding notes, read or not). Counts are
+ *  recursive. */
+export interface VaultFolderInfo {
+	path: string;
+	/** Graph ideas born from notes in it or below. */
+	ideas: number;
+	/** Note files in it or below. */
+	notes: number;
+	/** Of those, notes the knowledge connection does not read. */
+	unread: number;
+	/** Note files directly in it (not in subfolders). */
+	direct: number;
+	/** Of those, unread. */
+	directUnread: number;
+}
+
+/**
+ * The folders to add to Settings → Knowledge so the exam's scope gets
+ * read (owner 2026-11-06): each recursive folder, and each partial folder
+ * with loose notes (added WHOLE — the connection reads whole folders),
+ * when it holds unread notes and no watched folder covers it already.
+ */
+export function foldersToRead(scope: { folders: readonly string[]; directFolders: readonly string[] }, infos: readonly VaultFolderInfo[], watched: readonly string[]): string[] {
+	const byPath = new Map(infos.map((i) => [i.path, i]));
+	const covered = (p: string) => watched.some((w) => p === w || p.startsWith(`${w}/`));
+	const out: string[] = [];
+	for (const f of scope.folders) if ((byPath.get(f)?.unread ?? 0) > 0 && !covered(f)) out.push(f);
+	for (const d of scope.directFolders) if ((byPath.get(d)?.directUnread ?? 0) > 0 && !covered(d)) out.push(d);
+	return reduceFolders(out);
 }
 
 /** One folder of the wizard's tree: its path and how many ideas live in
@@ -198,6 +343,56 @@ export function sanitizeStandard(raw: unknown): ExamStandard | null {
 		mode: r.mode,
 		coverage: clamp(r.coverage, EXAM_COVERAGE_MIN, 1),
 	};
+}
+
+const shortText = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
+
+export function sanitizeContext(raw: unknown): ExamContext {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return { ...EMPTY_EXAM_CONTEXT };
+	const r = raw as Record<string, unknown>;
+	return {
+		kind: (EXAM_CONTEXT_KINDS as readonly unknown[]).includes(r.kind) ? (r.kind as ExamContextKind) : null,
+		name: shortText(r.name, 300),
+		institution: shortText(r.institution, 300),
+		location: shortText(r.location, 300),
+		sitting: shortText(r.sitting, 100),
+		goal: shortText(r.goal, 2000),
+	};
+}
+
+export const MAX_EXAM_MATERIALS = 40;
+
+export function sanitizeMaterials(raw: unknown): ExamMaterial[] {
+	if (!Array.isArray(raw)) return [];
+	const out: ExamMaterial[] = [];
+	const seen = new Set<string>();
+	for (const m of raw) {
+		if (out.length >= MAX_EXAM_MATERIALS) break;
+		if (m === null || typeof m !== "object") continue;
+		const r = m as Record<string, unknown>;
+		const id = str(r.id, 64);
+		const name = str(r.name, 500);
+		if (!id || !name || seen.has(id) || typeof r.addedAt !== "string") continue;
+		if (r.kind === "file" && typeof r.file === "string" && /^[\w.-]{1,200}$/.test(r.file)) {
+			out.push({ id, kind: "file", name, file: r.file, addedAt: r.addedAt });
+		} else if (r.kind === "link" && typeof r.url === "string" && /^https?:\/\//i.test(r.url) && r.url.length <= 2000) {
+			out.push({ id, kind: "link", name, url: r.url, addedAt: r.addedAt });
+		} else continue;
+		seen.add(id);
+	}
+	return out;
+}
+
+function sanitizeReading(raw: unknown): ExamReading | null {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+	const r = raw as Record<string, unknown>;
+	const failed = Array.isArray(r.failed)
+		? r.failed
+				.filter((f): f is Record<string, unknown> => f !== null && typeof f === "object")
+				.filter((f) => typeof f.path === "string")
+				.map((f) => ({ path: f.path as string, error: typeof f.error === "string" ? f.error.slice(0, 500) : "" }))
+		: [];
+	return { added: strList(r.added), paths: strList(r.paths), failed };
 }
 
 export function sanitizeBlocks(raw: unknown): SyllabusBlock[] {
@@ -242,10 +437,12 @@ export function sanitizeExamRecord(raw: unknown): ExamRecord | null {
 	const status: ExamStatus = r.status === "active" || r.status === "archived" ? r.status : "draft";
 	const syllabus = (r.syllabus !== null && typeof r.syllabus === "object" ? r.syllabus : {}) as Record<string, unknown>;
 	const mapping = (r.mapping !== null && typeof r.mapping === "object" ? r.mapping : {}) as Record<string, unknown>;
-	const mappingState: MappingState = mapping.state === "running" || mapping.state === "done" || mapping.state === "error" ? mapping.state : "none";
+	const mappingState: MappingState =
+		mapping.state === "reading" || mapping.state === "running" || mapping.state === "done" || mapping.state === "error" ? mapping.state : "none";
 	const final = r.final !== null && typeof r.final === "object" ? (r.final as Record<string, unknown>) : null;
+	const reading = sanitizeReading(r.reading);
 	return {
-		version: 1,
+		version: CURRENT_EXAM_VERSION,
 		id,
 		title,
 		examDate: r.examDate,
@@ -253,13 +450,16 @@ export function sanitizeExamRecord(raw: unknown): ExamRecord | null {
 		updatedAt: r.updatedAt,
 		status,
 		standard,
-		syllabus: { text: str(syllabus.text) ?? "", fileName: str(syllabus.fileName, 500), folders: syllabusFolders(syllabus) },
+		syllabus: { text: str(syllabus.text) ?? "", fileName: str(syllabus.fileName, 500), ...sanitizeScope(syllabusFolders(syllabus), strList(syllabus.directFolders)) },
+		context: sanitizeContext(r.context),
+		materials: sanitizeMaterials(r.materials),
 		blocks: sanitizeBlocks(r.blocks),
 		mapping: {
 			state: mappingState,
 			...(typeof mapping.error === "string" ? { error: mapping.error } : {}),
 			...(typeof mapping.at === "string" ? { at: mapping.at } : {}),
 		},
+		...(reading ? { reading } : {}),
 		priorityBlocks: strList(r.priorityBlocks),
 		...(typeof r.archivedAt === "string" ? { archivedAt: r.archivedAt } : {}),
 		...(typeof r.realGrade === "string" && r.realGrade.length <= 100 ? { realGrade: r.realGrade } : {}),
@@ -1088,4 +1288,6 @@ export interface ExamDetailView extends ExamSummaryView {
 	durations: Durations;
 	weeklyMinutes: number[];
 	startedToday: boolean;
+	/** While/after reading unread folders: notes settled and failed. */
+	reading: { total: number; done: number; failed: Array<{ path: string; error: string }> } | null;
 }
