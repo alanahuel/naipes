@@ -60,7 +60,7 @@ describe("the notice list", () => {
 });
 
 describe("updateNotice — a newer release seen by a local build (stage 0b)", () => {
-	const available = { status: "available" as const, version: "0.2.0", url: "https://github.com/alanahuel/naipes/releases/tag/v0.2.0", local: true, revision: 3 };
+	const available = { status: "available" as const, version: "0.2.0", url: "https://github.com/alanahuel/naipes/releases/tag/v0.2.0", notice: "local" as const, revision: 3 };
 	it("one notice per version, linking to the release page", () => {
 		const n = updateNotice(available, null, new Date("2026-11-04T12:00:00.000Z"))!;
 		assert.equal(n.id, "update:0.2.0");
@@ -78,6 +78,12 @@ describe("updateNotice — a newer release seen by a local build (stage 0b)", ()
 		assert.equal(updateNotice({ ...available, version: null }, null), null);
 		assert.equal(updateNotice({ ...available, url: null }, null), null);
 		assert.equal(updateNotice({ ...available, url: "javascript:alert(1)" }, null), null);
+	});
+	it("an AUR install's notice has no page: it points at the package manager", () => {
+		const n = updateNotice({ ...available, url: null, notice: "pacman" }, null)!;
+		assert.equal(n.message, "notices.updateAvailablePackage");
+		assert.equal(n.href, undefined);
+		assert.equal(updateNotice({ ...available, url: null, notice: "mac" }, null), null);
 	});
 	it("external hrefs open in the browser; app routes stay in the app", () => {
 		assert.equal(isExternalHref(available.url), true);

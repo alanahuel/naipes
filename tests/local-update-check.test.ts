@@ -10,7 +10,8 @@ const lu = require("../electron/local-update-check.cjs") as {
 	compareVersions(a: string, b: string): number | null;
 	isNewer(latest: string, current: string): boolean;
 	shouldAnnounce(latest: string, last: string | null): boolean;
-	announcementText(version: string, language: string): { title: string; body: string };
+	announcementText(version: string, language: string, kind?: string): { title: string; body: string };
+	noticeKind(o: { localBuild: boolean; packageType: string | null; platform: string }): string | null;
 	fetchLatestRelease(o: { repo: string; fetchImpl: (url: string, init: unknown) => Promise<unknown>; timeoutMs?: number }): Promise<{ version: string; url: string }>;
 };
 
@@ -93,5 +94,25 @@ describe("fetchLatestRelease", () => {
 		await assert.rejects(lu.fetchLatestRelease({ repo: "a/b", fetchImpl: async () => ({ ok: false, status: 404, json: async () => ({}) }) }), /HTTP 404/);
 		await assert.rejects(lu.fetchLatestRelease({ repo: "a/b", fetchImpl: ok({ tag_name: "nightly" }) }), /tag_name/);
 		await assert.rejects(lu.fetchLatestRelease({ repo: "a/b", fetchImpl: async () => { throw new Error("offline"); } }), /offline/);
+	});
+});
+
+describe("noticeKind (owner 2026-11-06)", () => {
+	it("local beats everything, then pacman on Linux, then macOS", () => {
+		assert.equal(lu.noticeKind({ localBuild: true, packageType: "pacman", platform: "darwin" }), "local");
+		assert.equal(lu.noticeKind({ localBuild: false, packageType: "pacman\n", platform: "linux" }), "pacman");
+		assert.equal(lu.noticeKind({ localBuild: false, packageType: null, platform: "darwin" }), "mac");
+	});
+	it("electron-updater copies get null", () => {
+		for (const [packageType, platform] of [[null, "linux"], ["deb", "linux"], ["rpm", "linux"], [null, "win32"], ["pacman", "win32"]] as const) {
+			assert.equal(lu.noticeKind({ localBuild: false, packageType, platform }), null, `${packageType}/${platform}`);
+		}
+	});
+	it("each kind has its own notification body, in both languages", () => {
+		assert.match(lu.announcementText("1.0.0", "es", "pacman").body, /paru -Syu/);
+		assert.match(lu.announcementText("1.0.0", "en", "pacman").body, /package manager/);
+		assert.match(lu.announcementText("1.0.0", "es", "mac").body, /descargarla/);
+		assert.match(lu.announcementText("1.0.0", "en", "mac").body, /download/);
+		assert.match(lu.announcementText("1.0.0", "es").body, /install-linux\.sh/);
 	});
 });

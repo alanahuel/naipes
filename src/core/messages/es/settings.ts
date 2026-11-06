@@ -287,4 +287,9 @@ export default {
 	"settings.update.seeVersion": "Ver la versión {version}",
 	"settings.update.localHint": "Tu copia es local: solo busco versiones nuevas y te aviso. Para actualizarla, usa git pull y scripts/install-linux.sh.",
 	"settings.update.localAutoHint": "Busco al abrir la app y cada 24 horas. Tu copia local nunca se actualiza sola.",
+	"settings.update.macHint": "En macOS la app no puede instalarse sola porque no está firmada: busco versiones nuevas, te aviso y la descargas desde la página de la versión.",
+	"settings.update.macAutoHint": "Busco al abrir la app y cada 24 horas. En macOS solo te aviso; nunca se descarga ni se instala nada.",
+	"settings.update.pacmanHint": "Instalaste Naipes con tu gestor de paquetes: busco versiones nuevas y te aviso. Para actualizarla, usa tu gestor (p. ej. paru -Syu).",
+	"settings.update.pacmanAutoHint": "Busco al abrir la app y cada 24 horas. La app nunca se actualiza sola: lo hace tu gestor de paquetes.",
+	"settings.update.availablePackage": "Hay una versión nueva: {version}. Actualízala con tu gestor de paquetes (p. ej. paru -Syu).",
 } as const;

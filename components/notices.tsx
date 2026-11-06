@@ -69,17 +69,21 @@ export function addNotices(list: readonly Notice[], incoming: readonly Notice[])
 /** The last release version announced in the bell (this device). */
 export const UPDATE_ANNOUNCED_KEY = "np:update-announced";
 
-/** The bell notice for a newer release seen by a local build — null unless
- *  the state is "available" with a version + https url not yet announced. Pure. */
+/** The bell notice for a newer release seen by a notice-only copy — null
+ *  unless the state is "available" with a version not yet announced, plus an
+ *  https url (an AUR install has none: its notice points at the package
+ *  manager instead of a page). Pure. */
 export function updateNotice(state: UpdateState | null, announced: string | null, now = new Date()): Notice | null {
-	if (state?.status !== "available" || !state.version || !state.url?.startsWith("https://")) return null;
+	if (state?.status !== "available" || !state.version) return null;
+	const pacman = state.notice === "pacman";
+	if (!pacman && !state.url?.startsWith("https://")) return null;
 	if (state.version === announced) return null;
 	return {
 		id: `update:${state.version}`,
 		at: now.toISOString(),
-		message: "notices.updateAvailable",
+		message: pacman ? "notices.updateAvailablePackage" : "notices.updateAvailable",
 		vars: { version: state.version },
-		href: state.url,
+		...(pacman ? {} : { href: state.url! }),
 		tone: "ok",
 		read: false,
 	};
@@ -343,7 +347,7 @@ export function NoticesProvider({ children }: { children: React.ReactNode }) {
 		push([vaultNotice(event)]);
 	});
 
-	// A newer release, seen by a local build (once per version).
+	// A newer release, seen by a notice-only copy (once per version).
 	const { state: updateState } = useUpdateState();
 	useEffect(() => {
 		if (!hydrated) return;

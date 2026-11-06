@@ -450,9 +450,11 @@ const ZOOM_LADDER = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
  *
  * Feed: GitHub Releases (electron-builder.yml publish → app-update.yml,
  * baked into the bundle). macOS updates ride the zip target (Squirrel.Mac),
- * which only installs SIGNED apps — Naipes ships unsigned, so on macOS the
- * check can find an update but installing it fails (download manually); blockmaps
- * give differential downloads for free. Windows uses NSIS; Linux uses
+ * which only installs SIGNED apps — Naipes ships unsigned, so since
+ * 2026-11-06 macOS never loads electron-updater and runs notice-only checks
+ * instead (owner: "solo aviso, siempre"; re-enable if it is ever signed).
+ * AUR installs (package-type "pacman") are notice-only too: pacman owns
+ * the files. Blockmaps give differential downloads for free. Windows uses NSIS; Linux uses
  * AppImage or DebUpdater (6.8.9 supports deb; installation can request
  * administrator permission via the package manager — owner 2026-10-11).
  *
@@ -477,9 +479,11 @@ const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let autoUpdater = null; // electron-updater's, packaged builds only
 // Observational only: this snapshot NEVER gates a check, download or install.
 // The revision lets late subscribers reject an older in-flight IPC snapshot.
-// `local` marks a local build (notice-only checks, see setupLocalUpdateCheck);
-// `url` is the release page of an "available" version (local builds only).
-let updateState = { status: "idle", version: null, url: null, local: false, revision: 0 };
+// `notice` names a notice-only copy ("local" | "mac" | "pacman", see
+// setupNoticeOnlyChecks; null = electron-updater installs); `url` is the
+// release page of an "available" version (null for "pacman": the package
+// manager updates it, there is nothing to download by hand).
+let updateState = { status: "idle", version: null, url: null, notice: null, revision: 0 };
 
 function reportUpdateStatus(status, version = null, url = null) {
 	try {
@@ -489,7 +493,7 @@ function reportUpdateStatus(status, version = null, url = null) {
 			status,
 			version: typeof version === "string" ? version : null,
 			url: typeof url === "string" ? url : null,
-			local: localUpdateCheck !== null,
+			notice: localUpdateCheck?.kind ?? null,
 			revision: updateState.revision + 1,
 		};
 		for (const win of BrowserWindow.getAllWindows()) {
@@ -576,18 +580,29 @@ function isLocalBuild() {
 	}
 }
 
-/* ── Local-build update notices (owner, 2026-11-04) ───────────────────────
+/** electron-builder's resources/package-type ("deb", …); the AUR package
+ *  rewrites it to "pacman" (packaging/aur/PKGBUILD). null when absent. */
+function installedPackageType() {
+	try {
+		return fs.readFileSync(path.join(process.resourcesPath, "package-type"), "utf8").trim();
+	} catch {
+		return null;
+	}
+}
+
+/* ── Notice-only update checks (local builds 2026-11-04; macOS and AUR
+ *    installs 2026-11-06 — localUpdates.noticeKind) ─────────────────────
  * Same cadence and toggle as the real updater (startup + 24h + manual,
  * Settings → automatic updates). A newer published release becomes status
  * "available" (+ its release page url) for Settings and the bell, and ONE
  * desktop notification per version (the last announced version persists in
  * userData/local-update.json). Never downloads or installs anything; every
  * failure is a log line + generic "error". */
-let localUpdateCheck = null; // { repo, current } on local builds only
+let localUpdateCheck = null; // { repo, current, kind } on notice-only copies
 let localCheckInFlight = false;
 const LOCAL_UPDATE_FILE = () => path.join(app.getPath("userData"), "local-update.json");
 
-function setupLocalUpdateCheck() {
+function setupNoticeOnlyChecks(kind) {
 	let pkg = {};
 	try {
 		pkg = require("../package.json");
@@ -596,12 +611,12 @@ function setupLocalUpdateCheck() {
 	}
 	const repo = localUpdates.githubRepoFromHomepage(pkg.homepage);
 	if (!repo || typeof pkg.version !== "string") {
-		log("auto-update: local build without a GitHub homepage/version — update notices disabled");
+		log(`auto-update: ${kind} copy without a GitHub homepage/version — update notices disabled`);
 		reportUpdateStatus("disabled");
 		return;
 	}
-	localUpdateCheck = { repo, current: pkg.version };
-	log(`auto-update: local build — notice-only checks against ${repo} (running ${pkg.version})`);
+	localUpdateCheck = { repo, current: pkg.version, kind };
+	log(`auto-update: ${kind} copy — notice-only checks against ${repo} (running ${pkg.version})`);
 	reportUpdateStatus("idle");
 }
 
@@ -624,9 +639,9 @@ function announceLocalUpdate(version, url) {
 	}
 	try {
 		if (!Notification?.isSupported?.()) return;
-		const { title, body } = localUpdates.announcementText(version, interfaceLanguage());
+		const { title, body } = localUpdates.announcementText(version, interfaceLanguage(), localUpdateCheck?.kind);
 		const notice = new Notification({ title, body });
-		notice.on("click", () => void shell.openExternal(url));
+		if (url) notice.on("click", () => void shell.openExternal(url));
 		notice.show();
 		log(`local update: announced ${version}`);
 	} catch (err) {
@@ -641,8 +656,10 @@ async function checkLocalBuildForUpdates() {
 	try {
 		const latest = await localUpdates.fetchLatestRelease({ repo: localUpdateCheck.repo, fetchImpl: fetch });
 		if (localUpdates.isNewer(latest.version, localUpdateCheck.current)) {
-			reportUpdateStatus("available", latest.version, latest.url);
-			announceLocalUpdate(latest.version, latest.url);
+			// pacman: no page to open — the package manager is the way.
+			const url = localUpdateCheck.kind === "pacman" ? null : latest.url;
+			reportUpdateStatus("available", latest.version, url);
+			announceLocalUpdate(latest.version, url);
 		} else {
 			reportUpdateStatus("up-to-date");
 		}
@@ -657,12 +674,22 @@ async function checkLocalBuildForUpdates() {
 function setupAutoUpdater() {
 	if (isLocalBuild()) {
 		log("auto-update: local build — electron-updater disabled");
-		setupLocalUpdateCheck();
+		setupNoticeOnlyChecks("local");
 		return;
 	}
 	if (!app.isPackaged) {
 		log("auto-update: dev build — updater disabled");
 		reportUpdateStatus("disabled");
+		return;
+	}
+	const kind = localUpdates.noticeKind({
+		localBuild: false,
+		platform: process.platform,
+		packageType: process.platform === "linux" ? installedPackageType() : null,
+	});
+	if (kind) {
+		log(`auto-update: ${kind} copy — electron-updater disabled`);
+		setupNoticeOnlyChecks(kind);
 		return;
 	}
 	try {

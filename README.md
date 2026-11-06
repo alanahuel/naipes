@@ -64,9 +64,9 @@ Las sesiones futuras pueden leer el grafo en lugar de empezar de cero, y las de 
 
 Descarga la última versión desde **[GitHub Releases](https://github.com/alanahuel/naipes/releases)**:
 
-- **Linux (x64):** dale permisos de ejecución al AppImage y ábrelo, o instala el `.deb` en Debian/Ubuntu.
+- **Linux (x64):** dale permisos de ejecución al AppImage y ábrelo, o instala el `.deb` en Debian/Ubuntu. En Arch Linux y derivadas (CachyOS, Manjaro, EndeavourOS…) está en el AUR: `paru -S naipes-bin` (o `yay -S naipes-bin`), y se actualiza con el resto del sistema.
 - **Windows (x64):** ejecuta el instalador. No está firmado, así que Windows puede mostrar un aviso de SmartScreen o de "editor desconocido".
-- **macOS (Apple Silicon):** arrastra la app a Aplicaciones. No está firmada ni notarizada: la primera vez, ábrela con clic derecho → Abrir. En macOS las actualizaciones se descargan a mano.
+- **macOS (Apple Silicon):** arrastra la app a Aplicaciones. No está firmada ni notarizada: la primera vez, ábrela con clic derecho → Abrir. En macOS la app te avisa cuando hay una versión nueva y la descargas desde la página de la versión.
 
 Para compilar e instalar tu propia copia en Linux:
 

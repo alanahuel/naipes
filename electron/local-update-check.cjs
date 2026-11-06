@@ -5,6 +5,9 @@
  * carries the owner's own changes, so electron-updater must never replace
  * it. Instead it only ASKS GitHub whether a newer release exists and says
  * so — once per version — never downloading or installing anything.
+ * Since 2026-11-06 (distribution plan) the same notice-only mode also covers
+ * macOS (unsigned: Squirrel.Mac can't install) and AUR installs (pacman owns
+ * the files) — see noticeKind.
  *
  * Pure helpers; electron/main.cjs wires them (fetch, files, notifications).
  * Everything that can fail returns or throws plainly — main.cjs turns any
@@ -84,12 +87,38 @@ function shouldAnnounce(latest, lastAnnounced) {
 	return typeof latest === "string" && latest !== lastAnnounced;
 }
 
+/** Which copies only ANNOUNCE new releases instead of installing them
+ *  (owner 2026-11-06, distribution plan), most specific first:
+ *   - "local":  built from a checkout (npLocalBuild) — the owner's changes;
+ *   - "pacman": installed by the AUR package (resources/package-type =
+ *               "pacman") — pacman owns the files, so it updates them;
+ *   - "mac":    macOS — unsigned, and Squirrel.Mac installs signed apps only.
+ *  null → electron-updater downloads and installs (Windows, AppImage, deb). */
+function noticeKind({ localBuild, packageType, platform }) {
+	if (localBuild === true) return "local";
+	if (platform === "linux" && typeof packageType === "string" && packageType.trim() === "pacman") return "pacman";
+	if (platform === "darwin") return "mac";
+	return null;
+}
+
 /** The desktop notification text — main has no i18n catalog, so the two
  *  interface languages live here (settings general.language; es default). */
-function announcementText(version, language) {
-	return language === "en"
-		? { title: `Naipes ${version} is available`, body: "Your copy is a local build: update it with git pull and scripts/install-linux.sh. Click to see what's new." }
-		: { title: `Naipes ${version} está disponible`, body: "Tu copia es local: actualízala con git pull y scripts/install-linux.sh. Pulsa para ver las novedades." };
+function announcementText(version, language, kind = "local") {
+	const en = language === "en";
+	const title = en ? `Naipes ${version} is available` : `Naipes ${version} está disponible`;
+	if (kind === "pacman") {
+		return { title, body: en
+			? "Update it with your package manager (e.g. paru -Syu)."
+			: "Actualízala con tu gestor de paquetes (p. ej. paru -Syu)." };
+	}
+	if (kind === "mac") {
+		return { title, body: en
+			? "Click to download it from the release page."
+			: "Pulsa para descargarla desde la página de la versión." };
+	}
+	return { title, body: en
+		? "Your copy is a local build: update it with git pull and scripts/install-linux.sh. Click to see what's new."
+		: "Tu copia es local: actualízala con git pull y scripts/install-linux.sh. Pulsa para ver las novedades." };
 }
 
 module.exports = {
@@ -100,5 +129,6 @@ module.exports = {
 	fetchLatestRelease,
 	isNewer,
 	shouldAnnounce,
+	noticeKind,
 	announcementText,
 };

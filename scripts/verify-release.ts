@@ -31,6 +31,12 @@
  *     feed   latest-linux.yml — the AppImage and deb entries merged by
  *            writeUpdateInfoFiles (order not deterministic; checked as a set).
  *
+ *   stable (owner 2026-11-06) — NOT builder outputs: the release workflow
+ *     copies each installer to a version-less name and uploads it, so the
+ *     website can link releases/latest/download/<name>:
+ *       Naipes-arm64.dmg, Naipes-x64-setup.exe, Naipes-x86_64.AppImage,
+ *       Naipes-amd64.deb — each must match its versioned original's size.
+ *
  * GitHub asset names equal these file names (all are already "safe" GitHub
  * names, so electron-publish uploads under the plain name) and every yml
  * files[].url equals the uploaded asset name.
@@ -87,12 +93,16 @@ export type DraftSelection =
 	| { ok: true; release: ReleaseRecord; warnings: string[] }
 	| Failures;
 
-/** The full expected asset inventory for one version (11 files). */
+/** The full expected asset inventory for one version (15 files). */
 export type ExpectedAssets = {
 	version: string;
 	mac: { dmg: string; zip: string; feed: string };
 	win: { exe: string; feed: string };
 	linux: { appImage: string; deb: string; feed: string };
+	/** Version-less copies of the 4 installers (owner 2026-11-06): stable
+	 *  names for releases/latest/download/<name> links on the website.
+	 *  [copy, the versioned original it must equal byte-for-byte in size]. */
+	stable: Array<[copy: string, original: string]>;
 	/** Every asset name the draft must hold, and no others. */
 	files: string[];
 };
@@ -135,12 +145,21 @@ export function expectedAssets(version: string): ExpectedAssets {
 	// Sidecar differential-update blockmaps: emitted for dmg, mac zip and
 	// NSIS exe (createBlockmap); AppImage/deb have none in app-builder-lib 26.15.3.
 	const blockmaps = [mac.dmg, mac.zip, win.exe].map((name) => `${name}.blockmap`);
+	// Uploaded by the release workflow after electron-builder (not builder
+	// outputs — the update feeds never reference them).
+	const stable: Array<[string, string]> = [
+		[`${PRODUCT_NAME}-arm64.dmg`, mac.dmg],
+		[`${PRODUCT_NAME}-x64-setup.exe`, win.exe],
+		[`${PRODUCT_NAME}-x86_64.AppImage`, linux.appImage],
+		[`${PRODUCT_NAME}-amd64.deb`, linux.deb],
+	];
 	return {
 		version,
 		mac,
 		win,
 		linux,
-		files: [mac.dmg, mac.zip, win.exe, linux.appImage, linux.deb, ...blockmaps, mac.feed, win.feed, linux.feed],
+		stable,
+		files: [mac.dmg, mac.zip, win.exe, linux.appImage, linux.deb, ...blockmaps, mac.feed, win.feed, linux.feed, ...stable.map(([copy]) => copy)],
 	};
 }
 
@@ -322,6 +341,13 @@ export function verifyAssets(release: ReleaseRecord, expected: ExpectedAssets): 
 	}
 	for (const name of expected.files) {
 		if (!seen.has(name)) errors.push(`${name}: missing from the release`);
+	}
+	for (const [copy, original] of expected.stable) {
+		const a = seen.get(copy);
+		const b = seen.get(original);
+		if (a && b && a.size !== b.size) {
+			errors.push(`${copy}: size ${a.size} differs from ${original} (${b.size}) — not a copy of this version's installer`);
+		}
 	}
 	if (errors.length > 0) return { ok: false, errors };
 	return { ok: true };

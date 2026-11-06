@@ -64,9 +64,9 @@ Future teaching sessions can read the graph instead of starting from scratch, an
 
 Download the latest version from **[GitHub Releases](https://github.com/alanahuel/naipes/releases)**:
 
-- **Linux (x64):** make the AppImage executable and open it, or install the Debian/Ubuntu `.deb`.
+- **Linux (x64):** make the AppImage executable and open it, or install the Debian/Ubuntu `.deb`. On Arch Linux and derivatives (CachyOS, Manjaro, EndeavourOS…) it's in the AUR: `paru -S naipes-bin` (or `yay -S naipes-bin`), and it updates with the rest of the system.
 - **Windows (x64):** run the installer. It is unsigned, so Windows may show a SmartScreen or "unknown publisher" warning.
-- **macOS (Apple Silicon):** drag the app to Applications. It is unsigned and not notarized: the first time, open it with right-click → Open. On macOS, download updates manually.
+- **macOS (Apple Silicon):** drag the app to Applications. It is unsigned and not notarized: the first time, open it with right-click → Open. On macOS, the app tells you when a new version is out and you download it from the release page.
 
 To build and install your own checkout on Linux:
 

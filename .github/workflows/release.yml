@@ -134,6 +134,27 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: pnpm exec electron-builder ${{ matrix.builder_args }} --publish always
+      # Version-less copies (owner 2026-11-06) so the website can link
+      # releases/latest/download/<name> without a hardcoded version. Plain
+      # copies of this job's installers; the update feeds never reference
+      # them. --clobber keeps a re-run idempotent; gh finds the tag's draft.
+      - name: Version-less installer copies → draft
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          v="${GITHUB_REF_NAME#v}"
+          case "$RUNNER_OS" in
+            macOS)   pairs="Naipes-$v-arm64.dmg:Naipes-arm64.dmg" ;;
+            Windows) pairs="Naipes-$v-x64-setup.exe:Naipes-x64-setup.exe" ;;
+            Linux)   pairs="Naipes-$v-x86_64.AppImage:Naipes-x86_64.AppImage Naipes-$v-amd64.deb:Naipes-amd64.deb" ;;
+          esac
+          mkdir -p dist/stable
+          for pair in $pairs; do
+            cp "dist/${pair%%:*}" "dist/stable/${pair##*:}"
+          done
+          gh release upload "$GITHUB_REF_NAME" dist/stable/* --clobber --repo "$GITHUB_REPOSITORY"
       - name: Rehearsal (no publish)
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -189,8 +210,8 @@ jobs:
 
   # The last gate before a human publishes: after ALL three packaging jobs
   # have uploaded, fail the run unless the tag's single draft release holds
-  # exactly the 11 verified assets (4 installers + mac updater ZIP + their
-  # blockmaps + 3 latest*.yml feeds) and the feeds reference those uploads
+  # exactly the 15 verified assets (4 installers + mac updater ZIP + their
+  # blockmaps + 3 latest*.yml feeds + 4 version-less installer copies) and the feeds reference those uploads
   # by exact name at the package.json version. Read-only: it never creates,
   # edits, publishes, or deletes anything. Manual rehearsals upload nothing,
   # so there is no draft to verify and the job stays skipped.

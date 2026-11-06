@@ -10,14 +10,16 @@ const en = translator("en");
 
 /** Observational snapshot from electron/main.cjs; never updater permission. */
 export type UpdateState = {
-	/** "available" = a newer GitHub release seen by a LOCAL build, which
-	 *  only announces it (electron/local-update-check.cjs). */
+	/** "available" = a newer GitHub release seen by a notice-only copy,
+	 *  which only announces it (electron/local-update-check.cjs). */
 	status: "idle" | "checking" | "downloading" | "up-to-date" | "downloaded" | "available" | "error" | "disabled";
 	version: string | null;
-	/** The release page of an "available" version (local builds only). */
+	/** The release page of an "available" version (notice-only copies;
+	 *  null for "pacman" — the package manager updates it). */
 	url?: string | null;
-	/** A local build: notice-only checks, never a download or install. */
-	local?: boolean;
+	/** A notice-only copy — checks, never a download or install: a local
+	 *  build, macOS (unsigned) or an AUR install (pacman owns the files). */
+	notice?: "local" | "mac" | "pacman" | null;
 	revision: number;
 };
 
@@ -58,7 +60,9 @@ export function updateStatusText(state: UpdateState | null, t: Translate = en): 
 		case "downloading": return state.version ? t("settings.update.downloadingVersion", { version: state.version }) : t("settings.update.downloading");
 		case "up-to-date": return t("settings.update.upToDate");
 		case "downloaded": return state.version ? t("settings.update.readyVersion", { version: state.version }) : t("settings.update.ready");
-		case "available": return state.version ? t("settings.update.availableVersion", { version: state.version }) : null;
+		case "available": return state.version
+			? t(state.notice === "pacman" ? "settings.update.availablePackage" : "settings.update.availableVersion", { version: state.version })
+			: null;
 		case "error": return t("settings.update.error");
 		default: return null;
 	}
@@ -86,7 +90,9 @@ export function UpdateSettings({
 	const status = state?.status === "downloaded" ? updateStatusText(state, t)
 		: failed || checkFailed ? t("settings.update.error") : updateStatusText(state, t);
 	const releaseNotes = version && homepage ? `${homepage}/releases/tag/v${version}` : null;
-	const local = state?.local === true;
+	const notice = state?.notice ?? null;
+	const hint = notice ? `settings.update.${notice}Hint` as const : "settings.update.manualHint";
+	const autoHint = notice ? `settings.update.${notice}AutoHint` as const : "settings.update.autoHint";
 	const available = state?.status === "available" && state.version && state.url ? { version: state.version, url: state.url } : null;
 	const check = () => {
 		setCheckFailed(false);
@@ -102,7 +108,7 @@ export function UpdateSettings({
 					<>
 						{status && <span className="block" role="status" data-testid="update-status">{status}</span>}
 						{available && <a href={available.url} target="_blank" rel="noopener noreferrer" className="block underline-offset-2 hover:text-foreground hover:underline" data-testid="update-available-link">{t("settings.update.seeVersion", { version: available.version })}</a>}
-						{active && <span className="block">{t(local ? "settings.update.localHint" : "settings.update.manualHint")}</span>}
+						{active && <span className="block">{t(hint)}</span>}
 						{releaseNotes && <a href={releaseNotes} target="_blank" rel="noopener noreferrer" className="underline-offset-2 hover:text-foreground hover:underline" data-testid="release-notes">{t("settings.update.releaseNotes")}</a>}
 					</>
 				}
@@ -117,7 +123,7 @@ export function UpdateSettings({
 				))}
 			</SettingsRow>
 			{active && (
-				<SettingsRow label={t("settings.update.auto")} hint={t(local ? "settings.update.localAutoHint" : "settings.update.autoHint")} testid="row-auto-update">
+				<SettingsRow label={t("settings.update.auto")} hint={t(autoHint)} testid="row-auto-update">
 					<Toggle checked={autoUpdate} label={t("settings.update.autoToggle")} testid="toggle-auto-update" onChange={onAutoUpdateChange} />
 				</SettingsRow>
 			)}

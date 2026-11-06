@@ -110,6 +110,7 @@ export default {
 	"notices.vaultNotNow": "Not now",
 	"notices.vaultSuggestions": { one: "{n} note in your inbox has a suggested folder", other: "{n} notes in your inbox have a suggested folder" },
 	"notices.updateAvailable": "Naipes {version} is available. Click to see what’s new.",
+	"notices.updateAvailablePackage": "Naipes {version} is available. Update it with your package manager (e.g. paru -Syu).",
 	"notices.extractedMany": { one: "Added the ideas from {n} note or session to your graph", other: "Added the ideas from {n} notes and sessions to your graph" },
 	"now.title": "Now",
 	"now.more": { one: "See {n} more", other: "See {n} more" },

@@ -13,7 +13,10 @@ const mainFile = fileURLToPath(new URL("../electron/main.cjs", import.meta.url))
 const mainSource = readFileSync(mainFile, "utf8");
 const mainRequire = createRequire(mainFile);
 
-function fixture({ packaged = true, updaterMissing = false, localBuild = false, argv = [] as string[] } = {}) {
+// platform: electron-updater only runs off macOS since 2026-11-06 (unsigned
+// → notice-only), so the updater suites default to Linux. packageType is
+// resources/package-type (the AUR package writes "pacman"); absent → ENOENT.
+function fixture({ packaged = true, updaterMissing = false, localBuild = false, argv = [] as string[], platform = "linux", packageType = null as string | null } = {}) {
 	let settings: string | Error = JSON.stringify({ version: 1, general: { autoUpdate: true } });
 	// Local builds (stage 0b): files main writes (local-update.json), the
 	// fake GitHub answer, desktop notifications shown, urls opened.
@@ -52,6 +55,7 @@ function fixture({ packaged = true, updaterMissing = false, localBuild = false, 
 		return { ok: true, status: 200, json: async () => body };
 	};
 	const settingsReads: string[] = [];
+	const packageTypeReads: string[] = [];
 	const order: string[] = [];
 	const intervals: { callback: () => void; delay: number }[] = [];
 	const handles = new Map<string, (event: unknown) => unknown>();
@@ -136,6 +140,11 @@ function fixture({ packaged = true, updaterMissing = false, localBuild = false, 
 			}
 			if (id === "node:fs") return {
 				readFileSync: (file: string) => {
+					if (file.endsWith("package-type")) {
+						packageTypeReads.push(file);
+						if (packageType === null) throw new Error("ENOENT");
+						return packageType;
+					}
 					if (file.endsWith("local-update.json")) {
 						if (!files.has(file)) throw new Error("ENOENT");
 						return files.get(file);
@@ -148,7 +157,7 @@ function fixture({ packaged = true, updaterMissing = false, localBuild = false, 
 			};
 			return mainRequire(id);
 		},
-		process: { argv, env: { NP_DEV_URL: "http://127.0.0.1:9000" } as Record<string, string | undefined>, platform: "darwin", on() {} },
+		process: { argv, env: { NP_DEV_URL: "http://127.0.0.1:9000" } as Record<string, string | undefined>, platform, resourcesPath: "/fixture/resources", on() {} },
 		__dirname: path.dirname(mainFile), URL,
 		setInterval: (callback: () => void, delay: number) => intervals.push({ callback, delay }),
 		setTimeout() {},
@@ -159,7 +168,7 @@ function fixture({ packaged = true, updaterMissing = false, localBuild = false, 
 	runInContext(mainSource, context, { filename: mainFile });
 	const run = (code: string) => runInContext(code, context);
 	return {
-		run, updater, windows, handles, settingsReads, order, app,
+		run, updater, windows, handles, settingsReads, packageTypeReads, order, app,
 		/** The updater's timers only (the review clock adds a 60s one). */
 		get intervals() { return intervals.filter((i) => i.delay === 24 * 60 * 60 * 1000); },
 		reviewIntervals: () => intervals.filter((i) => i.delay === 60_000),
@@ -362,7 +371,7 @@ describe("local builds: notice-only update checks (owner 2026-11-04, stage 0b)",
 		const f = fixture({ localBuild: true });
 		f.run("setupAutoUpdater()");
 		assert.equal(f.state().status, "idle");
-		assert.equal(f.state().local, true);
+		assert.equal(f.state().notice, "local");
 		await f.check(); await f.settle();
 		assert.equal(f.updater.checks, 0);
 		assert.deepEqual(f.fetches, ["https://api.github.com/repos/alanahuel/naipes/releases/latest"]);
@@ -526,5 +535,65 @@ describe("«Repaso» desktop side (owner 2026-11-04, stage 2)", () => {
 		const f = fixture();
 		f.run("process.platform = 'linux'; applyAutostart(true)");
 		assert.equal([...f.files.keys()].some((k) => k.includes("autostart")), false);
+	});
+});
+
+describe("notice-only copies: macOS and AUR installs (owner 2026-11-06)", () => {
+	const newer = { tag_name: "v99.0.0", html_url: "https://github.com/alanahuel/naipes/releases/tag/v99.0.0" };
+
+	it("macOS never loads electron-updater: notice-only, with the release page", async () => {
+		const f = fixture({ platform: "darwin" });
+		f.setRelease(newer); f.run("setupAutoUpdater()");
+		assert.equal(f.state().notice, "mac");
+		await f.check(); await f.settle();
+		assert.equal(f.updater.checks, 0);
+		assert.equal(f.state().status, "available");
+		assert.equal(f.state().url, newer.html_url);
+		assert.equal(f.notifications.length, 1);
+		assert.match(f.notifications[0]!.body, /descargarla/);
+		f.notifications[0]!.click();
+		assert.deepEqual(f.opened, [newer.html_url]);
+		assert.equal(f.packageTypeReads.length, 0, "package-type is a Linux-only question");
+	});
+
+	it("an AUR install (package-type pacman) is notice-only, pointing at the package manager — no page", async () => {
+		const f = fixture({ packageType: "pacman\n" });
+		f.setRelease(newer); f.run("setupAutoUpdater()");
+		assert.equal(f.state().notice, "pacman");
+		await f.check(); await f.settle();
+		assert.equal(f.updater.checks, 0);
+		assert.equal(f.state().status, "available");
+		assert.equal(f.state().url, null);
+		assert.match(f.notifications[0]!.body, /paru -Syu/);
+		f.notifications[0]!.click();
+		assert.deepEqual(f.opened, []);
+	});
+
+	for (const packageType of [null, "deb", "rpm"]) {
+		it(`Linux with package-type ${packageType} keeps electron-updater`, async () => {
+			const f = fixture({ packageType }); f.run("setupAutoUpdater()"); await f.check();
+			assert.equal(f.state().notice, null);
+			assert.equal(f.updater.checks, 1);
+			assert.deepEqual(f.fetches, []);
+		});
+	}
+
+	it("Windows keeps electron-updater and never reads package-type", async () => {
+		const f = fixture({ platform: "win32" }); f.run("setupAutoUpdater()"); await f.check();
+		assert.equal(f.updater.checks, 1);
+		assert.equal(f.packageTypeReads.length, 0);
+	});
+
+	it("a local build stays 'local' even on macOS or with package-type pacman", () => {
+		for (const opts of [{ platform: "darwin" }, { packageType: "pacman" }]) {
+			const f = fixture({ localBuild: true, ...opts }); f.run("setupAutoUpdater()");
+			assert.equal(f.state().notice, "local");
+		}
+	});
+
+	it("an unpackaged mac shell stays disabled (dev never checks)", async () => {
+		const f = fixture({ platform: "darwin", packaged: false }); f.run("setupAutoUpdater()"); await f.check(true); await f.settle();
+		assert.equal(f.state().status, "disabled");
+		assert.deepEqual(f.fetches, []);
 	});
 });

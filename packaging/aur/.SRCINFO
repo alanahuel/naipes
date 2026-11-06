@@ -1,0 +1,26 @@
+pkgbase = naipes-bin
+	pkgdesc = An agent harness for learning: adaptive teaching, practice, and a persistent knowledge graph
+	pkgver = 0.6.0
+	pkgrel = 1
+	url = https://github.com/alanahuel/naipes
+	arch = x86_64
+	license = AGPL-3.0-only
+	depends = gtk3
+	depends = nss
+	depends = alsa-lib
+	depends = libxss
+	depends = libxtst
+	depends = libnotify
+	depends = libsecret
+	depends = at-spi2-core
+	depends = util-linux-libs
+	depends = xdg-utils
+	optdepends = libappindicator-gtk3: tray icon on desktops without StatusNotifier support
+	provides = naipes
+	conflicts = naipes
+	options = !strip
+	options = !debug
+	source = naipes-0.6.0-amd64.deb::https://github.com/alanahuel/naipes/releases/download/v0.6.0/Naipes-0.6.0-amd64.deb
+	sha256sums = 5baa4dfc3dd780f586a018b0f520b57a0afa7800c280f586e5e673f2544ad4aa
+
+pkgname = naipes-bin

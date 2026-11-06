@@ -289,4 +289,9 @@ export default {
 	"settings.update.seeVersion": "See version {version}",
 	"settings.update.localHint": "Your copy is a local build: I only look for new versions and let you know. To update it, use git pull and scripts/install-linux.sh.",
 	"settings.update.localAutoHint": "Check at startup and every 24 hours. Your local copy never updates itself.",
+	"settings.update.macHint": "On macOS the app can't install updates itself because it isn't signed: I look for new versions, let you know, and you download them from the release page.",
+	"settings.update.macAutoHint": "Check at startup and every 24 hours. On macOS I only let you know; nothing is ever downloaded or installed.",
+	"settings.update.pacmanHint": "You installed Naipes with your package manager: I look for new versions and let you know. To update, use your package manager (e.g. paru -Syu).",
+	"settings.update.pacmanAutoHint": "Check at startup and every 24 hours. The app never updates itself: your package manager does.",
+	"settings.update.availablePackage": "A new version is out: {version}. Update it with your package manager (e.g. paru -Syu).",
 } satisfies Record<keyof typeof es, Message>;

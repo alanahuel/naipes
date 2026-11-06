@@ -4,7 +4,8 @@
  * names asserted here are the ones verified against the INSTALLED
  * app-builder-lib 26.15.3 (see the script header for the derivation):
  * 11 assets — 4 installers (dmg / NSIS exe / AppImage / deb), the mac
- * updater ZIP, its/exe/dmg blockmaps, and the three latest*.yml feeds.
+ * updater ZIP, its/exe/dmg blockmaps, and the three latest*.yml feeds —
+ * plus 4 version-less installer copies uploaded by the workflow (15).
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -34,7 +35,7 @@ function asset(id: number, name: string, overrides: Partial<ReleaseAsset> = {}):
 	return { id, name, size: 5000, state: "uploaded", ...overrides };
 }
 
-/** The complete, healthy 11-asset draft for a version. */
+/** The complete, healthy 15-asset draft for a version. */
 function healthyRelease(version: string, tagForm: "v" | "bare" = "v"): ReleaseRecord {
 	const e = expectedAssets(version);
 	return {
@@ -64,7 +65,7 @@ function healthyFeeds(version: string, release: ReleaseRecord): Record<string, s
 }
 
 describe("release gate — expected asset inventory", () => {
-	it("is exactly the 11 verified builder outputs for the version", () => {
+	it("is exactly the 11 verified builder outputs plus the 4 version-less copies", () => {
 		assert.deepEqual(expectedAssets(VERSION).files, [
 			"Naipes-0.2.0-arm64.dmg",
 			"Naipes-0.2.0-arm64-mac.zip",
@@ -77,7 +78,28 @@ describe("release gate — expected asset inventory", () => {
 			"latest-mac.yml",
 			"latest.yml",
 			"latest-linux.yml",
+			"Naipes-arm64.dmg",
+			"Naipes-x64-setup.exe",
+			"Naipes-x86_64.AppImage",
+			"Naipes-amd64.deb",
 		]);
+	});
+
+	it("a version-less copy must match its versioned installer's size", () => {
+		const release = healthyRelease(VERSION);
+		const copy = release.assets.find((a) => a.name === "Naipes-x86_64.AppImage")!;
+		copy.size = 4999;
+		const result = verifyAssets(release, expectedAssets(VERSION));
+		assert.ok(!result.ok);
+		assert.match(result.errors.join("\n"), /Naipes-x86_64\.AppImage: size 4999 differs/);
+	});
+
+	it("a missing version-less copy fails the gate", () => {
+		const release = healthyRelease(VERSION);
+		release.assets = release.assets.filter((a) => a.name !== "Naipes-amd64.deb");
+		const result = verifyAssets(release, expectedAssets(VERSION));
+		assert.ok(!result.ok);
+		assert.match(result.errors.join("\n"), /Naipes-amd64\.deb: missing/);
 	});
 
 	it("accepts plain semver versions and nothing else", () => {
@@ -408,7 +430,7 @@ describe("release gate — CLI (offline, repo config)", () => {
 		try {
 			const result = run(["verify", path.join(root, "releases.json"), path.join(root, "metadata"), "--tag", TAG]);
 			assert.equal(result.status, 0, String(result.stderr));
-			assert.match(result.stdout, /11\/11 expected files present/);
+			assert.match(result.stdout, /15\/15 expected files present/);
 			assert.ok(result.stdout.includes(`OK: draft for ${TAG} is complete`));
 		} finally {
 			fs.rmSync(root, { recursive: true, force: true });

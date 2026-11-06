@@ -108,6 +108,7 @@ export default {
 	"notices.vaultNotNow": "Ahora no",
 	"notices.vaultSuggestions": { one: "{n} nota de tu bandeja tiene sitio sugerido", other: "{n} notas de tu bandeja tienen sitio sugerido" },
 	"notices.updateAvailable": "Naipes {version} está disponible. Pulsa para ver las novedades.",
+	"notices.updateAvailablePackage": "Naipes {version} está disponible. Actualízala con tu gestor de paquetes (p. ej. paru -Syu).",
 	"notices.extractedMany": { one: "Pasé a tu grafo las ideas de {n} nota o sesión", other: "Pasé a tu grafo las ideas de {n} notas y sesiones" },
 	"now.title": "Ahora",
 	"now.more": { one: "Ver {n} más", other: "Ver {n} más" },

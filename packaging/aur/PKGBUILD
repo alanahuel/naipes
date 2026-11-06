@@ -1,0 +1,41 @@
+# Maintainer: Alan <96840359+alanahuel@users.noreply.github.com>
+#
+# naipes-bin — the published Linux .deb repackaged for Arch (owner,
+# 2026-11-06). This file is the template the release workflow publishes to
+# ssh://aur@aur.archlinux.org/naipes-bin.git: .github/workflows/aur.yml runs
+# packaging/aur/update.sh <version> on every published release, which
+# rewrites pkgver, pkgrel and the sha256 below, then pushes PKGBUILD +
+# .SRCINFO. The values here are those of the last release it was tested with.
+#
+# The app reads resources/package-type: "pacman" makes it notice-only
+# (electron/local-update-check.cjs noticeKind) — pacman owns these files,
+# so the app announces new versions and never replaces itself.
+pkgname=naipes-bin
+_pkgname=naipes
+pkgver=0.6.0
+pkgrel=1
+pkgdesc="An agent harness for learning: adaptive teaching, practice, and a persistent knowledge graph"
+arch=('x86_64')
+url="https://github.com/alanahuel/naipes"
+license=('AGPL-3.0-only')
+depends=('gtk3' 'nss' 'alsa-lib' 'libxss' 'libxtst' 'libnotify' 'libsecret' 'at-spi2-core' 'util-linux-libs' 'xdg-utils')
+optdepends=('libappindicator-gtk3: tray icon on desktops without StatusNotifier support')
+provides=("${_pkgname}")
+conflicts=("${_pkgname}")
+# Electron ships prebuilt, already-stripped binaries.
+options=('!strip' '!debug')
+source=("${_pkgname}-${pkgver}-amd64.deb::${url}/releases/download/v${pkgver}/Naipes-${pkgver}-amd64.deb")
+sha256sums=('5baa4dfc3dd780f586a018b0f520b57a0afa7800c280f586e5e673f2544ad4aa')
+
+package() {
+	bsdtar -xf data.tar.xz -C "${pkgdir}"
+
+	# Notice-only updates: pacman, not the app, replaces these files.
+	printf 'pacman\n' > "${pkgdir}/opt/Naipes/resources/package-type"
+	# The deb's postinst installs this for Ubuntu's AppArmor; Arch has no use for it.
+	rm -f "${pkgdir}/opt/Naipes/resources/apparmor-profile"
+	rm -rf "${pkgdir}/usr/share/doc"
+
+	install -d "${pkgdir}/usr/bin"
+	ln -s /opt/Naipes/naipes "${pkgdir}/usr/bin/${_pkgname}"
+}

@@ -222,7 +222,7 @@ describe("Settings integration", () => {
 
 describe("local builds: notice-only (owner 2026-11-04, stage 0b)", () => {
 	it("a local build keeps the check button and toggle, with its own honest copy", async () => {
-		const b = bridge(state({ local: true })); const host = await mount(<UpdateSettings {...props} />);
+		const b = bridge(state({ notice: "local" })); const host = await mount(<UpdateSettings {...props} />);
 		assert.ok(q(host, "update-check")); assert.ok(q(host, "row-auto-update"));
 		assert.ok(host.textContent!.includes("Your copy is a local build"));
 		assert.ok(host.textContent!.includes("never updates itself"));
@@ -232,8 +232,8 @@ describe("local builds: notice-only (owner 2026-11-04, stage 0b)", () => {
 
 	it("an available version shows its number and links to its release page, never a Restart", async () => {
 		const url = "https://github.com/alanahuel/naipes/releases/tag/v0.4.0";
-		const b = bridge(state({ local: true })); const host = await mount(<UpdateSettings {...props} />);
-		await b.push(state({ status: "available", version: "0.4.0", url, local: true, revision: 1 }));
+		const b = bridge(state({ notice: "local" })); const host = await mount(<UpdateSettings {...props} />);
+		await b.push(state({ status: "available", version: "0.4.0", url, notice: "local", revision: 1 }));
 		assert.equal(q(host, "update-status")!.textContent, "A new version is out: 0.4.0.");
 		assert.equal(q(host, "update-available-link")!.getAttribute("href"), url);
 		assert.equal(q(host, "update-restart"), null);
@@ -241,8 +241,27 @@ describe("local builds: notice-only (owner 2026-11-04, stage 0b)", () => {
 	});
 
 	it("the restart banner never appears for an available (not downloaded) version", async () => {
-		bridge(state({ status: "available", version: "0.4.0", url: "https://github.com/a/b/releases/tag/v0.4.0", local: true }));
+		bridge(state({ status: "available", version: "0.4.0", url: "https://github.com/a/b/releases/tag/v0.4.0", notice: "local" }));
 		const host = await mount(<UpdateBanner />);
 		assert.equal(q(host, "update-banner"), null);
+	});
+});
+
+describe("macOS and AUR copies: notice-only (owner 2026-11-06)", () => {
+	it("macOS explains why it only announces, and links the release page", async () => {
+		const url = "https://github.com/alanahuel/naipes/releases/tag/v0.7.0";
+		const b = bridge(state({ notice: "mac" })); const host = await mount(<UpdateSettings {...props} />);
+		assert.ok(host.textContent!.includes("isn't signed"));
+		await b.push(state({ status: "available", version: "0.7.0", url, notice: "mac", revision: 1 }));
+		assert.equal(q(host, "update-available-link")!.getAttribute("href"), url);
+		assert.equal(q(host, "update-restart"), null);
+	});
+
+	it("an AUR install points at the package manager, with no download link", async () => {
+		const b = bridge(state({ notice: "pacman" })); const host = await mount(<UpdateSettings {...props} />);
+		assert.ok(host.textContent!.includes("your package manager"));
+		await b.push(state({ status: "available", version: "0.7.0", url: null, notice: "pacman", revision: 1 }));
+		assert.match(q(host, "update-status")!.textContent!, /paru -Syu/);
+		assert.equal(q(host, "update-available-link"), null);
 	});
 });
