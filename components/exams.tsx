@@ -50,6 +50,10 @@ import {
 	type MessageKey,
 	type PointStatus,
 	type SyllabusBlock,
+	type SyllabusPoint,
+	type TargetIdea,
+	type ExamMaterial,
+	type ExamRecord,
 } from "@/src/core";
 
 // ─── data ───────────────────────────────────────────────────────────────────
@@ -329,13 +333,15 @@ export function ExamsPage() {
 
 // ─── the wizard ─────────────────────────────────────────────────────────────
 
-function StepHeader({ step }: { step: 1 | 2 | 3 | 4 }) {
+type WizardStep = 1 | 2 | 3 | 4 | 5;
+
+function StepHeader({ step }: { step: WizardStep }) {
 	const t = useT();
 	return (
 		<header className="flex items-center justify-between gap-3 px-1">
 			<h1 className="text-[26px] font-semibold leading-[34px] tracking-tight">{t("exams.wizard.title")}</h1>
 			<ol className="flex gap-1.5 text-sm" aria-label={t("exams.wizard.steps")}>
-				{[1, 2, 3, 4].map((n) => (
+				{[1, 2, 3, 4, 5].map((n) => (
 					<li key={n} aria-current={n === step ? "step" : undefined} className={cn("flex size-7 items-center justify-center rounded-full border tabular-nums", n === step ? "bg-primary text-primary-foreground" : n < step ? "text-foreground" : "text-muted-foreground")}>
 						{n}
 					</li>
@@ -624,7 +630,7 @@ async function uploadMaterials(examId: string, materials: DraftMaterial[]): Prom
 }
 
 /** Step 1 — name, date, syllabus text / file, materials, folders, context
- *  → create + map (reading unread folders first, after a notice). */
+ *  → create the draft. */
 export function NewExamWizard() {
 	const t = useT();
 	const router = useRouter();
@@ -636,7 +642,6 @@ export function NewExamWizard() {
 	const [flagged, setFlagged] = useState<Set<string>>(() => new Set());
 	const [context, setContext] = useState<ExamContext>({ ...EMPTY_EXAM_CONTEXT });
 	const [materials, setMaterials] = useState<DraftMaterial[]>([]);
-	const [toRead, setToRead] = useState<Array<{ path: string; unread: number }> | null>(null);
 	const [state, setState] = useState<"idle" | "reading" | "creating" | "error">("idle");
 	const [error, setError] = useState<string | null>(null);
 	const fileRef = useRef<HTMLInputElement>(null);
@@ -670,7 +675,10 @@ export function NewExamWizard() {
 	const hasScope = scope.folders.length > 0 || scope.directFolders.length > 0;
 	const ready = title.trim().length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date) && (text.trim().length > 0 || hasScope);
 
-	const create = async () => {
+	/** «Siguiente»: create the draft (+ its materials) and go on to the
+	 *  standard; the research starts from there. */
+	const submit = async () => {
+		if (!ready) return;
 		setState("creating");
 		setError(null);
 		const created = await sendJson("/api/exams", "POST", { title: title.trim(), examDate: date, context, syllabus: { text, fileName, ...scope } });
@@ -681,22 +689,7 @@ export function NewExamWizard() {
 			return;
 		}
 		await uploadMaterials(id, materials);
-		await sendJson(`/api/exams/${id}/map`, "POST");
 		router.push(`/exams/${id}`);
-	};
-
-	/** «Mapear»: unread folders in the scope → the notice first. */
-	const submit = async () => {
-		if (!ready) return;
-		if (hasScope) {
-			const plan = await sendJson("/api/exams/folders", "POST", scope);
-			const add = (plan.body.add as Array<{ path: string; unread: number }> | undefined) ?? [];
-			if (add.length > 0) {
-				setToRead(add);
-				return;
-			}
-		}
-		await create();
 	};
 
 	return (
@@ -733,37 +726,12 @@ export function NewExamWizard() {
 					<MaterialsZone value={materials} onChange={setMaterials} />
 					{(tree?.folders.length ?? 0) > 0 && <FolderPicker folders={tree!.folders} flagged={flagged} onChange={setFlagged} />}
 					<ContextFields value={context} onChange={setContext} />
-					{toRead && (
-						<div role="dialog" aria-labelledby="exam-read-title" className="mx-1 flex flex-col gap-2 rounded-xl border border-primary/40 bg-primary/5 p-4 text-sm" data-testid="exam-read-notice">
-							<p id="exam-read-title" className="font-medium">
-								{t("exams.read.notice")}
-							</p>
-							<ul className="list-disc pl-5">
-								{toRead.map((f) => (
-									<li key={f.path} title={f.path}>
-										{t("exams.read.item", { path: shortFolder(f.path), n: f.unread })}
-									</li>
-								))}
-							</ul>
-							<p className="text-muted-foreground">{t("exams.read.after")}</p>
-							<div className="flex justify-end gap-2">
-								<button type="button" className={quietBtn} onClick={() => setToRead(null)}>
-									{t("exams.read.cancel")}
-								</button>
-								<button type="button" className={primaryBtn} disabled={state === "creating"} onClick={() => void create()} data-testid="exam-read-confirm">
-									{t("exams.read.confirm")}
-								</button>
-							</div>
-						</div>
-					)}
 					{error && <p role="alert" className="px-1 text-sm text-warn">{error}</p>}
-					{!toRead && (
-						<div className="flex justify-end px-1">
-							<button type="button" className={primaryBtn} disabled={!ready || state === "creating" || state === "reading"} onClick={() => void submit()} data-testid="exam-map">
-								{state === "creating" ? t("exams.wizard.creating") : t("exams.wizard.map")}
-							</button>
-						</div>
-					)}
+					<div className="flex justify-end px-1">
+						<button type="button" className={primaryBtn} disabled={!ready || state === "creating" || state === "reading"} onClick={() => void submit()} data-testid="exam-next">
+							{state === "creating" ? t("exams.wizard.creating") : t("exams.wizard.next")}
+						</button>
+					</div>
 				</section>
 			</div>
 		</div>
@@ -773,26 +741,67 @@ export function NewExamWizard() {
 let localSeq = 0;
 const localId = (prefix: string) => `${prefix}${Date.now().toString(36)}${++localSeq}`;
 
-/** Start (or retry) the mapping; a missing strong model says so. */
-function MapNow({ examId, failure }: { examId: string; failure?: string }) {
+/** Step 3 — the read → outline → research progress, or its failure with
+ *  a retry (a failed research resumes the blocks still without targets). */
+function ResearchProgress({ exam }: { exam: ExamDetailView }) {
 	const t = useT();
 	const [error, setError] = useState<string | null>(null);
-	const run = async () => {
+	const mapping = exam.record.mapping;
+	const research = exam.record.research;
+	const retry = async () => {
 		setError(null);
-		const res = await sendJson(`/api/exams/${examId}/map`, "POST");
+		const res = mapping.error === "research" ? await sendJson(`/api/exams/${exam.id}/research`, "POST", { mode: "missing" }) : await sendJson(`/api/exams/${exam.id}/map`, "POST");
 		if (!res.ok) setError(res.body.code === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.wizard.mapFailed", { error: String(res.body.error ?? "") }));
 	};
+	let line: string;
+	if (mapping.state === "reading") line = t("exams.wizard.readingFolders", { done: exam.reading?.done ?? 0, total: exam.reading?.total ?? 0 });
+	else if (mapping.state === "running") line = t("exams.wizard.outlining");
+	else if (mapping.state === "researching") line = t("exams.wizard.researching", { i: Math.min((research?.done ?? 0) + 1, research?.total ?? 1), n: research?.total ?? 1, title: research?.current ?? "" });
+	else line = "";
+	const failure =
+		mapping.state === "error"
+			? mapping.error === "research"
+				? t("exams.wizard.researchFailed", { block: research?.error?.block ?? "", error: research?.error?.message ?? "" })
+				: mapping.error === "interrupted"
+					? t("exams.wizard.mapInterrupted")
+					: mapping.error === "models_not_configured"
+						? t("exams.wizard.noModel")
+						: t("exams.wizard.mapFailed", { error: mapping.error ?? "" })
+			: null;
 	return (
-		<div className="flex flex-col gap-3 px-1" data-testid="exam-map-now">
-			{(failure || error) && <p role="alert" className="text-sm text-warn">{error ?? failure}</p>}
-			<button type="button" className={cn(primaryBtn, "self-start")} onClick={() => void run()}>
-				{failure ? t("exams.wizard.retry") : t("exams.wizard.map")}
-			</button>
-		</div>
+		<section className="flex flex-col gap-4" data-testid="exam-research">
+			<SectionTitle>{t("exams.wizard.research")}</SectionTitle>
+			{line && (
+				<p className="px-1 text-sm text-muted-foreground" aria-live="polite" data-testid="exam-research-progress">
+					{line}
+				</p>
+			)}
+			{research && !research.web && mapping.state !== "reading" && <p className="px-1 text-sm text-warn" data-testid="exam-no-web">{t("exams.wizard.noWeb")}</p>}
+			{(failure || error) && (
+				<div className="flex flex-col gap-3 px-1">
+					<p role="alert" className="text-sm text-warn">
+						{error ?? failure}
+					</p>
+					<button type="button" className={cn(primaryBtn, "self-start")} onClick={() => void retry()} data-testid="exam-research-retry">
+						{t("exams.wizard.retry")}
+					</button>
+				</div>
+			)}
+		</section>
 	);
 }
 
-/** Step 2 — the mapping table: edit texts, remove ideas, add/delete points. */
+/** A target's source line (owner-approved texts). */
+export function targetSourceLabel(target: TargetIdea, materials: readonly ExamMaterial[], t: Translate): string {
+	const { source } = target;
+	if (source.kind === "user") return "";
+	if (source.kind === "model") return t("exams.targets.model");
+	if (source.kind === "material") return t("exams.targets.material", { name: materials.find((m) => m.id === source.ref)?.name ?? source.title });
+	return source.year ? t("exams.targets.webYear", { title: source.title, year: source.year }) : t("exams.targets.web", { title: source.title });
+}
+
+/** Step 4 — review: blocks → points → target ideas with their source and
+ *  links; edit, remove, add; re-research a point or everything. */
 function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => void }) {
 	const t = useT();
 	const [blocks, setBlocks] = useState<SyllabusBlock[]>(exam.record.blocks);
@@ -801,47 +810,44 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 	const [error, setError] = useState<string | null>(null);
 	useEffect(() => setBlocks(exam.record.blocks), [exam.record.blocks]);
 	const names = useMemo(() => new Map((exam.model?.ideas ?? []).map((i) => [i.nodeId, i.name])), [exam.model]);
-	const mapping = exam.record.mapping;
+	const materials = exam.record.materials;
 
 	const edit = (blockId: string, f: (b: SyllabusBlock) => SyllabusBlock | null) =>
 		setBlocks((list) => list.map((b) => (b.id === blockId ? f(b) : b)).filter((b): b is SyllabusBlock => b !== null));
+	const editPoint = (blockId: string, pointId: string, f: (p: SyllabusPoint) => SyllabusPoint) =>
+		edit(blockId, (b) => ({ ...b, points: b.points.map((p) => (p.id === pointId ? f(p) : p)) }));
 
+	const cleaned = () =>
+		blocks
+			.map((b) => ({
+				...b,
+				title: b.title.trim(),
+				points: b.points
+					.map((p) => ({ ...p, text: p.text.trim(), ...(p.targets ? { targets: p.targets.map((x) => ({ ...x, statement: x.statement.trim() })).filter((x) => x.statement) } : {}) }))
+					.filter((p) => p.text),
+			}))
+			.filter((b) => b.title && b.points.length > 0);
+	const persist = async () => {
+		const res = await sendJson(`/api/exams/${exam.id}`, "PUT", { blocks: cleaned() });
+		if (!res.ok) setError(typeof res.body.error === "string" ? res.body.error : t("exams.wizard.saveFailed"));
+		return res.ok;
+	};
 	const confirm = async () => {
 		setSaving(true);
 		setError(null);
-		const cleaned = blocks
-			.map((b) => ({ ...b, title: b.title.trim(), points: b.points.map((p) => ({ ...p, text: p.text.trim() })).filter((p) => p.text) }))
-			.filter((b) => b.title && b.points.length > 0);
-		const res = await sendJson(`/api/exams/${exam.id}`, "PUT", { blocks: cleaned });
+		const ok = await persist();
 		setSaving(false);
-		if (!res.ok) {
-			setError(typeof res.body.error === "string" ? res.body.error : t("exams.wizard.saveFailed"));
-			return;
-		}
-		onDone();
+		if (ok) onDone();
+	};
+	const rerun = async (body: { pointId: string } | { mode: "all" }) => {
+		setError(null);
+		if (!(await persist())) return;
+		const res = await sendJson(`/api/exams/${exam.id}/research`, "POST", body);
+		if (!res.ok) setError(res.body.code === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.wizard.mapFailed", { error: String(res.body.error ?? "") }));
 	};
 
-	if (mapping.state === "reading") {
-		return (
-			<p className="px-1 text-sm text-muted-foreground" data-testid="exam-reading" aria-live="polite">
-				{t("exams.wizard.readingFolders", { done: exam.reading?.done ?? 0, total: exam.reading?.total ?? 0 })}
-			</p>
-		);
-	}
-	if (mapping.state === "running") {
-		return (
-			<p className="px-1 text-sm text-muted-foreground" data-testid="exam-mapping-running">
-				{t("exams.wizard.mapping")}
-			</p>
-		);
-	}
-	if (mapping.state === "none" && blocks.length === 0) {
-		return <MapNow examId={exam.id} />;
-	}
-	if (mapping.state === "error" && blocks.length === 0) {
-		return <MapNow examId={exam.id} failure={mapping.error === "interrupted" ? t("exams.wizard.mapInterrupted") : t("exams.wizard.mapFailed", { error: mapping.error ?? "" })} />;
-	}
 	const input = "min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 outline-none hover:border-border focus:border-primary/50";
+	const smallBtn = "shrink-0 text-xs text-muted-foreground hover:text-foreground";
 	return (
 		<section className="flex flex-col gap-4" data-testid="exam-mapping">
 			<SectionTitle>{t("exams.wizard.review")}</SectionTitle>
@@ -851,6 +857,7 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 					{t("exams.wizard.readFailed", { list: exam.reading!.failed.map((f) => folderName(f.path)).join(", ") })}
 				</p>
 			)}
+			{exam.record.research && !exam.record.research.web && <p className="px-1 text-sm text-warn">{t("exams.wizard.noWeb")}</p>}
 			{blocks.map((b) => (
 				<div key={b.id} className="overflow-hidden rounded-xl border">
 					<div className="flex items-center gap-2 border-b bg-accent/30 px-2 py-1.5">
@@ -861,10 +868,14 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 					</div>
 					<ul>
 						{b.points.map((p) => (
-							<li key={p.id} className="border-b px-2 py-1.5 text-sm last:border-b-0">
+							<li key={p.id} className="border-b px-2 py-1.5 text-sm last:border-b-0" data-testid="exam-review-point">
 								<div className="flex items-center gap-2">
-									<input value={p.text} onChange={(e) => edit(b.id, (x) => ({ ...x, points: x.points.map((y) => (y.id === p.id ? { ...y, text: e.target.value } : y)) }))} aria-label={t("exams.wizard.pointText")} className={input} />
-									{p.nodeIds.length === 0 ? (
+									<input value={p.text} onChange={(e) => editPoint(b.id, p.id, (y) => ({ ...y, text: e.target.value }))} aria-label={t("exams.wizard.pointText")} className={input} />
+									{p.targets ? (
+										<button type="button" aria-expanded={open === p.id} onClick={() => setOpen(open === p.id ? null : p.id)} className="shrink-0 text-muted-foreground hover:text-foreground">
+											{t("exams.targets.title", { n: p.targets.length })}
+										</button>
+									) : p.nodeIds.length === 0 ? (
 										<span className="shrink-0 text-muted-foreground">{t("exams.point.gap")}</span>
 									) : (
 										<button type="button" aria-expanded={open === p.id} onClick={() => setOpen(open === p.id ? null : p.id)} className="shrink-0 text-muted-foreground hover:text-foreground">
@@ -875,12 +886,70 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 										<XIcon className="size-4" />
 									</button>
 								</div>
-								{open === p.id && (
+								{open === p.id && p.targets && (
+									<div className="mt-1 flex flex-col gap-2 pl-4" data-testid="exam-targets">
+										<ul className="flex flex-col gap-2">
+											{p.targets.map((target) => {
+												const label = targetSourceLabel(target, materials, t);
+												return (
+													<li key={target.id} className="rounded-md border px-2 py-1.5" data-testid="exam-target">
+														<div className="flex items-start gap-2">
+															<textarea
+																value={target.statement}
+																rows={2}
+																aria-label={t("exams.targets.statement")}
+																onChange={(e) => editPoint(b.id, p.id, (y) => ({ ...y, targets: y.targets!.map((z) => (z.id === target.id ? { ...z, statement: e.target.value } : z)) }))}
+																className={cn(input, "resize-y")}
+															/>
+															<button type="button" aria-label={t("exams.targets.remove")} onClick={() => editPoint(b.id, p.id, (y) => ({ ...y, targets: y.targets!.filter((z) => z.id !== target.id) }))} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
+																<XIcon className="size-4" />
+															</button>
+														</div>
+														<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 px-2 text-xs text-muted-foreground">
+															{label && (target.source.kind === "web" && target.source.ref ? (
+																<a href={target.source.ref} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+																	{label}
+																</a>
+															) : (
+																<span>{label}</span>
+															))}
+															{target.source.outdated && <span className="text-warn">{t("exams.targets.outdated")}</span>}
+															{target.nodeIds.length === 0 ? (
+																<span>{t("exams.targets.unlinked")}</span>
+															) : (
+																<span className="flex flex-wrap items-center gap-1">
+																	{t("exams.targets.have", { names: "" })}
+																	{target.nodeIds.map((n) => (
+																		<span key={n} className="inline-flex items-center gap-1 rounded-full border px-2">
+																			{names.get(n) ?? n}
+																			<button type="button" onClick={() => editPoint(b.id, p.id, (y) => ({ ...y, targets: y.targets!.map((z) => (z.id === target.id ? { ...z, nodeIds: z.nodeIds.filter((q) => q !== n) } : z)) }))} className="hover:text-foreground">
+																				{t("exams.wizard.unlink")}
+																			</button>
+																		</span>
+																	))}
+																</span>
+															)}
+														</div>
+													</li>
+												);
+											})}
+										</ul>
+										<div className="flex flex-wrap gap-3">
+											<button type="button" className={smallBtn} onClick={() => editPoint(b.id, p.id, (y) => ({ ...y, targets: [...y.targets!, { id: localId("t_"), statement: "", source: { kind: "user", title: "" }, nodeIds: [] }] }))}>
+												+ {t("exams.targets.add")}
+											</button>
+											<button type="button" className={smallBtn} onClick={() => void rerun({ pointId: p.id })} data-testid="exam-rerun-point">
+												{t("exams.targets.rerunPoint")}
+											</button>
+										</div>
+									</div>
+								)}
+								{open === p.id && !p.targets && (
 									<ul className="mt-1 flex flex-col gap-1 pl-4">
 										{p.nodeIds.map((n) => (
 											<li key={n} className="flex items-center justify-between gap-2 text-muted-foreground">
 												<span className="min-w-0 truncate">{names.get(n) ?? n}</span>
-												<button type="button" onClick={() => edit(b.id, (x) => ({ ...x, points: x.points.map((y) => (y.id === p.id ? { ...y, nodeIds: y.nodeIds.filter((z) => z !== n) } : y)) }))} className="shrink-0 text-xs hover:text-foreground">
+												<button type="button" onClick={() => editPoint(b.id, p.id, (y) => ({ ...y, nodeIds: y.nodeIds.filter((z) => z !== n) }))} className="shrink-0 text-xs hover:text-foreground">
 													{t("exams.wizard.unlink")}
 												</button>
 											</li>
@@ -896,9 +965,14 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 					</button>
 				</div>
 			))}
-			<button type="button" onClick={() => setBlocks((list) => [...list, { id: localId("b_"), title: t("exams.wizard.newBlock"), points: [] }])} className={cn(quietBtn, "self-start")}>
-				{t("exams.wizard.addBlock")}
-			</button>
+			<div className="flex flex-wrap gap-2">
+				<button type="button" onClick={() => setBlocks((list) => [...list, { id: localId("b_"), title: t("exams.wizard.newBlock"), points: [] }])} className={quietBtn}>
+					{t("exams.wizard.addBlock")}
+				</button>
+				<button type="button" onClick={() => void rerun({ mode: "all" })} className={quietBtn} data-testid="exam-rerun-all">
+					{t("exams.targets.rerunAll")}
+				</button>
+			</div>
 			{error && <p role="alert" className="px-1 text-sm text-warn">{error}</p>}
 			<div className="flex justify-end px-1">
 				<button type="button" className={primaryBtn} disabled={saving} onClick={() => void confirm()} data-testid="exam-confirm-mapping">
@@ -988,18 +1062,92 @@ export function WeeklyMinutes({ value, onChange }: { value: readonly number[]; o
 	);
 }
 
-/** Steps 3–4 — the standard, then the global weekly budget + forecast. */
-function PlanSteps({ exam, step, setStep }: { exam: ExamDetailView; step: 3 | 4; setStep: (s: 2 | 3 | 4) => void }) {
+/** Step 2 — the standard (the research's depth follows it), then
+ *  «Investigar»: unread folders in the scope get the notice first. */
+function StandardStep({ exam }: { exam: ExamDetailView }) {
+	const t = useT();
+	const [standard, setStandard] = useState<ExamStandard>(exam.standard);
+	const [toRead, setToRead] = useState<Array<{ path: string; unread: number }> | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const start = async () => {
+		setBusy(true);
+		setError(null);
+		const res = await sendJson(`/api/exams/${exam.id}/map`, "POST");
+		setBusy(false);
+		if (!res.ok) setError(res.body.code === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.wizard.mapFailed", { error: String(res.body.error ?? "") }));
+	};
+	const investigate = async () => {
+		setBusy(true);
+		setError(null);
+		const saved = await sendJson(`/api/exams/${exam.id}`, "PUT", { standard });
+		if (!saved.ok) {
+			setBusy(false);
+			setError(t("exams.wizard.saveFailed"));
+			return;
+		}
+		const { folders, directFolders } = exam.record.syllabus;
+		if (folders.length > 0 || directFolders.length > 0) {
+			const plan = await sendJson("/api/exams/folders", "POST", { folders, directFolders });
+			const add = (plan.body.add as Array<{ path: string; unread: number }> | undefined) ?? [];
+			if (add.length > 0) {
+				setBusy(false);
+				setToRead(add);
+				return;
+			}
+		}
+		await start();
+	};
+	return (
+		<section className="flex flex-col gap-4">
+			<SectionTitle>{t("exams.wizard.standard")}</SectionTitle>
+			<StandardPicker value={standard} onChange={setStandard} />
+			{toRead && (
+				<div role="dialog" aria-labelledby="exam-read-title" className="mx-1 flex flex-col gap-2 rounded-xl border border-primary/40 bg-primary/5 p-4 text-sm" data-testid="exam-read-notice">
+					<p id="exam-read-title" className="font-medium">
+						{t("exams.read.notice")}
+					</p>
+					<ul className="list-disc pl-5">
+						{toRead.map((f) => (
+							<li key={f.path} title={f.path}>
+								{t("exams.read.item", { path: shortFolder(f.path), n: f.unread })}
+							</li>
+						))}
+					</ul>
+					<p className="text-muted-foreground">{t("exams.read.after")}</p>
+					<div className="flex justify-end gap-2">
+						<button type="button" className={quietBtn} onClick={() => setToRead(null)}>
+							{t("exams.read.cancel")}
+						</button>
+						<button type="button" className={primaryBtn} disabled={busy} onClick={() => void start()} data-testid="exam-read-confirm">
+							{t("exams.read.confirm")}
+						</button>
+					</div>
+				</div>
+			)}
+			{error && <p role="alert" className="px-1 text-sm text-warn">{error}</p>}
+			{!toRead && (
+				<div className="flex justify-end px-1">
+					<button type="button" className={primaryBtn} disabled={busy} onClick={() => void investigate()} data-testid="exam-investigate">
+						{t("exams.wizard.investigate")}
+					</button>
+				</div>
+			)}
+		</section>
+	);
+}
+
+/** Step 5 — the global weekly budget + forecast → «Crear plan». */
+function TimeStep({ exam, back }: { exam: ExamDetailView; back: () => void }) {
 	const t = useT();
 	const { locale } = useLocale();
-	const [standard, setStandard] = useState<ExamStandard>(exam.standard);
 	const [weekly, setWeekly] = useState<number[]>(exam.weeklyMinutes);
 	const [preview, setPreview] = useState<{ bestPreset: ExamPreset | null; feasible: boolean; extraPerDay: number } | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const standard = exam.standard;
 
 	useEffect(() => {
-		if (step !== 4) return;
 		let live = true;
 		const timer = setTimeout(() => {
 			void sendJson(`/api/exams/${exam.id}/preview`, "POST", { standard, weeklyMinutes: weekly }).then((r) => {
@@ -1010,34 +1158,18 @@ function PlanSteps({ exam, step, setStep }: { exam: ExamDetailView; step: 3 | 4;
 			live = false;
 			clearTimeout(timer);
 		};
-	}, [exam.id, standard, weekly, step]);
+	}, [exam.id, standard, weekly]);
 
 	const create = async () => {
 		setSaving(true);
 		setError(null);
-		const settings = await fetch("/api/settings").then((r) => r.json()).catch(() => ({})) as { settings?: { exams?: object } };
+		const settings = (await fetch("/api/settings").then((r) => r.json()).catch(() => ({}))) as { settings?: { exams?: object } };
 		const savedWeekly = await sendJson("/api/settings/exams", "PUT", { ...(settings.settings?.exams ?? {}), weeklyMinutes: weekly });
 		const activated = savedWeekly.ok ? await sendJson(`/api/exams/${exam.id}`, "PUT", { standard, status: "active" }) : savedWeekly;
 		setSaving(false);
 		if (!activated.ok) setError(typeof activated.body.error === "string" ? activated.body.error : t("exams.wizard.saveFailed"));
 	};
 
-	if (step === 3) {
-		return (
-			<section className="flex flex-col gap-4">
-				<SectionTitle>{t("exams.wizard.standard")}</SectionTitle>
-				<StandardPicker value={standard} onChange={setStandard} />
-				<div className="flex justify-between px-1">
-					<button type="button" className={quietBtn} onClick={() => setStep(2)}>
-						{t("exams.wizard.back")}
-					</button>
-					<button type="button" className={primaryBtn} onClick={() => setStep(4)} data-testid="exam-standard-next">
-						{t("exams.wizard.next")}
-					</button>
-				</div>
-			</section>
-		);
-	}
 	return (
 		<section className="flex flex-col gap-4">
 			<SectionTitle>{t("exams.wizard.time")}</SectionTitle>
@@ -1052,7 +1184,7 @@ function PlanSteps({ exam, step, setStep }: { exam: ExamDetailView; step: 3 | 4;
 			</p>
 			{error && <p role="alert" className="px-1 text-sm text-warn">{error}</p>}
 			<div className="flex justify-between px-1">
-				<button type="button" className={quietBtn} onClick={() => setStep(3)}>
+				<button type="button" className={quietBtn} onClick={back}>
 					{t("exams.wizard.back")}
 				</button>
 				<button type="button" className={primaryBtn} disabled={saving} onClick={() => void create()} data-testid="exam-create-plan">
@@ -1063,10 +1195,19 @@ function PlanSteps({ exam, step, setStep }: { exam: ExamDetailView; step: 3 | 4;
 	);
 }
 
-/** A draft resumes at its step: mapping (2) until confirmed, then 3–4. */
+/** A draft resumes at its step: 2 standard (nothing started), 3 while the
+ *  read → outline → research runs or failed, 4 review, 5 time. */
+export function draftStep(mapping: ExamRecord["mapping"]["state"]): 2 | 3 | 4 {
+	if (mapping === "none") return 2;
+	if (mapping === "done") return 4;
+	return 3;
+}
+
 function DraftWizard({ exam, reload }: { exam: ExamDetailView; reload: () => void }) {
 	const router = useRouter();
-	const [step, setStep] = useState<2 | 3 | 4>(2);
+	const auto = draftStep(exam.record.mapping.state);
+	const [confirmed, setConfirmed] = useState(false);
+	const step: WizardStep = auto === 4 && confirmed ? 5 : auto;
 	return (
 		<div className="h-full overflow-y-auto" data-testid="exam-wizard">
 			<div className="mx-auto flex w-full max-w-[46rem] flex-col gap-8 px-4 pb-16 pt-10">
@@ -1075,17 +1216,18 @@ function DraftWizard({ exam, reload }: { exam: ExamDetailView; reload: () => voi
 					<p className="min-w-0 truncate font-medium">{exam.title}</p>
 					<ExamMenu exam={exam} onDeleted={() => router.push("/exams")} />
 				</div>
-				{step === 2 ? (
+				{step === 2 && <StandardStep exam={exam} />}
+				{step === 3 && <ResearchProgress exam={exam} />}
+				{step === 4 && (
 					<MappingStep
 						exam={exam}
 						onDone={() => {
 							reload();
-							setStep(3);
+							setConfirmed(true);
 						}}
 					/>
-				) : (
-					<PlanSteps exam={exam} step={step} setStep={setStep} />
 				)}
+				{step === 5 && <TimeStep exam={exam} back={() => setConfirmed(false)} />}
 			</div>
 		</div>
 	);

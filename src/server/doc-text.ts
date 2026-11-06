@@ -86,6 +86,14 @@ const tesseractEngine: OcrEngine = {
 export const ocrOverride: { current?: OcrEngine } = {};
 const ocrEngine = (): OcrEngine => ocrOverride.current ?? tesseractEngine;
 
+/** OCR of a photo (exam materials, owner 2026-11-06): null = no OCR on
+ *  this machine. */
+export async function imageText(bytes: Uint8Array): Promise<string | null> {
+	const languages = ocrEngine().languages();
+	if (languages === null) return null;
+	return ocrEngine().recognize(Buffer.from(bytes), languages);
+}
+
 /** A page with less text than this is treated as an image (a scan; a
  *  stray page number survives). OCR only replaces it when it reads more. */
 const IMAGE_PAGE_CHARS = 10;

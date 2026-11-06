@@ -81,8 +81,59 @@ export const EXAM_COVERAGE_MIN = 0.05;
 export interface SyllabusPoint {
 	id: string;
 	text: string;
-	/** Graph propositions the mapping linked (empty = «falta»). */
+	/** Graph propositions the mapping linked (empty = «falta»). With
+	 *  research done: the union of its targets' links. */
 	nodeIds: string[];
+	/** The research's target ideas (owner 2026-11-06); absent = the point
+	 *  was not researched (a v1 exam, or research pending). */
+	targets?: TargetIdea[];
+}
+
+/** Where a target idea comes from (owner 2026-11-06). */
+export interface TargetSource {
+	/** user = added by hand in the review. */
+	kind: "material" | "web" | "model" | "user";
+	/** Material name, page title, or "" for the model's knowledge. */
+	title: string;
+	/** Material id or URL. */
+	ref?: string;
+	year?: string;
+	/** Older than a syllabus change («puede estar desactualizado»). */
+	outdated?: boolean;
+}
+
+/** One idea a point requires (owner 2026-11-06): lives in the exam, not
+ *  the graph — it enters the graph only when taught. */
+export interface TargetIdea {
+	id: string;
+	statement: string;
+	source: TargetSource;
+	/** Graph ideas that express it (from the learner's notes, or born
+	 *  while studying it). Empty = not in the graph yet. */
+	nodeIds: string[];
+}
+
+export const MAX_TARGETS_PER_POINT = 12;
+
+/** A researched point's links are its targets' links (kept in sync on
+ *  every write). */
+export function syncPointLinks(blocks: SyllabusBlock[]): SyllabusBlock[] {
+	return blocks.map((b) => ({
+		...b,
+		points: b.points.map((p) => (p.targets ? { ...p, nodeIds: [...new Set(p.targets.flatMap((t) => t.nodeIds))] } : p)),
+	}));
+}
+
+/** The research's progress and outcome (owner 2026-11-06). */
+export interface ExamResearch {
+	/** Blocks researched / to research. */
+	done: number;
+	total: number;
+	/** The block being researched now. */
+	current?: string;
+	/** A search engine was available (else: «Sin búsqueda web»). */
+	web: boolean;
+	error?: { block: string; message: string };
 }
 
 export interface SyllabusBlock {
@@ -97,7 +148,7 @@ export type ExamStatus = "draft" | "active" | "archived";
 
 /** reading = the chosen unread folders are being read into the graph
  *  first (owner 2026-11-06); the mapping starts on its own after. */
-export type MappingState = "none" | "reading" | "running" | "done" | "error";
+export type MappingState = "none" | "reading" | "running" | "researching" | "done" | "error";
 
 /** The exam's context (owner 2026-11-06, all optional): it steers the
  *  research toward the right official guide / school / sitting. */
@@ -176,6 +227,7 @@ export interface ExamRecord {
 	blocks: SyllabusBlock[];
 	mapping: { state: MappingState; error?: string; at?: string };
 	reading?: ExamReading;
+	research?: ExamResearch;
 	/** Blocks the learner chose to prioritize when time is short. */
 	priorityBlocks: string[];
 	archivedAt?: string;
@@ -362,6 +414,13 @@ export function sanitizeContext(raw: unknown): ExamContext {
 
 export const MAX_EXAM_MATERIALS = 40;
 
+/** Depth line for the research prompt (owner-approved 2026-11-06): by
+ *  preset; «Personalizar» follows its mode. */
+export function researchDepth(standard: Pick<ExamStandard, "preset" | "mode">): ExamPreset {
+	if (standard.preset) return standard.preset;
+	return standard.mode === "composition" ? "distinction" : standard.mode === "discrimination" ? "merit" : "pass";
+}
+
 export function sanitizeMaterials(raw: unknown): ExamMaterial[] {
 	if (!Array.isArray(raw)) return [];
 	const out: ExamMaterial[] = [];
@@ -379,6 +438,45 @@ export function sanitizeMaterials(raw: unknown): ExamMaterial[] {
 			out.push({ id, kind: "link", name, url: r.url, addedAt: r.addedAt });
 		} else continue;
 		seen.add(id);
+	}
+	return out;
+}
+
+function sanitizeResearch(raw: unknown): ExamResearch | null {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+	const r = raw as Record<string, unknown>;
+	const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0);
+	const e = r.error !== null && typeof r.error === "object" ? (r.error as Record<string, unknown>) : null;
+	return {
+		done: n(r.done),
+		total: n(r.total),
+		...(typeof r.current === "string" ? { current: r.current.slice(0, 500) } : {}),
+		web: r.web === true,
+		...(e ? { error: { block: shortText(e.block, 500), message: shortText(e.message, 1000) } } : {}),
+	};
+}
+
+export function sanitizeTargets(raw: unknown): TargetIdea[] | undefined {
+	if (!Array.isArray(raw)) return undefined;
+	const out: TargetIdea[] = [];
+	const seen = new Set<string>();
+	for (const t of raw) {
+		if (t === null || typeof t !== "object") continue;
+		const r = t as Record<string, unknown>;
+		const id = str(r.id, 64);
+		const statement = shortText(r.statement, 2000);
+		if (!id || !statement || seen.has(id)) continue;
+		seen.add(id);
+		const src = r.source !== null && typeof r.source === "object" ? (r.source as Record<string, unknown>) : {};
+		const kind = src.kind === "material" || src.kind === "web" || src.kind === "user" ? src.kind : "model";
+		const ref = shortText(src.ref, 2000);
+		const year = shortText(src.year, 20);
+		out.push({
+			id,
+			statement,
+			source: { kind, title: shortText(src.title, 500), ...(ref ? { ref } : {}), ...(year ? { year } : {}), ...(src.outdated === true ? { outdated: true } : {}) },
+			nodeIds: strList(r.nodeIds),
+		});
 	}
 	return out;
 }
@@ -414,7 +512,8 @@ export function sanitizeBlocks(raw: unknown): SyllabusBlock[] {
 			const text = str(point.text, 2000);
 			if (!pid || !text || seen.has(pid)) continue;
 			seen.add(pid);
-			points.push({ id: pid, text, nodeIds: strList(point.nodeIds) });
+			const targets = sanitizeTargets(point.targets);
+			points.push({ id: pid, text, nodeIds: strList(point.nodeIds), ...(targets ? { targets } : {}) });
 		}
 		out.push({ id, title, points });
 	}
@@ -438,9 +537,12 @@ export function sanitizeExamRecord(raw: unknown): ExamRecord | null {
 	const syllabus = (r.syllabus !== null && typeof r.syllabus === "object" ? r.syllabus : {}) as Record<string, unknown>;
 	const mapping = (r.mapping !== null && typeof r.mapping === "object" ? r.mapping : {}) as Record<string, unknown>;
 	const mappingState: MappingState =
-		mapping.state === "reading" || mapping.state === "running" || mapping.state === "done" || mapping.state === "error" ? mapping.state : "none";
+		mapping.state === "reading" || mapping.state === "running" || mapping.state === "researching" || mapping.state === "done" || mapping.state === "error"
+			? mapping.state
+			: "none";
 	const final = r.final !== null && typeof r.final === "object" ? (r.final as Record<string, unknown>) : null;
 	const reading = sanitizeReading(r.reading);
+	const research = sanitizeResearch(r.research);
 	return {
 		version: CURRENT_EXAM_VERSION,
 		id,
@@ -460,6 +562,7 @@ export function sanitizeExamRecord(raw: unknown): ExamRecord | null {
 			...(typeof mapping.at === "string" ? { at: mapping.at } : {}),
 		},
 		...(reading ? { reading } : {}),
+		...(research ? { research } : {}),
 		priorityBlocks: strList(r.priorityBlocks),
 		...(typeof r.archivedAt === "string" ? { archivedAt: r.archivedAt } : {}),
 		...(typeof r.realGrade === "string" && r.realGrade.length <= 100 ? { realGrade: r.realGrade } : {}),

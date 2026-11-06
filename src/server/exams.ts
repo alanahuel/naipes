@@ -34,6 +34,8 @@ import {
 	planBudget,
 	PRESET_ORDER,
 	presetStandard,
+	researchDepth,
+	syncPointLinks,
 	sanitizeBlocks,
 	sanitizeStandard,
 	syllabusCandidates,
@@ -55,8 +57,15 @@ import { daysBetween, reviewDay, reviewDayEnd, type ReviewItem } from "../core/r
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import { isWeeklyMinutes } from "../core/settings.ts";
 import { piEngineForSpec } from "../agent/models.ts";
+import { refreshClaudeCodeStatus } from "../agent/claude-code-bridge.ts";
+import { CLAUDE_CODE_PROVIDER } from "../core/contracts/claude-code.ts";
 import { examAppendix } from "../agent/prompt-segments.ts";
 import { runSyllabusMapper } from "../agent/subagents/syllabus-mapper.ts";
+import { examResearchInstructions, runExamResearcher } from "../agent/subagents/exam-researcher.ts";
+import { examSearchProvider, readMaterialPart } from "./exam-research-io.ts";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { appendExamNotice, deleteExam as removeExamFile, isExamId, listExams, newExamId, readExam, readExamNotices, writeExam, type ExamNoticeKind } from "../store/exams.ts";
 import { createChat, seedGraphContext, stampStrongModel } from "./chats.ts";
 import { getReviewState, groupsSentence, resetReviewCache, startReviewSession, summarizeReview, type ReviewState } from "./review.ts";
@@ -161,7 +170,7 @@ export function getExamsState(now = Date.now(), whatIf?: ExamsWhatIf): ExamsStat
 	}
 	// Interrupted mappings (the process restarted mid-call) say so.
 	for (const record of records) {
-		if (record.mapping.state === "running" && !running().has(record.id)) {
+		if ((record.mapping.state === "running" || record.mapping.state === "researching") && !running().has(record.id)) {
 			writeExam({ ...touch(record, now), mapping: { state: "error", error: "interrupted", at: new Date(now).toISOString() } });
 			archived = true;
 		}
@@ -402,7 +411,7 @@ export function updateExam(id: string, patch: ExamPatch, now = Date.now()): Pars
 	if (patch.title !== undefined) next.title = patch.title;
 	if (patch.examDate !== undefined) next.examDate = patch.examDate;
 	if (patch.standard !== undefined) next.standard = patch.standard;
-	if (patch.blocks !== undefined) next.blocks = patch.blocks;
+	if (patch.blocks !== undefined) next.blocks = syncPointLinks(patch.blocks);
 	if (patch.priorityBlocks !== undefined) {
 		const ids = new Set(next.blocks.map((b) => b.id));
 		next.priorityBlocks = patch.priorityBlocks.filter((b) => ids.has(b));
@@ -604,21 +613,43 @@ function beginMapping(id: string, now = Date.now()): MappingStart {
 	}
 	running().add(id);
 	save({ ...touch(exam, now), mapping: { state: "running", at: new Date(now).toISOString() } });
-	void runMapping(readExam(id)!, piEngineForSpec(spec)).finally(() => running().delete(id));
+	void withEngine(id, spec, (engine) => runMapping(readExam(id)!, engine));
 	return { ok: true };
+}
+
+/** Build the strong-slot engine inside the background job (a Claude Code
+ *  slot needs its status checked first — a fresh process may not have
+ *  done it yet) and run `job`; an engine that can't be built ends the
+ *  job as an error instead of leaving it «running». */
+async function withEngine(id: string, spec: NonNullable<ReturnType<typeof resolveRoleSpec>>, job: (engine: ReturnType<typeof piEngineForSpec>) => Promise<void>): Promise<void> {
+	try {
+		if (spec.provider === CLAUDE_CODE_PROVIDER) await refreshClaudeCodeStatus().catch(() => null);
+		await job(piEngineForSpec(spec));
+	} catch (err) {
+		const current = readExam(id);
+		if (current) save({ ...touch(current), mapping: { state: "error", error: err instanceof Error ? err.message : String(err), at: new Date().toISOString() } });
+	} finally {
+		running().delete(id);
+	}
+}
+
+/** The exam scope's graph ideas (by their birth note's path). */
+function scopeNodeIds(exam: ExamRecord, nodes: ReturnType<typeof stores.graphStore.readNodes>): Set<string> {
+	const sourcePaths: Record<string, string> = {};
+	for (const s of stores.graphStore.readSources()) sourcePaths[s.id] = s.filePath;
+	const out = new Set<string>();
+	for (const node of nodes) {
+		const birth = node.provenance[0]?.chatId;
+		const filePath = birth ? sourcePaths[birth] : undefined;
+		if (filePath !== undefined && inExamScope(filePath, exam.syllabus)) out.add(node.id);
+	}
+	return out;
 }
 
 async function runMapping(exam: ExamRecord, engine: ReturnType<typeof piEngineForSpec>): Promise<void> {
 	try {
 		const nodes = stores.graphStore.readNodes();
-		const sourcePaths: Record<string, string> = {};
-		for (const s of stores.graphStore.readSources()) sourcePaths[s.id] = s.filePath;
-		const folderNodeIds = new Set<string>();
-		for (const node of nodes) {
-			const birth = node.provenance[0]?.chatId;
-			const filePath = birth ? sourcePaths[birth] : undefined;
-			if (filePath !== undefined && inExamScope(filePath, exam.syllabus)) folderNodeIds.add(node.id);
-		}
+		const folderNodeIds = scopeNodeIds(exam, nodes);
 		const ids = syllabusCandidates({ text: exam.syllabus.text, nodes, folderNodeIds });
 		const byId = new Map(nodes.map((n) => [n.id, n]));
 		const candidates = ids.map((id) => byId.get(id)!).map((n) => ({ id: n.id, name: n.name, statement: n.statement }));
@@ -627,12 +658,135 @@ async function runMapping(exam: ExamRecord, engine: ReturnType<typeof piEngineFo
 		const mapped = await runSyllabusMapper({ engine, syllabus, candidates });
 		const current = readExam(exam.id);
 		if (!current) return; // deleted meanwhile
-		save({ ...touch(current), blocks: numberBlocks(mapped), mapping: { state: "done", at: new Date().toISOString() } });
+		const blocks = numberBlocks(mapped);
+		save({
+			...touch(current),
+			blocks,
+			mapping: { state: "researching", at: new Date().toISOString() },
+			research: { done: 0, total: blocks.length, web: (await examSearchProvider()) !== null },
+		});
+		await runResearch(exam.id, engine, { mode: "missing" });
 	} catch (err) {
 		const current = readExam(exam.id);
 		if (!current) return;
 		save({ ...touch(current), mapping: { state: "error", error: err instanceof Error ? err.message : String(err), at: new Date().toISOString() } });
 	}
+}
+
+// ─── the research (owner-approved 2026-11-06) ───────────────────────────────
+
+const CONTEXT_LABELS: Array<[keyof ExamRecord["context"], string]> = [
+	["kind", "Type"],
+	["name", "Exam / subject"],
+	["institution", "School or body"],
+	["location", "Location"],
+	["sitting", "Sitting / year"],
+	["goal", "Goal"],
+];
+
+export function contextLines(context: ExamRecord["context"]): string[] {
+	return CONTEXT_LABELS.filter(([k]) => context[k]).map(([k, label]) => `${label}: ${context[k]}`);
+}
+
+/** Candidates for one block: the outline's links for its points + the
+ *  ideas sharing words with the block (scope ideas first). */
+const BLOCK_CANDIDATES = 150;
+
+type ResearchScope = { mode: "missing" } | { mode: "all" } | { mode: "point"; pointId: string };
+
+/** Research the exam's blocks in order, saving after each (progress is
+ *  visible; a failure keeps what was done and a retry resumes). */
+async function runResearch(id: string, engine: ReturnType<typeof piEngineForSpec>, scope: ResearchScope): Promise<void> {
+	const first = readExam(id);
+	if (!first) return;
+	const todo = first.blocks
+		.map((b) => ({
+			...b,
+			points: b.points.filter((p) => (scope.mode === "all" ? true : scope.mode === "point" ? p.id === scope.pointId : p.targets === undefined)),
+		}))
+		.filter((b) => b.points.length > 0);
+	const search = await examSearchProvider();
+	const nodes = stores.graphStore.readNodes();
+	const byId = new Map(nodes.map((n) => [n.id, n]));
+	const folderNodeIds = scopeNodeIds(first, nodes);
+	const pdfDir = fs.mkdtempSync(path.join(os.tmpdir(), "np-exam-research-"));
+	const total = first.blocks.length;
+	let done = scope.mode === "missing" ? total - todo.length : 0;
+	const progress = (patch: Partial<NonNullable<ExamRecord["research"]>>) => {
+		const current = readExam(id);
+		if (!current) return null;
+		const research = { done, total: scope.mode === "missing" ? total : todo.length, web: search !== null, ...patch };
+		save({ ...touch(current), research });
+		return current;
+	};
+	try {
+		for (const [i, block] of todo.entries()) {
+			if (!progress({ current: block.title })) return;
+			const exam = readExam(id)!;
+			const outline = new Set(block.points.flatMap((p) => p.nodeIds));
+			const text = [block.title, ...block.points.map((p) => p.text)].join("\n");
+			const overlap = syllabusCandidates({ text, nodes, folderNodeIds: new Set(), cap: BLOCK_CANDIDATES });
+			const inScope = overlap.filter((n) => folderNodeIds.has(n));
+			const ids = [...new Set([...outline, ...inScope, ...overlap])].slice(0, BLOCK_CANDIDATES).filter((n) => byId.has(n));
+			const result = await runExamResearcher({
+				engine,
+				instructions: examResearchInstructions({ today: reviewDay(Date.now()), examDate: exam.examDate, sitting: exam.context.sitting, depth: researchDepth(exam.standard) }),
+				task: {
+					exam: { title: exam.title, examDate: exam.examDate },
+					context: contextLines(exam.context),
+					materials: exam.materials.map((m) => ({ id: m.id, name: m.name, kind: m.kind, ...(m.url ? { url: m.url } : {}) })),
+					block: { index: scope.mode === "missing" ? exam.blocks.findIndex((b) => b.id === block.id) + 1 : i + 1, total: scope.mode === "missing" ? total : todo.length, title: block.title, points: block.points.map((p) => ({ id: p.id, text: p.text })) },
+					candidates: ids.map((n) => ({ id: n, name: byId.get(n)!.name, statement: byId.get(n)!.statement })),
+				},
+				search: () => search,
+				readMaterial: (materialId, offset) => readMaterialPart(id, exam.materials, materialId, offset),
+				pdfDir,
+			});
+			const current = readExam(id);
+			if (!current) return;
+			const blocks = current.blocks.map((b) => ({
+				...b,
+				points: b.points.map((p) => {
+					const targets = result.get(p.id);
+					if (!targets || !block.points.some((q) => q.id === p.id)) return p;
+					const withIds = targets.map((t, n) => ({ id: `t_${p.id}_${Date.now().toString(36)}${n}`, statement: t.statement, source: t.source, nodeIds: t.nodeIds }));
+					return { ...p, targets: withIds, nodeIds: [...new Set(withIds.flatMap((t) => t.nodeIds))] };
+				}),
+			}));
+			done++;
+			save({ ...touch(current), blocks, research: { done, total: scope.mode === "missing" ? total : todo.length, web: search !== null } });
+		}
+		const current = readExam(id);
+		if (current) save({ ...touch(current), mapping: { state: "done", at: new Date().toISOString() }, research: { done, total: scope.mode === "missing" ? total : todo.length, web: search !== null } });
+	} catch (err) {
+		const current = readExam(id);
+		if (!current) return;
+		const message = err instanceof Error ? err.message : String(err);
+		save({
+			...touch(current),
+			mapping: { state: "error", error: "research", at: new Date().toISOString() },
+			research: { done, total: scope.mode === "missing" ? total : todo.length, web: search !== null, error: { block: current.research?.current ?? "", message } },
+		});
+	} finally {
+		fs.rmSync(pdfDir, { recursive: true, force: true });
+	}
+}
+
+/** (Re)start the research: «Reintentar» resumes the blocks without
+ *  targets; «Volver a investigar todo» redoes every block; a point id
+ *  redoes that point. */
+export function startExamResearch(id: string, scope: ResearchScope, now = Date.now()): MappingStart {
+	const exam = readExam(id);
+	if (!exam) return { ok: false, status: 404, error: "not_found" };
+	if (running().has(id) || exam.mapping.state === "reading") return { ok: false, status: 409, error: "mapping already running" };
+	if (exam.blocks.length === 0) return startExamMapping(id, now);
+	if (scope.mode === "point" && !allPoints(exam).some((p) => p.id === scope.pointId)) return { ok: false, status: 404, error: "no such point" };
+	const spec = resolveRoleSpec("syllabusMapper", stores.settingsStore.readSettings());
+	if (!spec) return { ok: false, status: 503, error: "models_not_configured" };
+	running().add(id);
+	save({ ...touch(exam, now), mapping: { state: "researching", at: new Date(now).toISOString() } });
+	void withEngine(id, spec, (engine) => runResearch(id, engine, scope));
+	return { ok: true };
 }
 
 // ─── exam sessions (owner: blocks in order, each its own session) ───────────

@@ -38,7 +38,9 @@ export type SearchEngineId = "tavily" | "brave";
  *  callers see only this. `search` throws on failure (adapters map HTTP
  *  errors to clear Error messages); the tool layer catches and reports. */
 export interface SearchProvider {
-	id: SearchEngineId;
+	/** "claude-code": the exam research's native search (owner
+	 *  2026-11-06) — never a settings choice. */
+	id: SearchEngineId | "claude-code";
 	search(query: string, count: number): Promise<SearchHit[]>;
 }
 
