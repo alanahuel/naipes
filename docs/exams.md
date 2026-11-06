@@ -36,8 +36,8 @@ A miss drops one mode; two misses in a row at Recordar or below → «por enseñ
 
 ## Lifecycle
 
-1. **Draft** — title, date, syllabus (text, an attached md/txt/pdf/docx/epub whose text only seeds the syllabus, and/or knowledge-folder areas). A draft can be deleted without finishing the wizard: the «···» menu on its card in the list and in the wizard header (owner, 2026-11-06). Deleting keeps the sessions and the graph; a mapping still running finds the exam gone and saves nothing.
-2. **Mapping** — the `syllabusMapper` role (strong slot) makes ONE `submit_syllabus` call over candidate propositions (the areas' ideas + word-overlap hits per syllabus line, ≤ 400): blocks → points → node ids; an empty point is «falta». The learner reviews and edits the table.
+1. **Draft** — title, date, syllabus (text, an attached md/txt/pdf/docx/epub whose text only seeds the syllabus, and/or knowledge folders picked in a tree — any folder at any depth, subfolders included; only folders with ideas, collapsed to the first level, names as on disk, a name filter (owner, 2026-11-06; older drafts' 2nd-level areas read back as those folders)). A draft can be deleted without finishing the wizard: the «···» menu on its card in the list and in the wizard header (owner, 2026-11-06). Deleting keeps the sessions and the graph; a mapping still running finds the exam gone and saves nothing.
+2. **Mapping** — the `syllabusMapper` role (strong slot) makes ONE `submit_syllabus` call over candidate propositions (the chosen folders' ideas + word-overlap hits per syllabus line, ≤ 400): blocks → points → node ids; an empty point is «falta». The learner reviews and edits the table.
 3. **Active** — the plan runs. The exam's ideas join Repaso: enrolled, exempt from the daily cap, held out until the placement test grades them, due earlier when the normal interval would reach the exam day below the exam's recall, and always reviewed once in the final window (`exams.finalWindowDays`, 3).
 4. **Archived** — automatically after the date (with the final coverage and preset frozen), or by hand; the learner may note the real grade. The ideas return to the normal rhythm.
 
@@ -63,7 +63,7 @@ Folded into the desktop clock (`POST /api/review/notify` → `deskNotice`): the 
 
 | Route | Purpose |
 |---|---|
-| `GET/POST /api/exams` | list (+ areas) / create a draft |
+| `GET/POST /api/exams` | list (+ knowledge folders with recursive idea counts) / create a draft |
 | `GET/PUT/DELETE /api/exams/[id]` | detail with the derived plan / edit, activate, archive, real grade / delete |
 | `POST /api/exams/[id]/map` | start the mapping (202; 503 without a strong model) |
 | `POST /api/exams/[id]/preview` | the wizard's what-if forecast |

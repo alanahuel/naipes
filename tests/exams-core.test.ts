@@ -14,11 +14,14 @@ import {
 	ideaLevel,
 	infeasibility,
 	intervalDays,
+	isInFolder,
+	knowledgeFolders,
 	measureDurations,
 	planBudget,
 	pointProbes,
 	presetStandard,
 	recallAt,
+	reduceFolders,
 	sanitizeExamRecord,
 	todayBlocks,
 	weekdayIndex,
@@ -80,7 +83,7 @@ function exam(over: Partial<ExamRecord> = {}): ExamRecord {
 		updatedAt: new Date(T0).toISOString(),
 		status: "active",
 		standard: presetStandard("merit"),
-		syllabus: { text: "Tema 1", fileName: null, areas: [] },
+		syllabus: { text: "Tema 1", fileName: null, folders: [] },
 		blocks: [
 			{ id: "b1", title: "Cinemática", points: [{ id: "pt1", text: "Velocidad", nodeIds: ["n1", "n2"] }, { id: "pt2", text: "Aceleración", nodeIds: [] }] },
 		],
@@ -354,5 +357,29 @@ describe("durations, days, records, settings", () => {
 		assert.equal(parseExamSettingsBody({ weeklyMinutes: [0, 0, 0, 0, 0, 0, 721] }).ok, false);
 		assert.equal(parseExamSettingsBody({ finalWindowDays: 0 }).ok, false);
 		assert.deepEqual(parseExamSettingsBody({ weeklyMinutes: [30, 30, 30, 30, 30, 60, 0], teachMinutes: 30 }), { ok: true, settings: { weeklyMinutes: [30, 30, 30, 30, 30, 60, 0], teachMinutes: 30 } });
+	});
+});
+
+describe("syllabus folders (owner 2026-11-06: any folder, recursive)", () => {
+	it("knowledgeFolders: every ancestor folder, recursive counts, root notes skipped", () => {
+		const folders = knowledgeFolders(["A/B/x.md", "A/B/C/y.md", "A/z.md", "root.md", "D\\w.md"]);
+		assert.deepEqual(folders, [
+			{ path: "A", count: 3 },
+			{ path: "A/B", count: 2 },
+			{ path: "A/B/C", count: 1 },
+			{ path: "D", count: 1 },
+		]);
+	});
+	it("reduceFolders drops duplicates and folders under a selected one", () => {
+		assert.deepEqual(reduceFolders(["A/B/C", "A/B", "A/B", "AB", "", "D/"]), ["A/B", "AB", "D"]);
+	});
+	it("isInFolder matches whole segments at any depth", () => {
+		assert.ok(isInFolder("A/B/C/y.md", "A/B"));
+		assert.ok(!isInFolder("A/BC/y.md", "A/B"));
+		assert.ok(isInFolder("A\\B\\y.md", "A/B"));
+	});
+	it("legacy drafts: areas «area:X/Y» read back as folders, root area dropped", () => {
+		const legacy = { ...exam(), syllabus: { text: "", fileName: null, areas: ["area:002 - ÁREAS/011. INFORMÁTICA", "area:/"] } };
+		assert.deepEqual(sanitizeExamRecord(legacy)!.syllabus.folders, ["002 - ÁREAS/011. INFORMÁTICA"]);
 	});
 });

@@ -112,8 +112,11 @@ export interface ExamRecord {
 		text: string;
 		/** The attached file's name (its text is in `text`), or null. */
 		fileName: string | null;
-		/** Knowledge-folder areas that are part of the syllabus. */
-		areas: string[];
+		/** Knowledge-folder folders (relative paths, "/"-joined) whose
+		 *  notes — subfolders included — are part of the syllabus (owner
+		 *  2026-11-06: any folder, any depth, recursive). Older drafts
+		 *  stored 2nd-level area ids ("area:X/Y"); they read back as "X/Y". */
+		folders: string[];
 	};
 	blocks: SyllabusBlock[];
 	mapping: { state: MappingState; error?: string; at?: string };
@@ -135,6 +138,51 @@ export const isExamDate = (v: unknown): v is string => typeof v === "string" && 
 const str = (v: unknown, max = 100_000): string | null => (typeof v === "string" && v.length <= max ? v : null);
 const strList = (v: unknown): string[] =>
 	Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === "string" && x.length > 0 && x.length < 1024))] : [];
+/** A folder path normalized: "\\" → "/", no empty/edge segments. */
+export const normalizeFolderPath = (path: string): string => path.split(/[\\/]+/).filter(Boolean).join("/");
+
+/** `folders`, or a legacy `areas` list ("area:X/Y" → "X/Y"; the old
+ *  root area "area:/" has no folder and is dropped). */
+function syllabusFolders(syllabus: Record<string, unknown>): string[] {
+	if (Array.isArray(syllabus.folders)) return reduceFolders(strList(syllabus.folders).map(normalizeFolderPath));
+	return reduceFolders(strList(syllabus.areas).map((a) => normalizeFolderPath(a.startsWith("area:") ? a.slice(5) : a)));
+}
+
+/** True when `filePath` (a note) lies inside `folder` at any depth. */
+export const isInFolder = (filePath: string, folder: string): boolean => {
+	const file = normalizeFolderPath(filePath);
+	return folder.length > 0 && file.startsWith(`${folder}/`);
+};
+
+/** Drop empties, duplicates and folders already covered by a selected
+ *  ancestor (selection is recursive); keeps the input order. */
+export function reduceFolders(folders: readonly string[]): string[] {
+	const clean = [...new Set(folders.map(normalizeFolderPath).filter(Boolean))];
+	return clean.filter((f) => !clean.some((other) => other !== f && f.startsWith(`${other}/`)));
+}
+
+/** One folder of the wizard's tree: its path and how many ideas live in
+ *  it or below it. */
+export interface KnowledgeFolder {
+	path: string;
+	count: number;
+}
+
+/** Every folder holding ideas (at any depth below it), with recursive
+ *  counts, from each idea's note path. Notes at the root (no folder) are
+ *  not counted — there is no folder to pick. Sorted by path. */
+export function knowledgeFolders(notePaths: Iterable<string>): KnowledgeFolder[] {
+	const counts = new Map<string, number>();
+	for (const filePath of notePaths) {
+		const segs = normalizeFolderPath(filePath).split("/").slice(0, -1);
+		for (let i = 1; i <= segs.length; i++) {
+			const key = segs.slice(0, i).join("/");
+			counts.set(key, (counts.get(key) ?? 0) + 1);
+		}
+	}
+	return [...counts].map(([path, count]) => ({ path, count })).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 export function sanitizeStandard(raw: unknown): ExamStandard | null {
@@ -205,7 +253,7 @@ export function sanitizeExamRecord(raw: unknown): ExamRecord | null {
 		updatedAt: r.updatedAt,
 		status,
 		standard,
-		syllabus: { text: str(syllabus.text) ?? "", fileName: str(syllabus.fileName, 500), areas: strList(syllabus.areas) },
+		syllabus: { text: str(syllabus.text) ?? "", fileName: str(syllabus.fileName, 500), folders: syllabusFolders(syllabus) },
 		blocks: sanitizeBlocks(r.blocks),
 		mapping: {
 			state: mappingState,
@@ -966,14 +1014,14 @@ const wordsOf = (text: string): Set<string> =>
 	new Set((text.match(/[\p{L}\p{N}]+/gu) ?? []).map(normalizeWord).filter((w) => w.length >= 4));
 
 /**
- * The propositions the mapper may link: every idea of the syllabus areas,
+ * The propositions the mapper may link: every idea of the syllabus folders,
  * then — per syllabus line — the ideas sharing the most words with it
  * (≥ 1 word of 4+ letters, accents folded), capped. Pure, deterministic.
  */
 export function syllabusCandidates(input: {
 	text: string;
 	nodes: ReadonlyArray<{ id: string; name: string; statement: string; aliases?: readonly string[] }>;
-	areaNodeIds: ReadonlySet<string>;
+	folderNodeIds: ReadonlySet<string>;
 	cap?: number;
 }): string[] {
 	const cap = input.cap ?? MAX_SYLLABUS_CANDIDATES;
@@ -985,7 +1033,7 @@ export function syllabusCandidates(input: {
 			out.push(id);
 		}
 	};
-	for (const n of input.nodes) if (input.areaNodeIds.has(n.id)) push(n.id);
+	for (const n of input.nodes) if (input.folderNodeIds.has(n.id)) push(n.id);
 	const indexed = input.nodes.map((n) => ({ id: n.id, words: wordsOf([n.name, n.statement, ...(n.aliases ?? [])].join(" ")) }));
 	for (const line of input.text.split("\n")) {
 		if (out.length >= cap) break;

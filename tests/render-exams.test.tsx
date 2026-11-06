@@ -12,6 +12,7 @@ import {
 	blockScore,
 	ExamCard,
 	ExamMenu,
+	FolderPicker,
 	ideaLevelLabel,
 	pointNeedLabel,
 	raiseWeekly,
@@ -129,5 +130,22 @@ describe("exams: static renders", () => {
 		const html = renderToStaticMarkup(<ExamMenu exam={{ id: "exam_d", title: "CPS", status: "draft", examDate: "2027-02-19", standard: presetStandard("pass") }} />);
 		assert.ok(html.includes('aria-haspopup="menu"'));
 		assert.ok(!html.includes('role="menu"'));
+	});
+
+	it("FolderPicker starts collapsed, names as on disk, recursive selection dims descendants", () => {
+		const folders = [
+			{ path: "002 - ÁREAS", count: 5 },
+			{ path: "002 - ÁREAS/011. INFORMÁTICA 💻", count: 4 },
+			{ path: "002 - ÁREAS/011. INFORMÁTICA 💻/Redes", count: 1 },
+			{ path: "INBOX", count: 2 },
+		];
+		const collapsed = renderToStaticMarkup(<FolderPicker folders={folders} selected={[]} onChange={() => {}} />);
+		assert.ok(collapsed.includes("002 - ÁREAS") && collapsed.includes("INBOX"));
+		assert.ok(!collapsed.includes("Redes"), "only the first level shows");
+		assert.ok(collapsed.includes('aria-expanded="false"'));
+		assert.ok(!collapsed.includes("exam-folders-selected"));
+		const picked = renderToStaticMarkup(<FolderPicker folders={folders} selected={["002 - ÁREAS/011. INFORMÁTICA 💻/Redes"]} onChange={() => {}} />);
+		assert.ok(picked.includes("exam-folders-selected"));
+		assert.ok(picked.includes("… › 011. INFORMÁTICA 💻 › Redes"));
 	});
 });

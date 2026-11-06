@@ -1,17 +1,17 @@
 /**
  * «Exámenes» (owner 2026-11-05).
  *   GET  /api/exams — every exam's summary (live plan numbers derived on
- *        read) + the knowledge-folder areas the wizard can add.
+ *        read) + the knowledge folders (with ideas, recursive
+ *        counts) the wizard's tree offers.
  *   POST /api/exams — create a draft { title, examDate, standard?,
- *        syllabus: { text, fileName?, areas } } → 201 { exam }.
+ *        syllabus: { text, fileName?, folders } } → 201 { exam }.
  */
-import { createExam, getReviewState, listExamViews, parseExamCreate } from "@/src/server";
+import { createExam, listExamViews, listKnowledgeFolders, parseExamCreate } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-	const areas = getReviewState().areas.map((a) => ({ id: a.id, label: a.label, count: a.count }));
-	return Response.json({ exams: listExamViews(), areas });
+	return Response.json({ exams: listExamViews(), folders: listKnowledgeFolders() });
 }
 
 export async function POST(request: Request) {

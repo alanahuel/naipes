@@ -53,8 +53,10 @@ describe("exam lifecycle (isolated data dir)", () => {
 		assert.equal(exams.parseExamCreate({ title: "", examDate: "2026-12-01" }).ok, false);
 		assert.equal(exams.parseExamCreate({ title: "Física", examDate: "1/12" }).ok, false);
 		assert.equal(exams.parseExamCreate({ title: "Física", examDate: "2026-12-01", syllabus: { text: " " } }).ok, false);
-		const parsed = exams.parseExamCreate({ title: "Física", examDate: "2026-11-30", syllabus: { text: "Cinemática\nDinámica", areas: ["area:Física/Dinámica"] } });
+		assert.equal(exams.parseExamCreate({ title: "Física", examDate: "2026-12-01", syllabus: { text: "", folders: "Física" } }).ok, false);
+		const parsed = exams.parseExamCreate({ title: "Física", examDate: "2026-11-30", syllabus: { text: "Cinemática\nDinámica", folders: ["Física/Dinámica/Leyes", "Física/Dinámica"] } });
 		assert.ok(parsed.ok);
+		assert.deepEqual(parsed.ok && parsed.value.syllabus.folders, ["Física/Dinámica"]);
 		const exam = exams.createExam(parsed.ok ? parsed.value : (null as never), now);
 		examId = exam.id;
 		assert.equal(exam.status, "draft");
@@ -149,11 +151,11 @@ describe("exam lifecycle (isolated data dir)", () => {
 });
 
 describe("syllabus candidates", () => {
-	it("areas first, then word-overlap hits per syllabus line (accents folded)", () => {
+	it("folder ideas first, then word-overlap hits per syllabus line (accents folded)", () => {
 		const ids = syllabusCandidates({
 			text: "Tema 1: aceleracion\nTema 2: nada",
 			nodes: nodes.map((n) => ({ id: n.id, name: n.name, statement: n.statement })),
-			areaNodeIds: new Set(["n_src"]),
+			folderNodeIds: new Set(["n_src"]),
 		});
 		assert.deepEqual(ids, ["n_src", "n_a"]);
 	});

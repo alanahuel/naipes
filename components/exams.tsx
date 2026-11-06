@@ -30,6 +30,7 @@ import {
 	MODE_LEVEL,
 	PRESET_ORDER,
 	presetStandard,
+	reduceFolders,
 	type DemandMode,
 	type ExamBlock,
 	type ExamDetailView,
@@ -38,6 +39,7 @@ import {
 	type ExamStandard,
 	type ExamSummaryView,
 	type IdeaStatus,
+	type KnowledgeFolder,
 	type MessageKey,
 	type PointStatus,
 	type SyllabusBlock,
@@ -47,7 +49,7 @@ import {
 
 interface ExamsListResponse {
 	exams: ExamSummaryView[];
-	areas: Array<{ id: string; label: string; count: number }>;
+	folders: KnowledgeFolder[];
 }
 
 function useFresh<T>(url: string | null) {
@@ -337,7 +339,130 @@ function StepHeader({ step }: { step: 1 | 2 | 3 | 4 }) {
 	);
 }
 
-/** Step 1 — name, date, syllabus text / file / areas → create + map. */
+const foldText = (v: string) => v.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+const folderName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
+/** «… › INFORMÁTICA › Redes»: the last two segments of a selected folder. */
+const shortFolder = (path: string) => {
+	const segs = path.split("/");
+	return (segs.length > 2 ? ["…", ...segs.slice(-2)] : segs).join(" › ");
+};
+
+/**
+ * The wizard's folder tree (owner 2026-11-06): every knowledge folder
+ * with ideas, collapsed to the first level, names as on disk, recursive
+ * counts. Checking a folder includes everything below it — descendants
+ * show checked + dimmed and can't be unchecked alone. The search filters
+ * by name (accents folded): matches stay with their ancestors, which open
+ * on their own; clearing it restores the hand-opened state. Below, the
+ * selected folders with a × each.
+ */
+export function FolderPicker({ folders, selected, onChange }: { folders: KnowledgeFolder[]; selected: string[]; onChange: (next: string[]) => void }) {
+	const t = useT();
+	const [open, setOpen] = useState<Set<string>>(() => new Set());
+	const [query, setQuery] = useState("");
+	const children = useMemo(() => {
+		const map = new Map<string, KnowledgeFolder[]>();
+		for (const f of folders) {
+			const parent = parentOf(f.path);
+			map.set(parent, [...(map.get(parent) ?? []), f]);
+		}
+		for (const list of map.values()) list.sort((a, b) => folderName(a.path).localeCompare(folderName(b.path)));
+		return map;
+	}, [folders]);
+	const q = foldText(query.trim());
+	// While searching: matches, their ancestors (forced open) and — under an
+	// opened match — its subtree.
+	const filter = useMemo(() => {
+		if (!q) return null;
+		const matches = new Set(folders.filter((f) => foldText(folderName(f.path)).includes(q)).map((f) => f.path));
+		const ancestors = new Set<string>();
+		for (const m of matches) for (let p = parentOf(m); p; p = parentOf(p)) ancestors.add(p);
+		return { matches, ancestors };
+	}, [folders, q]);
+	const covered = (path: string) => selected.some((s) => path.startsWith(`${s}/`));
+	const toggle = (path: string) => onChange(selected.includes(path) ? selected.filter((s) => s !== path) : reduceFolders([...selected, path]));
+	const toggleOpen = (path: string) =>
+		setOpen((prev) => {
+			const next = new Set(prev);
+			if (next.has(path)) next.delete(path);
+			else next.add(path);
+			return next;
+		});
+
+	const renderLevel = (parent: string, depth: number, insideMatch: boolean): React.ReactNode[] =>
+		(children.get(parent) ?? []).flatMap((f) => {
+			const isMatch = filter?.matches.has(f.path) ?? false;
+			if (filter && !insideMatch && !isMatch && !filter.ancestors.has(f.path)) return [];
+			const kids = children.has(f.path);
+			const forced = filter !== null && filter.ancestors.has(f.path);
+			const expanded = kids && (forced || open.has(f.path));
+			const isCovered = covered(f.path);
+			const checked = isCovered || selected.includes(f.path);
+			const name = folderName(f.path);
+			return [
+				<li key={f.path} data-testid="exam-folder" data-path={f.path}>
+					<div className="flex items-center gap-1.5 rounded-md py-0.5 pr-2 hover:bg-accent/60" style={{ paddingLeft: `${depth * 1.25}rem` }}>
+						{kids ? (
+							<button
+								type="button"
+								aria-expanded={expanded}
+								aria-label={t("exams.wizard.folderToggle", { name })}
+								disabled={forced}
+								onClick={() => toggleOpen(f.path)}
+								className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:text-foreground disabled:opacity-60"
+							>
+								<ChevronRightIcon className={cn("size-3.5 transition-transform", expanded && "rotate-90")} />
+							</button>
+						) : (
+							<span className="size-5 shrink-0" />
+						)}
+						<label className={cn("flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm", isCovered && "cursor-default opacity-55")}>
+							<input type="checkbox" checked={checked} disabled={isCovered} onChange={() => toggle(f.path)} className="accent-primary" />
+							<span className="truncate" title={f.path}>
+								{name}
+							</span>
+							<span className="shrink-0 text-muted-foreground">({f.count})</span>
+						</label>
+					</div>
+					{expanded && <ul>{renderLevel(f.path, depth + 1, insideMatch || isMatch)}</ul>}
+				</li>,
+			];
+		});
+
+	const rows = renderLevel("", 0, false);
+	return (
+		<fieldset className="flex flex-col gap-2 px-1" data-testid="exam-folders">
+			<legend className="mb-2 text-sm text-muted-foreground">{t("exams.wizard.folders")}</legend>
+			<input
+				type="search"
+				value={query}
+				onChange={(e) => setQuery(e.target.value)}
+				placeholder={t("exams.wizard.folderSearch")}
+				data-testid="exam-folder-search"
+				className="rounded-[10px] border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary/50"
+			/>
+			<div className="max-h-80 overflow-y-auto rounded-[10px] border px-1 py-1.5">
+				{rows.length > 0 ? <ul>{rows}</ul> : <p className="px-2 py-1 text-sm text-muted-foreground">{t("exams.wizard.folderNoMatch")}</p>}
+			</div>
+			{selected.length > 0 && (
+				<div className="flex flex-wrap items-center gap-2 text-sm" data-testid="exam-folders-selected">
+					<span className="text-muted-foreground">{t("exams.wizard.foldersSelected")}</span>
+					{selected.map((path) => (
+						<span key={path} title={path} className="inline-flex items-center gap-1 rounded-full border border-primary bg-primary/10 py-0.5 pl-3 pr-1">
+							{shortFolder(path)}
+							<button type="button" aria-label={t("exams.wizard.folderRemove", { name: folderName(path) })} onClick={() => onChange(selected.filter((s) => s !== path))} className="grid size-5 place-items-center rounded-full hover:bg-accent">
+								<XIcon className="size-3" />
+							</button>
+						</span>
+					))}
+				</div>
+			)}
+		</fieldset>
+	);
+}
+
+/** Step 1 — name, date, syllabus text / file / folders → create + map. */
 export function NewExamWizard() {
 	const t = useT();
 	const router = useRouter();
@@ -346,7 +471,7 @@ export function NewExamWizard() {
 	const [date, setDate] = useState("");
 	const [text, setText] = useState("");
 	const [fileName, setFileName] = useState<string | null>(null);
-	const [areas, setAreas] = useState<string[]>([]);
+	const [folders, setFolders] = useState<string[]>([]);
 	const [state, setState] = useState<"idle" | "reading" | "creating" | "error">("idle");
 	const [error, setError] = useState<string | null>(null);
 	const fileRef = useRef<HTMLInputElement>(null);
@@ -368,12 +493,12 @@ export function NewExamWizard() {
 		setState("idle");
 	};
 
-	const ready = title.trim().length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date) && (text.trim().length > 0 || areas.length > 0);
+	const ready = title.trim().length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date) && (text.trim().length > 0 || folders.length > 0);
 	const submit = async () => {
 		if (!ready) return;
 		setState("creating");
 		setError(null);
-		const created = await sendJson("/api/exams", "POST", { title: title.trim(), examDate: date, syllabus: { text, fileName, areas } });
+		const created = await sendJson("/api/exams", "POST", { title: title.trim(), examDate: date, syllabus: { text, fileName, folders } });
 		const id = (created.body.exam as { id?: string } | undefined)?.id;
 		if (!created.ok || !id) {
 			setState("error");
@@ -415,27 +540,7 @@ export function NewExamWizard() {
 						</button>
 						<span className="text-muted-foreground">{fileName ?? t("exams.wizard.formats")}</span>
 					</div>
-					{(data?.areas.length ?? 0) > 0 && (
-						<fieldset className="flex flex-col gap-2 px-1">
-							<legend className="mb-2 text-sm text-muted-foreground">{t("exams.wizard.areas")}</legend>
-							<div className="flex flex-wrap gap-2">
-								{data!.areas.map((a) => {
-									const on = areas.includes(a.id);
-									return (
-										<button
-											key={a.id}
-											type="button"
-											aria-pressed={on}
-											onClick={() => setAreas((list) => (on ? list.filter((x) => x !== a.id) : [...list, a.id]))}
-											className={cn("rounded-full border px-3 py-1 text-sm transition-colors", on ? "border-primary bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-accent")}
-										>
-											{a.label} ({a.count})
-										</button>
-									);
-								})}
-							</div>
-						</fieldset>
-					)}
+					{(data?.folders.length ?? 0) > 0 && <FolderPicker folders={data!.folders} selected={folders} onChange={setFolders} />}
 					{error && <p role="alert" className="px-1 text-sm text-warn">{error}</p>}
 					<div className="flex justify-end px-1">
 						<button type="button" className={primaryBtn} disabled={!ready || state === "creating" || state === "reading"} onClick={() => void submit()} data-testid="exam-map">

@@ -6,7 +6,6 @@
  * notices. Nothing derived is stored.
  */
 
-import { areaOfPath } from "../core/areas.ts";
 import type { ChatExamLink, ChatRecord, ExamSessionKind } from "../core/contracts.ts";
 import { emit } from "../core/events.ts";
 import {
@@ -18,13 +17,17 @@ import {
 	examWork,
 	infeasibility,
 	isExamDate,
+	isInFolder,
 	isLiveExam,
+	knowledgeFolders,
+	type KnowledgeFolder,
 	measureDurations,
 	MODE_LEVEL,
 	numberBlocks,
 	planBudget,
 	PRESET_ORDER,
 	presetStandard,
+	reduceFolders,
 	sanitizeBlocks,
 	sanitizeStandard,
 	syllabusCandidates,
@@ -298,10 +301,13 @@ export function parseExamCreate(body: unknown): ParseResult<ExamCreateBody> {
 	const syllabus = asObject(raw.syllabus) ?? {};
 	const text = typeof syllabus.text === "string" ? syllabus.text : "";
 	if (text.length > MAX_SYLLABUS_CHARS) return { ok: false, error: `syllabus text over ${MAX_SYLLABUS_CHARS} characters` };
-	const areas = Array.isArray(syllabus.areas) ? syllabus.areas.filter((a): a is string => typeof a === "string" && a.length > 0 && a.length < 1024) : [];
+	if (syllabus.folders !== undefined && !Array.isArray(syllabus.folders)) return { ok: false, error: "folders must be a list of folder paths" };
+	const folders = reduceFolders(
+		(Array.isArray(syllabus.folders) ? syllabus.folders : []).filter((f): f is string => typeof f === "string" && f.length > 0 && f.length < 1024),
+	);
 	const fileName = typeof syllabus.fileName === "string" && syllabus.fileName.length <= 500 ? syllabus.fileName : null;
-	if (!text.trim() && areas.length === 0) return { ok: false, error: "the syllabus needs text, a file or areas" };
-	return { ok: true, value: { title, examDate: raw.examDate, standard, syllabus: { text, fileName, areas: [...new Set(areas)] } } };
+	if (!text.trim() && folders.length === 0) return { ok: false, error: "the syllabus needs text, a file or folders" };
+	return { ok: true, value: { title, examDate: raw.examDate, standard, syllabus: { text, fileName, folders } } };
 }
 
 export function createExam(body: ExamCreateBody, now = Date.now()): ExamRecord {
@@ -412,6 +418,22 @@ export function deleteExam(id: string): boolean {
 	return removed;
 }
 
+// ─── knowledge folders (the wizard's tree, owner 2026-11-06) ────────────────
+
+/** Every knowledge folder holding ideas, with recursive idea counts —
+ *  counted per idea by its birth note's path, like the mapping does. */
+export function listKnowledgeFolders(): KnowledgeFolder[] {
+	const sourcePaths: Record<string, string> = {};
+	for (const s of stores.graphStore.readSources()) sourcePaths[s.id] = s.filePath;
+	const paths: string[] = [];
+	for (const node of stores.graphStore.readNodes()) {
+		const birth = node.provenance[0]?.chatId;
+		const filePath = birth ? sourcePaths[birth] : undefined;
+		if (filePath !== undefined) paths.push(filePath);
+	}
+	return knowledgeFolders(paths);
+}
+
 // ─── the syllabus mapping job ───────────────────────────────────────────────
 
 export type MappingStart = { ok: true } | { ok: false; status: 404 | 409 | 503; error: string };
@@ -435,17 +457,17 @@ async function runMapping(exam: ExamRecord, engine: ReturnType<typeof piEngineFo
 		const nodes = stores.graphStore.readNodes();
 		const sourcePaths: Record<string, string> = {};
 		for (const s of stores.graphStore.readSources()) sourcePaths[s.id] = s.filePath;
-		const areas = new Set(exam.syllabus.areas);
-		const areaNodeIds = new Set<string>();
+		const folders = exam.syllabus.folders;
+		const folderNodeIds = new Set<string>();
 		for (const node of nodes) {
 			const birth = node.provenance[0]?.chatId;
 			const filePath = birth ? sourcePaths[birth] : undefined;
-			if (filePath !== undefined && areas.has(areaOfPath(filePath).id)) areaNodeIds.add(node.id);
+			if (filePath !== undefined && folders.some((f) => isInFolder(filePath, f))) folderNodeIds.add(node.id);
 		}
-		const ids = syllabusCandidates({ text: exam.syllabus.text, nodes, areaNodeIds });
+		const ids = syllabusCandidates({ text: exam.syllabus.text, nodes, folderNodeIds });
 		const byId = new Map(nodes.map((n) => [n.id, n]));
 		const candidates = ids.map((id) => byId.get(id)!).map((n) => ({ id: n.id, name: n.name, statement: n.statement }));
-		// An areas-only syllabus: the area ideas' names stand in for the text.
+		// A folders-only syllabus: the folder ideas' names stand in for the text.
 		const syllabus = exam.syllabus.text.trim() || candidates.map((c) => `- ${c.name}`).join("\n");
 		const mapped = await runSyllabusMapper({ engine, syllabus, candidates });
 		const current = readExam(exam.id);
