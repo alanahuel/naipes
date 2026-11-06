@@ -42,6 +42,7 @@ import { formatMessage, type Locale, type MessageVars } from "../core/i18n.ts";
 import { MESSAGES, type MessageKey } from "../core/messages/index.ts";
 import { daysBetween, reviewDay, reviewDayEnd, type ReviewItem } from "../core/review.ts";
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
+import { isWeeklyMinutes } from "../core/settings.ts";
 import { piEngineForSpec } from "../agent/models.ts";
 import { examAppendix } from "../agent/prompt-segments.ts";
 import { runSyllabusMapper } from "../agent/subagents/syllabus-mapper.ts";
@@ -123,7 +124,15 @@ function statusFor(record: ExamRecord, review: ReviewState, now: number): ExamSt
 
 /** Everything the API and the notices read. Archives exams whose date
  *  passed (owner: freeze the final predicted level). */
-export function getExamsState(now = Date.now()): ExamsState {
+/** A what-if for the wizard's last step: this exam as if active, with
+ *  this standard and weekly budget. */
+export interface ExamsWhatIf {
+	examId: string;
+	standard?: ExamStandard;
+	weeklyMinutes?: number[];
+}
+
+export function getExamsState(now = Date.now(), whatIf?: ExamsWhatIf): ExamsState {
 	const today = reviewDay(now);
 	let review = getReviewState(now);
 	let records = listExams();
@@ -156,7 +165,9 @@ export function getExamsState(now = Date.now()): ExamsState {
 	);
 	const items = new Map<string, ReviewItem>(review.model.items.map((i) => [i.nodeId, i]));
 
-	const computed: ExamComputed[] = records.map((record) => {
+	const computed: ExamComputed[] = records.map((stored) => {
+		const record: ExamRecord =
+			whatIf?.examId === stored.id ? { ...stored, status: "active", ...(whatIf.standard ? { standard: whatIf.standard } : {}) } : stored;
 		const status = statusFor(record, review, now);
 		const live = isLiveExam(record, today) && status !== null;
 		const base = { status, durations, examDate: record.examDate, now, finalWindowDays: settings.finalWindowDays, priorityBlocks: record.priorityBlocks, items };
@@ -170,7 +181,7 @@ export function getExamsState(now = Date.now()): ExamsState {
 
 	const plan = planBudget({
 		today,
-		weeklyMinutes: settings.weeklyMinutes,
+		weeklyMinutes: whatIf?.weeklyMinutes ?? settings.weeklyMinutes,
 		exams: computed.filter((c) => c.live).map((c) => ({ examId: c.record.id, examDate: c.record.examDate, work: c.work!.total })),
 	});
 	for (const c of computed) {
@@ -258,6 +269,35 @@ export function examDetailView(id: string, now = Date.now()): ExamDetailView | n
 		weeklyMinutes: effectiveSettings().exams.weeklyMinutes,
 		startedToday: c.startedToday,
 	};
+}
+
+/** The wizard's forecast: the highest preset this exam reaches with the
+ *  given standard and budget, and the shortfall against that standard. */
+export function previewExamPlan(id: string, whatIf: Omit<ExamsWhatIf, "examId">, now = Date.now()): { bestPreset: ExamPreset | null; shortfall: number; extraPerDay: number; feasible: boolean } | null {
+	const state = getExamsState(now, { examId: id, ...whatIf });
+	const c = state.exams.find((e) => e.record.id === id);
+	if (!c || !c.live || !c.presetWork) return null;
+	const allocated = c.allocation.reduce((s, x) => s + x, 0);
+	let bestPreset: ExamPreset | null = null;
+	for (const p of PRESET_ORDER) if (c.presetWork[p] <= allocated + 1e-9) bestPreset = p;
+	return { bestPreset, shortfall: c.infeasible?.shortfall ?? 0, extraPerDay: c.infeasible?.extraPerDay ?? 0, feasible: !c.infeasible };
+}
+
+/** Strict parse for POST /api/exams/[id]/preview. */
+export function parsePreview(body: unknown): ParseResult<Omit<ExamsWhatIf, "examId">> {
+	const raw = asObject(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	const out: Omit<ExamsWhatIf, "examId"> = {};
+	if (raw.standard !== undefined) {
+		const standard = sanitizeStandard(raw.standard);
+		if (!standard) return { ok: false, error: "standard must be { preset, recall, mode, coverage }" };
+		out.standard = standard;
+	}
+	if (raw.weeklyMinutes !== undefined) {
+		if (!isWeeklyMinutes(raw.weeklyMinutes)) return { ok: false, error: "weeklyMinutes must be 7 integers between 0 and 720" };
+		out.weeklyMinutes = [...raw.weeklyMinutes];
+	}
+	return { ok: true, value: out };
 }
 
 // ─── create / edit ──────────────────────────────────────────────────────────
