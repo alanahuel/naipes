@@ -5,11 +5,13 @@
  * with nothing matching stays empty («falta»). The candidates are chosen
  * by the server (the syllabus areas + word-overlap hits per syllabus
  * line, src/core/exams.ts syllabusCandidates); ids outside them are a
- * retryable submit error.
+ * retryable submit error. Each block and point also gets a kind (owner
+ * 2026-11-06): syllabus, the subject's rules, or tutor instructions.
  */
 
 import { Type } from "typebox";
 import type { PiEngine } from "../models.ts";
+import type { PointKind } from "../../core/exams.ts";
 import { runSubmitAgent } from "./submit-agent.ts";
 
 export const SYLLABUS_MAPPER_INSTRUCTIONS = `You map an exam syllabus onto the learner's knowledge graph.
@@ -19,17 +21,22 @@ Input: the syllabus (free text, possibly extracted from a document) and candidat
 1. Split the syllabus into blocks (its own topics or chapters, in its order) and points (the individual things to know, one claim or skill each, short, in the syllabus's own words).
 2. For each point, list the ids of the candidates that belong to it — the ones a learner must hold to know that point. A proposition may belong to several points. Only ids from the list.
 3. A point with nothing matching gets an empty list — it is missing from the graph and will be taught. Never stretch a weak match to avoid an empty list.
-4. Ignore administrative text (dates, grading rules, bibliography).
+4. Give each block and point a kind: "syllabus" (something to learn), "rules" (how the exam itself runs: what is allowed or forbidden, what scores, timing, format, conditions) or "tutor" (instructions on how the learner wants to be taught or checked). A point's kind defaults to its block's. Ignore pure logistics with nothing to apply (bibliography, office hours).
 
 Write block titles and points in the syllabus's language. Your whole deliverable is ONE submit_syllabus call.`;
+
+export const kindSchema = (description: string) =>
+	Type.Union([Type.Literal("syllabus"), Type.Literal("rules"), Type.Literal("tutor")], { description });
 
 const syllabusSchema = Type.Object({
 	blocks: Type.Array(
 		Type.Object({
 			title: Type.String({ description: "The block's title (a topic or chapter of the syllabus)." }),
+			kind: kindSchema("syllabus = something to learn; rules = how the exam itself runs; tutor = instructions on how to teach or check."),
 			points: Type.Array(
 				Type.Object({
 					text: Type.String({ description: "One thing to know, short, in the syllabus's own words." }),
+					kind: Type.Optional(kindSchema("Only when it differs from the block's kind.")),
 					nodeIds: Type.Array(Type.String(), { description: "Candidate proposition ids that belong to this point; [] when none matches." }),
 				}),
 			),
@@ -40,7 +47,8 @@ const syllabusSchema = Type.Object({
 
 export interface MappedBlock {
 	title: string;
-	points: Array<{ text: string; nodeIds: string[] }>;
+	kind?: PointKind;
+	points: Array<{ text: string; nodeIds: string[]; kind?: PointKind }>;
 }
 
 export interface SyllabusCandidate {
@@ -73,7 +81,8 @@ export async function runSyllabusMapper(opts: {
 			input.blocks
 				.map((b) => ({
 					title: b.title.trim(),
-					points: b.points.map((p) => ({ text: p.text.trim(), nodeIds: [...new Set(p.nodeIds)] })).filter((p) => p.text.length > 0),
+					...(b.kind ? { kind: b.kind } : {}),
+					points: b.points.map((p) => ({ text: p.text.trim(), nodeIds: [...new Set(p.nodeIds)], ...(p.kind ? { kind: p.kind } : {}) })).filter((p) => p.text.length > 0),
 				}))
 				.filter((b) => b.title.length > 0 && b.points.length > 0),
 		validate: (blocks) => {

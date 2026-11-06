@@ -34,10 +34,17 @@ import {
 	recallAt,
 	reduceFolders,
 	sanitizeExamRecord,
+	setPointKind,
+	applyClassification,
+	numberBlocks,
+	studyPoints,
+	instructionPoints,
+	pointKind,
 	todayBlocks,
 	weekdayIndex,
 	type ExamChat,
 	type ExamRecord,
+	type SyllabusBlock,
 } from "../src/core/exams.ts";
 import {
 	computeReview,
@@ -526,5 +533,72 @@ describe("folder selection v2 (owner 2026-11-06: tri-state, any depth)", () => {
 		assert.deepEqual(read.context, EMPTY_EXAM_CONTEXT);
 		assert.deepEqual(read.materials, []);
 		assert.deepEqual(read.syllabus.directFolders, []);
+	});
+});
+
+describe("point types: syllabus, rules, tutor (owner 2026-11-06)", () => {
+	const tg = (id: string, nodeIds: string[] = []) => ({ id, statement: `idea ${id}`, source: { kind: "model" as const, title: "" }, nodeIds });
+	const blocks = (): SyllabusBlock[] => [
+		{ id: "b1", title: "Análisis", points: [{ id: "p1", text: "Límites", nodeIds: ["n1"], targets: [tg("t1", ["n1"])], extension: ["n9"] }, { id: "p2", text: "Sin calculadora", nodeIds: [], kind: "rules" as const, targets: [tg("r1")] }] },
+		{ id: "b2", title: "Cómo enseñar", kind: "tutor" as const, points: [{ id: "p3", text: "Comprueba", nodeIds: [] }] },
+	];
+	it("a point inherits its block's type; only syllabus points are studied", () => {
+		const record = { blocks: blocks() };
+		assert.deepEqual(studyPoints(record).map((p) => p.id), ["p1"]);
+		assert.deepEqual(instructionPoints(record, "rules").map((p) => p.id), ["p2"]);
+		assert.deepEqual(instructionPoints(record, "tutor").map((p) => [p.id, p.blockTitle]), [["p3", "Cómo enseñar"]]);
+		assert.equal(pointKind(record.blocks[1]!, record.blocks[1]!.points[0]!), "tutor");
+	});
+	it("a changed point loses targets, links and ampliación; the block's type resets its points' own", () => {
+		const one = setPointKind(blocks(), "b1", "p1", "tutor");
+		assert.deepEqual(one.changed, ["p1"]);
+		const p1 = one.blocks[0]!.points[0]!;
+		assert.equal(p1.kind, "tutor");
+		assert.equal(p1.targets, undefined);
+		assert.equal(p1.extension, undefined);
+		assert.deepEqual(p1.nodeIds, []);
+		const same = setPointKind(blocks(), "b1", "p2", "rules");
+		assert.deepEqual(same.changed, []);
+		const whole = setPointKind(blocks(), "b1", null, "rules");
+		assert.deepEqual(whole.changed, ["p1"]);
+		assert.equal(whole.blocks[0]!.kind, "rules");
+		assert.equal(whole.blocks[0]!.points[1]!.kind, undefined, "own type cleared: it follows the block");
+		assert.ok(whole.blocks[0]!.points[1]!.targets, "unchanged point keeps its rules");
+		const back = setPointKind(blocks(), "b2", "p3", "syllabus");
+		assert.equal(back.blocks[1]!.points[0]!.kind, "syllabus", "differs from its tutor block");
+	});
+	it("classification: block kinds, differing points; only real changes reset", () => {
+		const r = applyClassification(blocks(), { blocks: new Map([["b1", "syllabus"], ["b2", "tutor"]]), points: new Map([["p2", "rules"]]) });
+		assert.deepEqual(r.changed, []);
+		assert.ok(r.blocks[0]!.points[0]!.targets);
+		const r2 = applyClassification(blocks(), { blocks: new Map([["b1", "rules"], ["b2", "syllabus"]]), points: new Map() });
+		assert.deepEqual(r2.changed.sort(), ["p1", "p3"]);
+		assert.equal(r2.blocks[1]!.kind, undefined);
+		assert.ok(r2.blocks[0]!.points[1]!.targets, "p2 was rules and stays rules");
+	});
+	it("the outline's kinds are numbered in; instruction points never keep links; sanitize round-trips", () => {
+		const numbered = numberBlocks([{ title: "Normas", kind: "rules", points: [{ text: "Sin calculadora", nodeIds: ["n1"] }, { text: "Límites", nodeIds: ["n2"], kind: "syllabus" }] }]);
+		assert.equal(numbered[0]!.kind, "rules");
+		assert.deepEqual(numbered[0]!.points[0]!.nodeIds, []);
+		assert.equal(numbered[0]!.points[1]!.kind, "syllabus");
+		assert.deepEqual(numbered[0]!.points[1]!.nodeIds, ["n2"]);
+		const record = sanitizeExamRecord({ ...exam(), blocks: blocks(), classified: true })!;
+		assert.equal(record.classified, true);
+		assert.equal(record.blocks[1]!.kind, "tutor");
+		assert.equal(record.blocks[0]!.points[1]!.kind, "rules");
+		assert.equal(sanitizeExamRecord({ ...exam(), blocks: [{ id: "b", title: "x", kind: "nope", points: [{ id: "p", text: "y", nodeIds: [], kind: "bad" }] }] })!.blocks[0]!.kind, undefined);
+	});
+	it("instruction points stay out of coverage and placement", () => {
+		const status = computeExamStatus({
+			exam: exam({ blocks: blocks() }),
+			now: T0,
+			items: new Map(),
+			names: new Map(),
+			chats: [],
+			nodesBornIn: new Map(),
+			confidenceThreshold: 70,
+			dueEnd: T0 + D,
+		});
+		assert.deepEqual(status.points.map((p) => p.id), ["p1"]);
 	});
 });

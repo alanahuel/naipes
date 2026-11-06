@@ -9,6 +9,8 @@ import { after, describe, it } from "node:test";
 import { createFauxCore, fauxAssistantMessage, fauxToolCall, type FauxResponseStep, type ToolCall } from "@earendil-works/pi-ai";
 import type { PiEngine } from "../src/agent/models.ts";
 import { examResearchInstructions, examResearchPrompt, runExamResearcher, type ResearchTask } from "../src/agent/subagents/exam-researcher.ts";
+import { examClassifierPrompt, runExamClassifier } from "../src/agent/subagents/exam-classifier.ts";
+import { SYLLABUS_MAPPER_INSTRUCTIONS } from "../src/agent/subagents/syllabus-mapper.ts";
 import { parseClaudeSearchResult, searchResultFromStream } from "../src/server/exam-research-io.ts";
 import { researchDepth, sanitizeTargets, syncPointLinks, presetStandard } from "../src/core/exams.ts";
 
@@ -26,7 +28,7 @@ const task: ResearchTask = {
 	exam: { title: "PAU +25", examDate: "2027-05-20" },
 	context: ["Type: official", "Sitting / year: 2027"],
 	materials: [{ id: "mat_1", name: "Tema 1.pdf", kind: "file" }],
-	block: { index: 1, total: 2, title: "Funciones", points: [{ id: "p1", text: "Límites" }, { id: "p2", text: "Derivadas" }] },
+	block: { index: 1, total: 2, title: "Funciones", points: [{ id: "p1", text: "Límites", kind: "syllabus" }, { id: "p2", text: "Derivadas", kind: "syllabus" }] },
 	candidates: [{ id: "n1", name: "Límite", statement: "El límite describe…" }],
 };
 
@@ -36,11 +38,12 @@ describe("exam researcher", () => {
 		assert.ok(prompt.includes("CONTEXT:\nType: official\nSitting / year: 2027"));
 		assert.ok(prompt.includes("[mat_1] Tema 1.pdf (file — read_material)"));
 		assert.ok(prompt.includes("BLOCK 1 of 2: Funciones"));
-		assert.ok(prompt.includes("[p2] Derivadas"));
+		assert.ok(prompt.includes("[p2] (KIND: syllabus) Derivadas"));
 		assert.ok(prompt.includes("[n1] Límite — El límite describe…"));
 		const sys = examResearchInstructions({ today: "2026-11-06", examDate: "2027-05-20", sitting: "2027", depth: researchDepth(presetStandard("merit")) });
 		assert.ok(sys.includes("today is 2026-11-06; the exam is on 2027-05-20 (sitting 2027)"));
 		assert.ok(sys.includes("Solid command"));
+		assert.ok(sys.includes('For "rules" points, produce the exam\'s concrete rules instead'));
 		assert.equal(researchDepth({ preset: null, mode: "composition" }), "distinction");
 	});
 	it("reads a material, then submits; a missing point or an unknown id is retried", async () => {
@@ -122,5 +125,44 @@ describe("exam sorter", () => {
 		]);
 		const sorted = await runExamSorter({ engine, input });
 		assert.deepEqual([...sorted], [["n5", "t1"], ["n6", "extension"]]);
+	});
+});
+
+describe("instruction points in the research (owner 2026-11-06)", () => {
+	it("rules never link graph ideas, even when the model lists some", async () => {
+		const rulesTask: ResearchTask = { ...task, block: { ...task.block, points: [{ id: "p1", text: "Límites", kind: "syllabus" }, { id: "p2", text: "Sin calculadora", kind: "rules" }] } };
+		const engine = fauxEngine([
+			call(
+				"submit_research",
+				{
+					points: [
+						{ pointId: "p1", targets: [{ statement: "Un límite es…", source: { kind: "model", title: "" }, nodeIds: ["n1"] }] },
+						{ pointId: "p2", targets: [{ statement: "No se permite calculadora.", source: { kind: "web", title: "Guía", year: "2026" }, nodeIds: ["n1"] }] },
+					],
+				},
+				"s1",
+			),
+		]);
+		const result = await runExamResearcher({ engine, task: rulesTask, instructions: "x", search: () => null, readMaterial: async () => "", pdfDir: PDF_DIR });
+		assert.deepEqual(result.get("p1")![0]!.nodeIds, ["n1"]);
+		assert.deepEqual(result.get("p2")![0]!.nodeIds, []);
+	});
+	it("the classifier gives every block a kind; an unknown id is retried", async () => {
+		const blocks = [
+			{ id: "b1", title: "Funciones", points: [{ id: "p1", text: "Límites" }, { id: "p2", text: "Sin calculadora" }] },
+			{ id: "b2", title: "Cómo enseñar", points: [{ id: "p3", text: "Comprueba cada paso" }] },
+		];
+		const engine = fauxEngine([
+			call("submit_kinds", { blocks: [{ id: "b1", kind: "syllabus", points: [{ id: "px", kind: "rules" }] }, { id: "b2", kind: "tutor" }] }, "k1"),
+			call("submit_kinds", { blocks: [{ id: "b1", kind: "syllabus", points: [{ id: "p2", kind: "rules" }] }, { id: "b2", kind: "tutor" }] }, "k2"),
+		]);
+		assert.ok(examClassifierPrompt(blocks).includes("[b2] Cómo enseñar\n  [p3] Comprueba cada paso"));
+		const kinds = await runExamClassifier({ engine, blocks });
+		assert.equal(kinds.blocks.get("b2"), "tutor");
+		assert.equal(kinds.points.get("p2"), "rules");
+	});
+	it("the mapper's rule 4 sorts rules and tutor instructions instead of ignoring them", () => {
+		assert.ok(SYLLABUS_MAPPER_INSTRUCTIONS.includes('4. Give each block and point a kind: "syllabus"'));
+		assert.ok(!SYLLABUS_MAPPER_INSTRUCTIONS.includes("grading rules"));
 	});
 });

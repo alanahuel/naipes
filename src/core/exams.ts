@@ -90,7 +90,23 @@ export interface SyllabusPoint {
 	/** «Ampliación» (owner 2026-11-06): ideas formed while studying the
 	 *  point that go beyond its targets — dated review, not counted. */
 	extension?: string[];
+	/** The point's own type when it differs from its block's (owner
+	 *  2026-11-06). For an instruction point `targets` holds its RULES. */
+	kind?: PointKind;
 }
+
+/** Owner 2026-11-06: a syllabus point is something to learn; «rules» are
+ *  the subject's instructions (how the exam runs: allowed, scored,
+ *  timing, format); «tutor» are instructions for the LLM tutor. Only
+ *  «syllabus» points are studied (coverage, placement, plan, sorter). */
+export type PointKind = "syllabus" | "rules" | "tutor";
+
+export const POINT_KINDS: readonly PointKind[] = ["syllabus", "rules", "tutor"];
+
+const isPointKind = (v: unknown): v is PointKind => v === "syllabus" || v === "rules" || v === "tutor";
+
+/** A point's effective type: its own, else its block's, else syllabus. */
+export const pointKind = (block: Pick<SyllabusBlock, "kind">, point: Pick<SyllabusPoint, "kind">): PointKind => point.kind ?? block.kind ?? "syllabus";
 
 /** Where a target idea comes from (owner 2026-11-06). */
 export interface TargetSource {
@@ -143,7 +159,71 @@ export interface SyllabusBlock {
 	id: string;
 	title: string;
 	points: SyllabusPoint[];
+	/** The block's type, inherited by its points (absent = syllabus). */
+	kind?: PointKind;
 }
+
+/** Set a block's type (its points follow it, own types cleared) or one
+ *  point's. Points whose effective type changed lose their targets/rules,
+ *  links and ampliación — they are researched again for the new type
+ *  (owner 2026-11-06). */
+export function setPointKind(blocks: readonly SyllabusBlock[], blockId: string, pointId: string | null, kind: PointKind): { blocks: SyllabusBlock[]; changed: string[] } {
+	const changed: string[] = [];
+	const reset = (p: SyllabusPoint, before: PointKind, after: PointKind): SyllabusPoint => {
+		if (before === after) return p;
+		changed.push(p.id);
+		const { targets: _t, extension: _e, ...rest } = p;
+		return { ...rest, nodeIds: [] };
+	};
+	const next = blocks.map((b) => {
+		if (b.id !== blockId) return b;
+		if (pointId === null) {
+			const block: SyllabusBlock = { ...b, kind };
+			if (kind === "syllabus") delete block.kind;
+			block.points = b.points.map((p) => {
+				const { kind: _k, ...own } = p;
+				return reset(own, pointKind(b, p), kind);
+			});
+			return block;
+		}
+		return {
+			...b,
+			points: b.points.map((p) => {
+				if (p.id !== pointId) return p;
+				const { kind: _k, ...own } = p;
+				const withKind: SyllabusPoint = kind === (b.kind ?? "syllabus") ? own : { ...own, kind };
+				return reset(withKind, pointKind(b, p), kind);
+			}),
+		};
+	});
+	return { blocks: next, changed };
+}
+
+/** Apply «Clasificar temario»'s answer: each block's kind, then the
+ *  points that differ. `changed` = points whose type changed. */
+export function applyClassification(
+	blocks: readonly SyllabusBlock[],
+	kinds: { blocks: ReadonlyMap<string, PointKind>; points: ReadonlyMap<string, PointKind> },
+): { blocks: SyllabusBlock[]; changed: string[] } {
+	const changed: string[] = [];
+	const next = blocks.map((b) => {
+		const blockKind = kinds.blocks.get(b.id) ?? b.kind ?? "syllabus";
+		const points = b.points.map((p) => {
+			const kind = kinds.points.get(p.id) ?? blockKind;
+			const { kind: _k, ...own } = p;
+			const point: SyllabusPoint = kind === blockKind ? own : { ...own, kind };
+			if (kind === pointKind(b, p)) return point;
+			changed.push(p.id);
+			const { targets: _t, extension: _e, ...rest } = point;
+			return { ...rest, nodeIds: [] };
+		});
+		const block: SyllabusBlock = { ...b, points, kind: blockKind };
+		if (blockKind === "syllabus") delete block.kind;
+		return block;
+	});
+	return { blocks: next, changed };
+}
+
 
 /** draft = created, mapping not yet confirmed; active = planned;
  *  archived = after the date (or by hand). */
@@ -231,6 +311,9 @@ export interface ExamRecord {
 	mapping: { state: MappingState; error?: string; at?: string };
 	reading?: ExamReading;
 	research?: ExamResearch;
+	/** The syllabus's points carry types (owner 2026-11-06): set by the
+	 *  outline of new exams or by «Clasificar temario»; older exams lack it. */
+	classified?: boolean;
 	/** Blocks the learner chose to prioritize when time is short. */
 	priorityBlocks: string[];
 	archivedAt?: string;
@@ -517,9 +600,16 @@ export function sanitizeBlocks(raw: unknown): SyllabusBlock[] {
 			seen.add(pid);
 			const targets = sanitizeTargets(point.targets);
 			const extension = strList(point.extension);
-			points.push({ id: pid, text, nodeIds: strList(point.nodeIds), ...(targets ? { targets } : {}), ...(extension.length ? { extension } : {}) });
+			points.push({
+				id: pid,
+				text,
+				nodeIds: strList(point.nodeIds),
+				...(targets ? { targets } : {}),
+				...(extension.length ? { extension } : {}),
+				...(isPointKind(point.kind) ? { kind: point.kind } : {}),
+			});
 		}
-		out.push({ id, title, points });
+		out.push({ id, title, points, ...(isPointKind(block.kind) && block.kind !== "syllabus" ? { kind: block.kind } : {}) });
 	}
 	return out;
 }
@@ -567,6 +657,7 @@ export function sanitizeExamRecord(raw: unknown): ExamRecord | null {
 		},
 		...(reading ? { reading } : {}),
 		...(research ? { research } : {}),
+		...(r.classified === true ? { classified: true } : {}),
 		priorityBlocks: strList(r.priorityBlocks),
 		...(typeof r.archivedAt === "string" ? { archivedAt: r.archivedAt } : {}),
 		...(typeof r.realGrade === "string" && r.realGrade.length <= 100 ? { realGrade: r.realGrade } : {}),
@@ -578,6 +669,14 @@ export function sanitizeExamRecord(raw: unknown): ExamRecord | null {
 
 export const allPoints = (exam: Pick<ExamRecord, "blocks">): Array<SyllabusPoint & { blockId: string }> =>
 	exam.blocks.flatMap((b) => b.points.map((p) => ({ ...p, blockId: b.id })));
+
+/** The points to STUDY (type syllabus): coverage, placement, plan, sort. */
+export const studyPoints = (exam: Pick<ExamRecord, "blocks">): Array<SyllabusPoint & { blockId: string }> =>
+	exam.blocks.flatMap((b) => b.points.filter((p) => pointKind(b, p) === "syllabus").map((p) => ({ ...p, blockId: b.id })));
+
+/** The instruction points of one type, with their block. */
+export const instructionPoints = (exam: Pick<ExamRecord, "blocks">, kind: Exclude<PointKind, "syllabus">): Array<SyllabusPoint & { blockId: string; blockTitle: string }> =>
+	exam.blocks.flatMap((b) => b.points.filter((p) => pointKind(b, p) === kind).map((p) => ({ ...p, blockId: b.id, blockTitle: b.title })));
 
 // ─── days ───────────────────────────────────────────────────────────────────
 
@@ -671,7 +770,7 @@ export function deadlineDue(input: {
 export function examNodeIds(exam: Pick<ExamRecord, "id" | "blocks">, chats: ReadonlyArray<Pick<ExamChat, "id" | "exam">>, nodesBornIn: ReadonlyMap<string, readonly string[]>): string[] {
 	const out = new Set<string>();
 	const researched = new Set<string>();
-	for (const p of allPoints(exam)) {
+	for (const p of studyPoints(exam)) {
 		for (const id of p.nodeIds) out.add(id);
 		for (const id of p.extension ?? []) out.add(id);
 		if (p.targets) researched.add(p.id);
@@ -908,7 +1007,7 @@ export function computeExamStatus(input: ExamStatusInput): ExamStatusModel {
 	// Ideas born in this exam's own teach sessions start from those checks —
 	// the placement test is for what the learner brought in.
 	const examTaught = new Set<string>();
-	const recordPoints = new Map(allPoints(exam).map((p) => [p.id, p]));
+	const recordPoints = new Map(studyPoints(exam).map((p) => [p.id, p]));
 	for (const p of recordPoints.values()) pointNodes.set(p.id, [...p.nodeIds]);
 	for (const chat of examChats) {
 		if (chat.exam!.kind !== "teach" || !chat.exam!.pointId || !pointNodes.has(chat.exam!.pointId)) continue;
@@ -952,7 +1051,7 @@ export function computeExamStatus(input: ExamStatusInput): ExamStatusModel {
 		if (members.some((i) => i.level < target)) return "practice";
 		return "done";
 	};
-	const points: PointStatus[] = allPoints(exam).map((p) => {
+	const points: PointStatus[] = studyPoints(exam).map((p) => {
 		const nodeIds = pointNodes.get(p.id) ?? [];
 		const probe = probes.get(p.id) ?? null;
 		const members = nodeIds.map((id) => ideaById.get(id)!).filter(Boolean);
@@ -1447,9 +1546,23 @@ export function syllabusCandidates(input: {
 }
 
 /** Give mapped blocks stable ids (b1…, p1…), in order. */
-export function numberBlocks(blocks: ReadonlyArray<{ title: string; points: ReadonlyArray<{ text: string; nodeIds: readonly string[] }> }>): SyllabusBlock[] {
+export function numberBlocks(
+	blocks: ReadonlyArray<{ title: string; kind?: PointKind; points: ReadonlyArray<{ text: string; nodeIds: readonly string[]; kind?: PointKind }> }>,
+): SyllabusBlock[] {
 	let p = 0;
-	return blocks.map((b, i) => ({ id: `b${i + 1}`, title: b.title, points: b.points.map((pt) => ({ id: `p${++p}`, text: pt.text, nodeIds: [...pt.nodeIds] })) }));
+	return blocks.map((b, i) => {
+		const blockKind = b.kind ?? "syllabus";
+		return {
+			id: `b${i + 1}`,
+			title: b.title,
+			...(blockKind !== "syllabus" ? { kind: blockKind } : {}),
+			points: b.points.map((pt) => {
+				const kind = pt.kind ?? blockKind;
+				// Instruction points hold rules, never graph links.
+				return { id: `p${++p}`, text: pt.text, nodeIds: kind === "syllabus" ? [...pt.nodeIds] : [], ...(kind !== blockKind ? { kind } : {}) };
+			}),
+		};
+	});
 }
 
 // ─── API views (GET /api/exams, /api/exams/[id]; server and components) ─────
@@ -1497,7 +1610,7 @@ export function pendingSorts(
 	chats: ReadonlyArray<Pick<ExamChat, "id" | "exam">>,
 	nodesBornIn: ReadonlyMap<string, readonly string[]>,
 ): Array<{ pointId: string; teach: string[]; deepen: string[] }> {
-	const points = new Map(allPoints(exam).filter((p) => p.targets).map((p) => [p.id, p]));
+	const points = new Map(studyPoints(exam).filter((p) => p.targets).map((p) => [p.id, p]));
 	const out = new Map<string, { pointId: string; teach: Set<string>; deepen: Set<string> }>();
 	for (const chat of chats) {
 		const link = chat.exam;

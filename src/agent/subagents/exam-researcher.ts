@@ -12,7 +12,7 @@
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { SearchProvider } from "../../core/search.ts";
-import type { ExamPreset } from "../../core/exams.ts";
+import type { ExamPreset, PointKind } from "../../core/exams.ts";
 import { MAX_TARGETS_PER_POINT } from "../../core/exams.ts";
 import type { PiEngine } from "../models.ts";
 import { serverExecute } from "../tool-execute.ts";
@@ -40,6 +40,8 @@ Dates: today is ${input.today}; the exam is on ${input.examDate} (sitting ${inpu
 
 Depth: ${DEPTH_LINES[input.depth]} At most ${MAX_TARGETS_PER_POINT} target ideas per point. Cover the point fully at that depth; no padding, nothing that belongs to another point.
 
+Each point has a KIND. For "syllabus" points, produce target ideas as above. For "rules" points, produce the exam's concrete rules instead — what is allowed or forbidden, what scores and what does not, timing, format — one per sentence, from the official guide and marking criteria first; leave nodeIds empty. For "tutor" points, turn the point into concrete instructions for a tutor preparing the learner — what to teach, how, and what to check — one per sentence; leave nodeIds empty.
+
 Linking: the CANDIDATES are ideas the learner already holds. Link a target to the candidate ids that express it, fully or in part; leave it unlinked when none does. Never stretch a weak match.
 
 If a tool says search is unavailable, don't retry it: work from the materials, pages whose URL you know, and your own knowledge.
@@ -65,7 +67,7 @@ export interface ResearchTask {
 	/** Context lines already labelled («Type: Official»…), empty ones out. */
 	context: string[];
 	materials: ResearchMaterial[];
-	block: { index: number; total: number; title: string; points: Array<{ id: string; text: string }> };
+	block: { index: number; total: number; title: string; points: Array<{ id: string; text: string; kind: PointKind }> };
 	candidates: ResearchCandidate[];
 }
 
@@ -80,7 +82,7 @@ export function examResearchPrompt(task: ResearchTask): string {
 		`CONTEXT:\n${task.context.length ? task.context.join("\n") : "(none given)"}`,
 		`MATERIALS:\n${materials}`,
 		`BLOCK ${task.block.index} of ${task.block.total}: ${task.block.title}`,
-		`POINTS:\n${task.block.points.map((p) => `[${p.id}] ${p.text}`).join("\n")}`,
+		`POINTS:\n${task.block.points.map((p) => `[${p.id}] (KIND: ${p.kind}) ${p.text}`).join("\n")}`,
 		`CANDIDATES:\n${candidates}`,
 	].join("\n\n");
 }
@@ -129,6 +131,7 @@ export async function runExamResearcher(opts: {
 }): Promise<ResearchResult> {
 	const known = new Set(opts.task.candidates.map((c) => c.id));
 	const pointIds = opts.task.block.points.map((p) => p.id);
+	const instructionIds = new Set(opts.task.block.points.filter((p) => p.kind !== "syllabus").map((p) => p.id));
 	const materialIds = new Set(opts.task.materials.map((m) => m.id));
 	const readInput = Type.Object({
 		id: Type.String({ description: "The material id from MATERIALS." }),
@@ -157,7 +160,8 @@ export async function runExamResearcher(opts: {
 			const out: ResearchResult = new Map();
 			for (const p of input.points) {
 				const targets = p.targets
-					.map((t) => ({ ...t, statement: t.statement.trim(), nodeIds: [...new Set(t.nodeIds)] }))
+					// Rules and tutor instructions never link graph ideas.
+					.map((t) => ({ ...t, statement: t.statement.trim(), nodeIds: instructionIds.has(p.pointId) ? [] : [...new Set(t.nodeIds)] }))
 					.filter((t) => t.statement.length > 0)
 					.slice(0, MAX_TARGETS_PER_POINT);
 				out.set(p.pointId, [...(out.get(p.pointId) ?? []), ...targets].slice(0, MAX_TARGETS_PER_POINT));

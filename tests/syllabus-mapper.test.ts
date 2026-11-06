@@ -23,9 +23,17 @@ describe("syllabus mapper", () => {
 		assert.match(prompt, /\[n1\] Velocidad — v = d\/t/);
 	});
 	it("retries an unknown id, then returns the cleaned blocks", async () => {
-		const bad = { blocks: [{ title: "Cinemática", points: [{ text: "Velocidad", nodeIds: ["n9"] }] }] };
-		const good = { blocks: [{ title: " Cinemática ", points: [{ text: "Velocidad", nodeIds: ["n1", "n1"] }, { text: "Rozamiento", nodeIds: [] }, { text: " ", nodeIds: [] }] }] };
+		const bad = { blocks: [{ title: "Cinemática", kind: "syllabus", points: [{ text: "Velocidad", nodeIds: ["n9"] }] }] };
+		const good = {
+			blocks: [
+				{ title: " Cinemática ", kind: "syllabus", points: [{ text: "Velocidad", nodeIds: ["n1", "n1"] }, { text: "Rozamiento", nodeIds: [] }, { text: " ", nodeIds: [] }, { text: "Sin calculadora", kind: "rules", nodeIds: [] }] },
+				{ title: "Cómo enseñar", kind: "tutor", points: [{ text: "Comprueba cada paso", nodeIds: [] }] },
+			],
+		};
 		const blocks = await runSyllabusMapper({ engine: engine([submit(bad, "c1"), submit(good, "c2")]), syllabus: "Tema 1", candidates });
-		assert.deepEqual(blocks, [{ title: "Cinemática", points: [{ text: "Velocidad", nodeIds: ["n1"] }, { text: "Rozamiento", nodeIds: [] }] }]);
+		assert.deepEqual(blocks, [
+			{ title: "Cinemática", kind: "syllabus", points: [{ text: "Velocidad", nodeIds: ["n1"] }, { text: "Rozamiento", nodeIds: [] }, { text: "Sin calculadora", nodeIds: [], kind: "rules" }] },
+			{ title: "Cómo enseñar", kind: "tutor", points: [{ text: "Comprueba cada paso", nodeIds: [] }] },
+		]);
 	});
 });

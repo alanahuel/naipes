@@ -152,7 +152,7 @@ export function allSegmentPaths(): string[] {
 
 // ─── exam appendices («Exámenes», owner-approved texts 2026-11-06) ──────────
 
-export type ExamAppendixName = "placement" | "placement-points" | "placement-targets" | "practice" | "teach" | "consolidate" | "mock" | "deepen";
+export type ExamAppendixName = "placement" | "placement-points" | "placement-targets" | "practice" | "teach" | "consolidate" | "mock" | "deepen" | "instructions";
 
 const examTemplates = new Map<ExamAppendixName, string>();
 

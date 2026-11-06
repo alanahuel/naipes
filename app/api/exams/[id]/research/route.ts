@@ -12,7 +12,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 	const { id } = await params;
 	const body = (await request.json().catch(() => ({}))) as { mode?: unknown; pointId?: unknown };
 	const scope =
-		typeof body.pointId === "string" ? { mode: "point" as const, pointId: body.pointId } : body.mode === "all" ? { mode: "all" as const } : { mode: "missing" as const };
+		typeof body.pointId === "string" ? { mode: "points" as const, pointIds: [body.pointId] } : body.mode === "all" ? { mode: "all" as const } : { mode: "missing" as const };
 	const started = startExamResearch(id, scope);
 	if (!started.ok) return Response.json({ error: started.error, ...(started.status === 503 ? { code: "models_not_configured" } : {}) }, { status: started.status });
 	return Response.json({ ok: true }, { status: 202 });

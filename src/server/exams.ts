@@ -10,6 +10,12 @@ import type { ChatExamLink, ChatRecord, ExamSessionKind } from "../core/contract
 import { emit, subscribe } from "../core/events.ts";
 import {
 	allPoints,
+	applyClassification,
+	instructionPoints,
+	pointKind,
+	setPointKind,
+	studyPoints,
+	type PointKind,
 	computeExamStatus,
 	effectiveDurations,
 	EXAM_PRESETS,
@@ -62,6 +68,7 @@ import { piEngineForSpec } from "../agent/models.ts";
 import { refreshClaudeCodeStatus } from "../agent/claude-code-bridge.ts";
 import { CLAUDE_CODE_PROVIDER } from "../core/contracts/claude-code.ts";
 import { examAppendix } from "../agent/prompt-segments.ts";
+import { runExamClassifier } from "../agent/subagents/exam-classifier.ts";
 import { runSyllabusMapper } from "../agent/subagents/syllabus-mapper.ts";
 import { examResearchInstructions, runExamResearcher } from "../agent/subagents/exam-researcher.ts";
 import { runExamSorter } from "../agent/subagents/exam-sorter.ts";
@@ -421,7 +428,7 @@ export function updateExam(id: string, patch: ExamPatch, now = Date.now()): Pars
 		next.priorityBlocks = patch.priorityBlocks.filter((b) => ids.has(b));
 	}
 	if (patch.status === "active") {
-		if (next.blocks.length === 0 || allPoints(next).length === 0) return { ok: false, error: "the syllabus has no points yet — map it first" };
+		if (next.blocks.length === 0 || studyPoints(next).length === 0) return { ok: false, error: "the syllabus has no points yet — map it first" };
 		if (next.examDate < reviewDay(now)) return { ok: false, error: "the exam date is in the past" };
 		next.status = "active";
 		delete next.archivedAt;
@@ -753,6 +760,7 @@ async function runMapping(exam: ExamRecord, engine: ReturnType<typeof piEngineFo
 		save({
 			...touch(current),
 			blocks,
+			classified: true,
 			mapping: { state: "researching", at: new Date().toISOString() },
 			research: { done: 0, total: blocks.length, web: (await examSearchProvider()) !== null },
 		});
@@ -783,7 +791,7 @@ export function contextLines(context: ExamRecord["context"]): string[] {
  *  ideas sharing words with the block (scope ideas first). */
 const BLOCK_CANDIDATES = 150;
 
-type ResearchScope = { mode: "missing" } | { mode: "all" } | { mode: "point"; pointId: string };
+export type ResearchScope = { mode: "missing" } | { mode: "all" } | { mode: "points"; pointIds: string[] };
 
 /** Research the exam's blocks in order, saving after each (progress is
  *  visible; a failure keeps what was done and a retry resumes). */
@@ -793,7 +801,9 @@ async function runResearch(id: string, engine: ReturnType<typeof piEngineForSpec
 	const todo = first.blocks
 		.map((b) => ({
 			...b,
-			points: b.points.filter((p) => (scope.mode === "all" ? true : scope.mode === "point" ? p.id === scope.pointId : p.targets === undefined)),
+			points: b.points
+				.filter((p) => (scope.mode === "all" ? true : scope.mode === "points" ? scope.pointIds.includes(p.id) : p.targets === undefined))
+				.map((p) => ({ ...p, kind: pointKind(b, p) })),
 		}))
 		.filter((b) => b.points.length > 0);
 	const search = await examSearchProvider();
@@ -814,8 +824,10 @@ async function runResearch(id: string, engine: ReturnType<typeof piEngineForSpec
 		for (const [i, block] of todo.entries()) {
 			if (!progress({ current: block.title })) return;
 			const exam = readExam(id)!;
-			const outline = new Set(block.points.flatMap((p) => p.nodeIds));
-			const text = [block.title, ...block.points.map((p) => p.text)].join("\n");
+			const study = block.points.filter((p) => p.kind === "syllabus");
+			const outline = new Set(study.flatMap((p) => p.nodeIds));
+			// Instruction-only blocks link nothing: no candidates.
+			const text = study.length ? [block.title, ...study.map((p) => p.text)].join("\n") : "";
 			const overlap = syllabusCandidates({ text, nodes, folderNodeIds: new Set(), cap: BLOCK_CANDIDATES });
 			const inScope = overlap.filter((n) => folderNodeIds.has(n));
 			const ids = [...new Set([...outline, ...inScope, ...overlap])].slice(0, BLOCK_CANDIDATES).filter((n) => byId.has(n));
@@ -826,7 +838,7 @@ async function runResearch(id: string, engine: ReturnType<typeof piEngineForSpec
 					exam: { title: exam.title, examDate: exam.examDate },
 					context: contextLines(exam.context),
 					materials: exam.materials.map((m) => ({ id: m.id, name: m.name, kind: m.kind, ...(m.url ? { url: m.url } : {}) })),
-					block: { index: scope.mode === "missing" ? exam.blocks.findIndex((b) => b.id === block.id) + 1 : i + 1, total: scope.mode === "missing" ? total : todo.length, title: block.title, points: block.points.map((p) => ({ id: p.id, text: p.text })) },
+					block: { index: scope.mode === "missing" ? exam.blocks.findIndex((b) => b.id === block.id) + 1 : i + 1, total: scope.mode === "missing" ? total : todo.length, title: block.title, points: block.points.map((p) => ({ id: p.id, text: p.text, kind: p.kind })) },
 					candidates: ids.map((n) => ({ id: n, name: byId.get(n)!.name, statement: byId.get(n)!.statement })),
 				},
 				search: () => search,
@@ -871,12 +883,56 @@ export function startExamResearch(id: string, scope: ResearchScope, now = Date.n
 	if (!exam) return { ok: false, status: 404, error: "not_found" };
 	if (running().has(id) || exam.mapping.state === "reading") return { ok: false, status: 409, error: "mapping already running" };
 	if (exam.blocks.length === 0) return startExamMapping(id, now);
-	if (scope.mode === "point" && !allPoints(exam).some((p) => p.id === scope.pointId)) return { ok: false, status: 404, error: "no such point" };
+	if (scope.mode === "points" && !scope.pointIds.every((pid) => allPoints(exam).some((p) => p.id === pid))) return { ok: false, status: 404, error: "no such point" };
 	const spec = resolveRoleSpec("syllabusMapper", stores.settingsStore.readSettings());
 	if (!spec) return { ok: false, status: 503, error: "models_not_configured" };
 	running().add(id);
 	save({ ...touch(exam, now), mapping: { state: "researching", at: new Date(now).toISOString() } });
 	void withEngine(id, spec, (engine) => runResearch(id, engine, scope));
+	return { ok: true };
+}
+
+// ─── point types (owner-approved 2026-11-06) ────────────────────────────────
+
+/** Change a block's or a point's type; the points whose type changed are
+ *  researched again for it at once (their old targets/rules dropped). */
+export function setExamPointKind(id: string, input: { blockId: string; pointId: string | null; kind: PointKind }, now = Date.now()): MappingStart {
+	const exam = readExam(id);
+	if (!exam) return { ok: false, status: 404, error: "not_found" };
+	if (running().has(id) || exam.mapping.state === "reading") return { ok: false, status: 409, error: "mapping already running" };
+	const block = exam.blocks.find((b) => b.id === input.blockId);
+	if (!block || (input.pointId !== null && !block.points.some((p) => p.id === input.pointId))) return { ok: false, status: 404, error: "no such point" };
+	const { blocks, changed } = setPointKind(exam.blocks, input.blockId, input.pointId, input.kind);
+	save({ ...touch(exam, now), blocks });
+	if (changed.length === 0) return { ok: true };
+	return startExamResearch(id, { mode: "points", pointIds: changed }, now);
+}
+
+/** «Clasificar temario» (exams made before point types): the model
+ *  proposes every block's and point's type; the points that changed are
+ *  researched again for it. */
+export function classifyExam(id: string, now = Date.now()): MappingStart {
+	const exam = readExam(id);
+	if (!exam) return { ok: false, status: 404, error: "not_found" };
+	if (running().has(id) || exam.mapping.state === "reading") return { ok: false, status: 409, error: "mapping already running" };
+	if (exam.blocks.length === 0) return { ok: false, status: 409, error: "the syllabus has no points yet — map it first" };
+	const spec = resolveRoleSpec("syllabusMapper", stores.settingsStore.readSettings());
+	if (!spec) return { ok: false, status: 503, error: "models_not_configured" };
+	running().add(id);
+	save({ ...touch(exam, now), mapping: { state: "running", at: new Date(now).toISOString() } });
+	void withEngine(id, spec, async (engine) => {
+		const kinds = await runExamClassifier({ engine, blocks: exam.blocks.map((b) => ({ id: b.id, title: b.title, points: b.points.map((p) => ({ id: p.id, text: p.text })) })) });
+		const current = readExam(id);
+		if (!current) return;
+		const { blocks, changed } = applyClassification(current.blocks, kinds);
+		const done = new Date().toISOString();
+		if (changed.length === 0) {
+			save({ ...touch(current), blocks, classified: true, mapping: { state: "done", at: done } });
+			return;
+		}
+		save({ ...touch(current), blocks, classified: true, mapping: { state: "researching", at: done }, research: { done: 0, total: 1, web: (await examSearchProvider()) !== null } });
+		await runResearch(id, engine, { mode: "points", pointIds: changed });
+	});
 	return { ok: true };
 }
 
@@ -1016,7 +1072,35 @@ const MODE_WORD: Record<number, string> = { 0: "none yet", 1: "recall", 2: "disc
 /** The exam appendix for a session record, or undefined (not an exam
  *  session, a review block — the review appendix covers it — or the exam
  *  is gone). Built from the record's frozen link: a stable prompt. */
+/** The rules and tutor instructions block (owner-approved text D), in
+ *  every exam session; a part with nothing in it is left out. A point
+ *  not researched yet stands in with its own text. */
+export function examInstructions(exam: Pick<ExamRecord, "blocks">): string | undefined {
+	const lines = (kind: "rules" | "tutor") =>
+		instructionPoints(exam, kind)
+			.flatMap((p) => (p.targets?.length ? p.targets.map((t) => t.statement) : [p.text]))
+			.map((x) => `- ${x}`)
+			.join("\n");
+	const rules = lines("rules");
+	const tutor = lines("tutor");
+	if (!rules && !tutor) return undefined;
+	const sections = [
+		rules ? `The exam's own rules — what is allowed, what scores, how it is sat:\n${rules}` : "",
+		tutor ? `Instructions for you as tutor, from the learner's syllabus:\n${tutor}` : "",
+	]
+		.filter(Boolean)
+		.join("\n\n");
+	return examAppendix("instructions", { sections });
+}
+
 export function examSessionAppendix(record: Pick<ChatRecord, "exam">): string | undefined {
+	const main = kindAppendix(record);
+	const exam = main !== undefined && record.exam ? readExam(record.exam.id) : null;
+	const extra = exam ? examInstructions(exam) : undefined;
+	return main !== undefined && extra ? `${main}\n\n${extra}` : main;
+}
+
+function kindAppendix(record: Pick<ChatRecord, "exam">): string | undefined {
 	const link = record.exam;
 	if (!link || link.kind === "review" || !isExamId(link.id)) return undefined;
 	const exam = readExam(link.id);

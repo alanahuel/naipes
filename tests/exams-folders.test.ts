@@ -35,6 +35,7 @@ fs.writeFileSync(path.join(DIR, "graph", "nodes.jsonl"), JSON.stringify({ id: "n
 fs.writeFileSync(path.join(DIR, "graph", "sources.json"), JSON.stringify({ src_1: { id: "src_1", filePath: "Leídas/Física/Dinámica.md", importedAt: "2026-11-01T00:00:00Z" } }));
 
 const exams = await import("../src/server/exams.ts");
+const store = await import("../src/store/exams.ts");
 
 describe("exam folder tree (whole knowledge folder)", () => {
 	it("lists every folder with notes, read or not; hidden and output folders out; root notes skipped", () => {
@@ -94,5 +95,42 @@ describe("exam folder tree (whole knowledge folder)", () => {
 		assert.ok(teach.includes("You may bring in closely related ideas"));
 		const deepen = exams.examSessionAppendix({ exam: { id: exam.id, kind: "deepen", pointId: "p1" } })!;
 		assert.ok(deepen.includes("## Going deeper") && deepen.includes("Leyes de Newton"));
+	});
+	it("instructions: every session gets the rules and tutor block; an empty part is left out", () => {
+		const parsed = exams.parseExamCreate({ title: "Mates", examDate: "2027-05-20", syllabus: { text: "x" } });
+		const exam = exams.createExam(parsed.ok ? parsed.value : (null as never));
+		const tg = (id: string, statement: string) => ({ id, statement, source: { kind: "model", title: "" }, nodeIds: [] });
+		exams.updateExam(exam.id, {
+			blocks: [
+				{ id: "b1", title: "Funciones", points: [{ id: "p1", text: "Límites", nodeIds: [], targets: [tg("t_a", "Un límite es…")] }, { id: "p2", text: "Calculadora", kind: "rules", nodeIds: [], targets: [tg("t_r", "Sin calculadora.")] }] },
+			],
+		} as never);
+		const teach = exams.examSessionAppendix({ exam: { id: exam.id, kind: "teach", pointId: "p1", targetIds: ["t_a"] } })!;
+		assert.ok(teach.includes("## Exam rules and tutor instructions"));
+		assert.ok(teach.includes("The exam's own rules — what is allowed, what scores, how it is sat:\n- Sin calculadora."));
+		assert.ok(!teach.includes("Instructions for you as tutor"));
+		assert.ok(teach.includes("You may step outside an exam rule briefly"));
+		for (const kind of ["placement", "practice", "mock", "deepen"] as const) {
+			assert.ok(exams.examSessionAppendix({ exam: { id: exam.id, kind, pointId: "p1", pointIds: [], levels: {} } })!.includes("Sin calculadora."), kind);
+		}
+		assert.equal(exams.examSessionAppendix({ exam: { id: exam.id, kind: "review" } }), undefined);
+		// A tutor point not researched yet stands in with its own text.
+		exams.updateExam(exam.id, { blocks: [{ id: "b9", title: "Tutor", kind: "tutor", points: [{ id: "p9", text: "Comprueba cada paso", nodeIds: [] }] }] } as never);
+		const only = exams.examInstructions(store.readExam(exam.id)!)!;
+		assert.ok(only.includes("Instructions for you as tutor, from the learner's syllabus:\n- Comprueba cada paso"));
+		assert.ok(!only.includes("The exam's own rules"));
+	});
+	it("changing a type without a strong model keeps the change but cannot research", () => {
+		const parsed = exams.parseExamCreate({ title: "Mates 2", examDate: "2027-05-20", syllabus: { text: "x" } });
+		const exam = exams.createExam(parsed.ok ? parsed.value : (null as never));
+		exams.updateExam(exam.id, { blocks: [{ id: "b1", title: "F", points: [{ id: "p1", text: "Límites", nodeIds: ["n1"], extension: ["n1"] }] }] } as never);
+		const started = exams.setExamPointKind(exam.id, { blockId: "b1", pointId: "p1", kind: "rules" });
+		assert.equal(started.ok, false);
+		const point = store.readExam(exam.id)!.blocks[0]!.points[0]!;
+		assert.equal(point.kind, "rules");
+		assert.deepEqual(point.nodeIds, []);
+		assert.equal(point.extension, undefined);
+		assert.equal(exams.setExamPointKind(exam.id, { blockId: "b1", pointId: "nope", kind: "rules" }).ok, false);
+		assert.equal(exams.classifyExam(exam.id).ok, false);
 	});
 });

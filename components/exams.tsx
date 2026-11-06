@@ -54,6 +54,10 @@ import {
 	type TargetIdea,
 	type TargetStatus,
 	moveIdea,
+	pointKind,
+	instructionPoints,
+	POINT_KINDS,
+	type PointKind,
 	type ExamMaterial,
 	type ExamRecord,
 } from "@/src/core";
@@ -802,6 +806,35 @@ export function targetSourceLabel(target: TargetIdea, materials: readonly ExamMa
 	return source.year ? t("exams.targets.webYear", { title: source.title, year: source.year }) : t("exams.targets.web", { title: source.title });
 }
 
+/** A block's or a point's type (owner 2026-11-06): Temario ·
+ *  Instrucciones de la asignatura · Instrucciones para el tutor. */
+function KindSelect({ value, label, disabled, onChange }: { value: PointKind; label: string; disabled?: boolean; onChange: (kind: PointKind) => void }) {
+	const t = useT();
+	return (
+		<select
+			value={value}
+			disabled={disabled}
+			aria-label={label}
+			onChange={(e) => onChange(e.target.value as PointKind)}
+			className="max-w-60 shrink-0 rounded-md border bg-background px-1 py-0.5 text-xs text-muted-foreground disabled:opacity-60"
+			data-testid="exam-kind"
+		>
+			{POINT_KINDS.map((k) => (
+				<option key={k} value={k}>
+					{t(`exams.kind.${k}` as MessageKey)}
+				</option>
+			))}
+		</select>
+	);
+}
+
+/** POST a type change; the changed points are researched again. */
+async function changeKind(examId: string, blockId: string, pointId: string | null, kind: PointKind): Promise<string | null> {
+	const res = await sendJson(`/api/exams/${examId}/kind`, "POST", { blockId, pointId, kind });
+	if (res.ok) return null;
+	return res.body.code === "models_not_configured" ? "models_not_configured" : String(res.body.error ?? "");
+}
+
 /** Step 4 — review: blocks → points → target ideas with their source and
  *  links; edit, remove, add; re-research a point or everything. */
 function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => void }) {
@@ -841,6 +874,12 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 		setSaving(false);
 		if (ok) onDone();
 	};
+	const setKind = async (blockId: string, pointId: string | null, kind: PointKind) => {
+		setError(null);
+		if (!(await persist())) return;
+		const failed = await changeKind(exam.id, blockId, pointId, kind);
+		if (failed) setError(failed === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.wizard.mapFailed", { error: failed }));
+	};
 	const rerun = async (body: { pointId: string } | { mode: "all" }) => {
 		setError(null);
 		if (!(await persist())) return;
@@ -864,18 +903,27 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 				<div key={b.id} className="overflow-hidden rounded-xl border">
 					<div className="flex items-center gap-2 border-b bg-accent/30 px-2 py-1.5">
 						<input value={b.title} onChange={(e) => edit(b.id, (x) => ({ ...x, title: e.target.value }))} aria-label={t("exams.wizard.blockTitle")} className={cn(input, "font-medium")} />
+						<KindSelect value={b.kind ?? "syllabus"} label={t("exams.kind.label", { text: b.title })} onChange={(k) => void setKind(b.id, null, k)} />
 						<button type="button" aria-label={t("exams.wizard.removeBlock", { title: b.title })} onClick={() => edit(b.id, () => null)} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
 							<XIcon className="size-4" />
 						</button>
 					</div>
 					<ul>
-						{b.points.map((p) => (
+						{b.points.map((p) => {
+							const kind = pointKind(b, p);
+							const isRule = kind !== "syllabus";
+							return (
 							<li key={p.id} className="border-b px-2 py-1.5 text-sm last:border-b-0" data-testid="exam-review-point">
 								<div className="flex items-center gap-2">
 									<input value={p.text} onChange={(e) => editPoint(b.id, p.id, (y) => ({ ...y, text: e.target.value }))} aria-label={t("exams.wizard.pointText")} className={input} />
+									<KindSelect value={kind} label={t("exams.kind.label", { text: p.text })} onChange={(k) => void setKind(b.id, p.id, k)} />
 									{p.targets ? (
 										<button type="button" aria-expanded={open === p.id} onClick={() => setOpen(open === p.id ? null : p.id)} className="shrink-0 text-muted-foreground hover:text-foreground">
-											{t("exams.targets.title", { n: p.targets.length })}
+											{t(isRule ? "exams.rules.title" : "exams.targets.title", { n: p.targets.length })}
+										</button>
+									) : isRule ? (
+										<button type="button" aria-expanded={open === p.id} onClick={() => setOpen(open === p.id ? null : p.id)} className="shrink-0 text-muted-foreground hover:text-foreground">
+											{t("exams.rules.title", { n: 0 })}
 										</button>
 									) : p.nodeIds.length === 0 ? (
 										<span className="shrink-0 text-muted-foreground">{t("exams.point.gap")}</span>
@@ -888,10 +936,10 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 										<XIcon className="size-4" />
 									</button>
 								</div>
-								{open === p.id && p.targets && (
+								{open === p.id && (p.targets || isRule) && (
 									<div className="mt-1 flex flex-col gap-2 pl-4" data-testid="exam-targets">
 										<ul className="flex flex-col gap-2">
-											{p.targets.map((target) => {
+											{(p.targets ?? []).map((target) => {
 												const label = targetSourceLabel(target, materials, t);
 												return (
 													<li key={target.id} className="rounded-md border px-2 py-1.5" data-testid="exam-target">
@@ -899,11 +947,11 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 															<textarea
 																value={target.statement}
 																rows={2}
-																aria-label={t("exams.targets.statement")}
-																onChange={(e) => editPoint(b.id, p.id, (y) => ({ ...y, targets: y.targets!.map((z) => (z.id === target.id ? { ...z, statement: e.target.value } : z)) }))}
+																aria-label={t(isRule ? "exams.rules.statement" : "exams.targets.statement")}
+																onChange={(e) => editPoint(b.id, p.id, (y) => ({ ...y, targets: (y.targets ?? []).map((z) => (z.id === target.id ? { ...z, statement: e.target.value } : z)) }))}
 																className={cn(input, "resize-y")}
 															/>
-															<button type="button" aria-label={t("exams.targets.remove")} onClick={() => editPoint(b.id, p.id, (y) => ({ ...y, targets: y.targets!.filter((z) => z.id !== target.id) }))} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
+															<button type="button" aria-label={t(isRule ? "exams.rules.remove" : "exams.targets.remove")} onClick={() => editPoint(b.id, p.id, (y) => ({ ...y, targets: (y.targets ?? []).filter((z) => z.id !== target.id) }))} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
 																<XIcon className="size-4" />
 															</button>
 														</div>
@@ -916,7 +964,7 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 																<span>{label}</span>
 															))}
 															{target.source.outdated && <span className="text-warn">{t("exams.targets.outdated")}</span>}
-															{target.nodeIds.length === 0 ? (
+															{isRule ? null : target.nodeIds.length === 0 ? (
 																<span>{t("exams.targets.unlinked")}</span>
 															) : (
 																<span className="flex flex-wrap items-center gap-1">
@@ -924,7 +972,7 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 																	{target.nodeIds.map((n) => (
 																		<span key={n} className="inline-flex items-center gap-1 rounded-full border px-2">
 																			{names.get(n) ?? n}
-																			<button type="button" onClick={() => editPoint(b.id, p.id, (y) => ({ ...y, targets: y.targets!.map((z) => (z.id === target.id ? { ...z, nodeIds: z.nodeIds.filter((q) => q !== n) } : z)) }))} className="hover:text-foreground">
+																			<button type="button" onClick={() => editPoint(b.id, p.id, (y) => ({ ...y, targets: (y.targets ?? []).map((z) => (z.id === target.id ? { ...z, nodeIds: z.nodeIds.filter((q) => q !== n) } : z)) }))} className="hover:text-foreground">
 																				{t("exams.wizard.unlink")}
 																			</button>
 																		</span>
@@ -937,8 +985,8 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 											})}
 										</ul>
 										<div className="flex flex-wrap gap-3">
-											<button type="button" className={smallBtn} onClick={() => editPoint(b.id, p.id, (y) => ({ ...y, targets: [...y.targets!, { id: localId("t_"), statement: "", source: { kind: "user", title: "" }, nodeIds: [] }] }))}>
-												+ {t("exams.targets.add")}
+											<button type="button" className={smallBtn} onClick={() => editPoint(b.id, p.id, (y) => ({ ...y, targets: [...(y.targets ?? []), { id: localId("t_"), statement: "", source: { kind: "user", title: "" }, nodeIds: [] }] }))}>
+												+ {t(isRule ? "exams.rules.add" : "exams.targets.add")}
 											</button>
 											<button type="button" className={smallBtn} onClick={() => void rerun({ pointId: p.id })} data-testid="exam-rerun-point">
 												{t("exams.targets.rerunPoint")}
@@ -946,7 +994,7 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 										</div>
 									</div>
 								)}
-								{open === p.id && !p.targets && (
+								{open === p.id && !p.targets && !isRule && (
 									<ul className="mt-1 flex flex-col gap-1 pl-4">
 										{p.nodeIds.map((n) => (
 											<li key={n} className="flex items-center justify-between gap-2 text-muted-foreground">
@@ -959,7 +1007,8 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 									</ul>
 								)}
 							</li>
-						))}
+							);
+						})}
 					</ul>
 					<button type="button" onClick={() => edit(b.id, (x) => ({ ...x, points: [...x.points, { id: localId("p_"), text: "", nodeIds: [] }] }))} className="flex w-full items-center gap-1.5 px-4 py-2 text-left text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground">
 						<PlusIcon className="size-4" />
@@ -1434,7 +1483,7 @@ function IdeaRow({ idea, action }: { idea: IdeaStatus; action?: React.ReactNode 
 /** One researched point on the exam page: its targets with their status,
  *  the ideas linked to each («Pasar a ampliación»), the «Ampliación (N)»
  *  list («Pasar al punto» → which target), and «Profundizar». */
-function ResearchedPoint({ exam, point, ideas, onDeepen }: { exam: ExamDetailView; point: PointStatus; ideas: ReadonlyMap<string, IdeaStatus>; onDeepen: () => void }) {
+function ResearchedPoint({ exam, point, ideas, onDeepen, kindSelect }: { exam: ExamDetailView; point: PointStatus; ideas: ReadonlyMap<string, IdeaStatus>; onDeepen: () => void; kindSelect: React.ReactNode }) {
 	const t = useT();
 	const [extOpen, setExtOpen] = useState(false);
 	const [picking, setPicking] = useState<string | null>(null);
@@ -1451,6 +1500,7 @@ function ResearchedPoint({ exam, point, ideas, onDeepen }: { exam: ExamDetailVie
 			<div className="flex items-center justify-between gap-3">
 				<span className="min-w-0 truncate">{point.text}</span>
 				<span className="flex shrink-0 items-center gap-3 text-muted-foreground">
+					{kindSelect}
 					<span>{t("exams.point.mastered", { mastered, total: targets.length })}</span>
 					<span>· {pointNeedLabel({ ...point, gap: false }, t)}</span>
 					{canDeepen && (
@@ -1547,6 +1597,22 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 	const { start } = useStartExamSession(exam.id);
 	const unresearched = exam.record.blocks.some((b) => b.points.some((p) => !p.targets));
 	const researching = exam.record.mapping.state === "researching" || exam.record.mapping.state === "running";
+	const [kindError, setKindError] = useState<string | null>(null);
+	const setKind = async (blockId: string, pointId: string | null, kind: PointKind) => {
+		setKindError(null);
+		const failed = await changeKind(exam.id, blockId, pointId, kind);
+		if (failed) setKindError(failed === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.wizard.mapFailed", { error: failed }));
+	};
+	const kindSelect = (b: SyllabusBlock, pointId: string | null, text: string) => {
+		const point = pointId ? b.points.find((p) => p.id === pointId) : undefined;
+		return <KindSelect value={point ? pointKind(b, point) : (b.kind ?? "syllabus")} label={t("exams.kind.label", { text })} disabled={researching} onChange={(k) => void setKind(b.id, pointId, k)} />;
+	};
+	const classify = async () => {
+		setKindError(null);
+		const res = await sendJson(`/api/exams/${exam.id}/classify`, "POST", {});
+		if (!res.ok) setKindError(res.body.code === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.wizard.mapFailed", { error: String(res.body.error ?? "") }));
+	};
+	const progress = t("exams.wizard.researching", { i: Math.min((exam.record.research?.done ?? 0) + 1, exam.record.research?.total ?? 1), n: exam.record.research?.total ?? 1, title: exam.record.research?.current ?? "" });
 	const togglePriority = (blockId: string) => {
 		const next = priority.has(blockId) ? [...priority].filter((b) => b !== blockId) : [...priority, blockId];
 		void sendJson(`/api/exams/${exam.id}`, "PUT", { priorityBlocks: next });
@@ -1555,19 +1621,39 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 		<section className="flex flex-col gap-3" data-testid="exam-syllabus" id="exam-syllabus">
 			<SectionTitle
 				right={
-					unresearched && exam.record.status === "active" ? (
-						<button type="button" className={cn(quietBtn, "px-3 py-1 text-sm")} disabled={researching} onClick={() => void sendJson(`/api/exams/${exam.id}/research`, "POST", { mode: "missing" })} data-testid="exam-research-syllabus">
-							{researching ? t("exams.wizard.researching", { i: Math.min((exam.record.research?.done ?? 0) + 1, exam.record.research?.total ?? 1), n: exam.record.research?.total ?? 1, title: exam.record.research?.current ?? "" }) : t("exams.syllabus.research")}
-						</button>
+					exam.record.status === "active" && (unresearched || !exam.record.classified) ? (
+						<span className="flex flex-wrap justify-end gap-2">
+							{researching ? (
+								<span className="px-1 text-sm text-muted-foreground" aria-live="polite">
+									{exam.record.mapping.state === "running" ? t("exams.wizard.outlining") : progress}
+								</span>
+							) : (
+								<>
+									{!exam.record.classified && (
+										<button type="button" className={cn(quietBtn, "px-3 py-1 text-sm")} onClick={() => void classify()} data-testid="exam-classify">
+											{t("exams.syllabus.classify")}
+										</button>
+									)}
+									{unresearched && (
+										<button type="button" className={cn(quietBtn, "px-3 py-1 text-sm")} onClick={() => void sendJson(`/api/exams/${exam.id}/research`, "POST", { mode: "missing" })} data-testid="exam-research-syllabus">
+											{t("exams.syllabus.research")}
+										</button>
+									)}
+								</>
+							)}
+						</span>
 					) : undefined
 				}
 			>
 				{t("exams.syllabus.title")}
 			</SectionTitle>
+			{kindError && <p role="alert" className="px-1 text-sm text-warn">{kindError}</p>}
 			{highlight && <p className="px-1 text-sm text-muted-foreground">{t("exams.syllabus.prioritizeHint")}</p>}
 			<ul className="overflow-hidden rounded-xl border">
 				{exam.record.blocks.map((b) => {
 					const blockPoints = points.filter((p) => p.blockId === b.id);
+					// Only what is studied shows here; instructions have their own sections.
+					if (blockPoints.length === 0) return null;
 					const score = Math.round(blockScore(blockPoints) * 100);
 					const isOpen = open === b.id;
 					return (
@@ -1577,6 +1663,7 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 									<ChevronRightIcon className={cn("size-4 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
 									<span className="min-w-0 truncate">{b.title}</span>
 								</button>
+								{exam.record.status === "active" && kindSelect(b, null, b.title)}
 								<span className="w-10 text-right tabular-nums text-muted-foreground">{score}%</span>
 								<span className="w-24">
 									<CoverageBar value={score} target={Math.round(exam.standard.coverage * 100)} label={t("exams.level.bar", { n: score, target: Math.round(exam.standard.coverage * 100) })} />
@@ -1595,12 +1682,15 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 								<ul className="pb-2">
 									{blockPoints.map((p) =>
 										p.targets ? (
-											<ResearchedPoint key={p.id} exam={exam} point={p} ideas={ideas} onDeepen={() => void start("deepen", p.id)} />
+											<ResearchedPoint key={p.id} exam={exam} point={p} ideas={ideas} onDeepen={() => void start("deepen", p.id)} kindSelect={exam.record.status === "active" ? kindSelect(b, p.id, p.text) : null} />
 										) : (
 										<li key={p.id} className="px-4 py-1 pl-10 text-sm">
 											<div className="flex items-center justify-between gap-3">
 												<span className="min-w-0 truncate">{p.text}</span>
-												<span className="shrink-0 text-muted-foreground">{pointNeedLabel(p, t)}</span>
+												<span className="flex shrink-0 items-center gap-3 text-muted-foreground">
+													{exam.record.status === "active" && kindSelect(b, p.id, p.text)}
+													{pointNeedLabel(p, t)}
+												</span>
 											</div>
 											{p.nodeIds.length > 0 && (
 												<ul className="mt-0.5 flex flex-col">
@@ -1625,6 +1715,99 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 										),
 									)}
 								</ul>
+							)}
+						</li>
+					);
+				})}
+			</ul>
+		</section>
+	);
+}
+
+/** «Instrucciones de la asignatura» / «Instrucciones para el tutor»
+ *  (owner 2026-11-06): each instruction point with its rules — edit,
+ *  add, delete (saved on blur), and change the point's type. */
+function InstructionsSection({ exam, kind }: { exam: ExamDetailView; kind: "rules" | "tutor" }) {
+	const t = useT();
+	const [blocks, setBlocks] = useState<SyllabusBlock[]>(exam.record.blocks);
+	const [error, setError] = useState<string | null>(null);
+	useEffect(() => setBlocks(exam.record.blocks), [exam.record.blocks]);
+	const editable = exam.record.status === "active";
+	const researching = exam.record.mapping.state === "researching" || exam.record.mapping.state === "running";
+	const points = instructionPoints({ blocks }, kind);
+	if (points.length === 0) return null;
+	const editRules = (pointId: string, f: (rules: TargetIdea[]) => TargetIdea[]) =>
+		setBlocks((list) => list.map((b) => ({ ...b, points: b.points.map((p) => (p.id === pointId ? { ...p, targets: f(p.targets ?? []) } : p)) })));
+	const save = async (next = blocks) => {
+		const cleaned = next.map((b) => ({ ...b, points: b.points.map((p) => (p.targets ? { ...p, targets: p.targets.map((x) => ({ ...x, statement: x.statement.trim() })).filter((x) => x.statement) } : p)) }));
+		const res = await sendJson(`/api/exams/${exam.id}`, "PUT", { blocks: cleaned });
+		if (!res.ok) setError(typeof res.body.error === "string" ? res.body.error : t("exams.wizard.saveFailed"));
+	};
+	const setKind = async (blockId: string, pointId: string, next: PointKind) => {
+		setError(null);
+		const failed = await changeKind(exam.id, blockId, pointId, next);
+		if (failed) setError(failed === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.wizard.mapFailed", { error: failed }));
+	};
+	const input = "min-w-0 flex-1 resize-y rounded-md border border-transparent bg-transparent px-2 py-1 outline-none hover:border-border focus:border-primary/50";
+	return (
+		<section className="flex flex-col gap-3" data-testid={`exam-instructions-${kind}`}>
+			<SectionTitle>{t(`exams.kind.${kind}` as MessageKey)}</SectionTitle>
+			{error && <p role="alert" className="px-1 text-sm text-warn">{error}</p>}
+			<ul className="overflow-hidden rounded-xl border">
+				{points.map((p) => {
+					const block = blocks.find((b) => b.id === p.blockId)!;
+					return (
+						<li key={p.id} className="border-b px-4 py-2.5 text-sm last:border-b-0" data-testid="exam-instruction-point">
+							<div className="flex items-center justify-between gap-3">
+								<span className="min-w-0 truncate font-medium">{p.text}</span>
+								{editable && <KindSelect value={pointKind(block, p)} label={t("exams.kind.label", { text: p.text })} disabled={researching} onChange={(k) => void setKind(p.blockId, p.id, k)} />}
+							</div>
+							{!p.targets && researching ? (
+								<p className="mt-1 pl-4 text-muted-foreground">{t("exams.kind.researching")}</p>
+							) : (
+								<ul className="mt-1 flex flex-col gap-1 pl-4">
+									{(p.targets ?? []).map((rule) => (
+										<li key={rule.id} className="flex items-start gap-2">
+											{editable ? (
+												<>
+													<textarea
+														value={rule.statement}
+														rows={1}
+														aria-label={t("exams.rules.statement")}
+														onChange={(e) => editRules(p.id, (rules) => rules.map((x) => (x.id === rule.id ? { ...x, statement: e.target.value } : x)))}
+														onBlur={() => void save()}
+														className={input}
+														data-testid="exam-rule"
+													/>
+													<button
+														type="button"
+														aria-label={t("exams.rules.remove")}
+														onClick={() => {
+															const next = blocks.map((b) => ({ ...b, points: b.points.map((q) => (q.id === p.id ? { ...q, targets: (q.targets ?? []).filter((x) => x.id !== rule.id) } : q)) }));
+															setBlocks(next);
+															void save(next);
+														}}
+														className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+													>
+														<XIcon className="size-4" />
+													</button>
+												</>
+											) : (
+												<span className="text-muted-foreground">{rule.statement}</span>
+											)}
+										</li>
+									))}
+								</ul>
+							)}
+							{editable && (
+								<button
+									type="button"
+									className="mt-1 pl-4 text-xs text-muted-foreground hover:text-foreground"
+									onClick={() => editRules(p.id, (rules) => [...rules, { id: localId("t_"), statement: "", source: { kind: "user", title: "" }, nodeIds: [] }])}
+									data-testid="exam-add-rule"
+								>
+									+ {t("exams.rules.add")}
+								</button>
 							)}
 						</li>
 					);
@@ -1844,12 +2027,16 @@ export function ExamPage({ id }: { id: string }) {
 						/>
 						<PlanSection exam={data} />
 						<SyllabusSection exam={data} highlight={highlight} />
+						<InstructionsSection exam={data} kind="rules" />
+						<InstructionsSection exam={data} kind="tutor" />
 						{data.daysLeft <= MOCK_SHOW_DAYS && data.daysLeft > 0 && <MockSection exam={data} />}
 					</>
 				) : (
 					<>
 						<ArchivedSection exam={data} />
 						<SyllabusSection exam={data} highlight={false} />
+						<InstructionsSection exam={data} kind="rules" />
+						<InstructionsSection exam={data} kind="tutor" />
 					</>
 				)}
 			</div>
