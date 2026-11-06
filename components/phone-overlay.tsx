@@ -180,7 +180,7 @@ export function PhoneOverlay({ chatId, tray, onClose }: { chatId: string; tray: 
 								))}
 							</div>
 						)}
-						<p className="break-all text-center font-ui text-[11px] text-muted-foreground">{link.url.replace(/\/m\/.*/, "/m/…")}</p>
+						<p className="break-all text-center font-ui text-2xs text-muted-foreground">{link.url.replace(/\/m\/.*/, "/m/…")}</p>
 						<div className="flex items-center justify-between gap-2 font-ui text-xs">
 							<span className={cn(expired ? "text-warn" : "text-muted-foreground")}>
 								{expired ? t("session.phone.expired") : t("session.phone.expires", { time: countdown(state.info.expiresAt - now) })}
