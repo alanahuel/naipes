@@ -38,12 +38,25 @@ A miss drops one mode; two misses in a row at Recordar or below → «por enseñ
 
 1. **Temario** — title, date, the guidelines (text, or an md/txt/pdf/docx/epub whose text seeds them), **Materiales** (research sources only — files stored in `data/exams/<id>/materials/`, page photos OCR'd, web links; never syllabus, never the graph), **Carpetas** (a tree of every knowledge-folder folder holding notes, read or not — «(N ideas)» / «(N notas · sin leer)»; tri-state at any depth: a click sets a subtree, any descendant can be unchecked, a partial folder keeps its loose notes; stored as `folders` recursive + `directFolders` loose notes only) and an optional **Contexto** (type, exam/subject, school or body, location, sitting — prefilled from the date's year — goal). Creating it makes a draft. A draft can be deleted from its «···» menu.
 2. **Estándar** — chosen before the research: it sets the research depth. «Investigar →»: unread folders in the scope get a notice («Se añadirán a tu conocimiento…»); confirmed, they are added to Settings → Knowledge (a partial folder with loose notes is added whole — the connection reads whole folders) and read first (mapping state `reading`, «Leyendo tus carpetas… x de N»; failures listed later).
-3. **Investigación** — the `syllabusMapper` (strong slot) outlines the guidelines into blocks → points (`running`), then the **exam researcher** (`src/agent/subagents/exam-researcher.ts`, owner-approved prompt) runs block by block (`researching`) producing each point's **target ideas** (≤ 12, depth by preset; «Personalizar» follows its mode): from the materials (`read_material`), the web (official guide for the sitting first, recent past papers; old material flagged `outdated`, each source with its year) and the model's knowledge, each linked to the candidate graph ideas that express it. Web search: Claude Code's own WebSearch when connected (`src/server/exam-research-io.ts` — one `claude -p` call per query, only WebSearch allowed, the cheap slot's model), else Tavily/Brave, else none («Sin búsqueda web»). A failed block keeps what was done; «Reintentar» resumes.
-4. **Revisar** — blocks → points → target ideas with source and links; edit, remove, add, unlink; «Volver a investigar este punto / todo».
+3. **Investigación** — **official guide first** (owner 2026-11-06, see below): the guide finder looks for the exam's official guide (`guide`), then the `syllabusMapper` (strong slot) builds blocks → points from it, adjusted by the guidelines (`running`), then the **exam researcher** (`src/agent/subagents/exam-researcher.ts`, owner-approved prompt) runs block by block (`researching`) producing each point's **target ideas** (≤ 12, depth by preset; «Personalizar» follows its mode): from the materials (`read_material`), the web (official guide for the sitting first, recent past papers; old material flagged `outdated`, each source with its year) and the model's knowledge, each linked to the candidate graph ideas that express it. Web search: Claude Code's own WebSearch when connected (`src/server/exam-research-io.ts` — one `claude -p` call per query, only WebSearch allowed, the cheap slot's model), else Tavily/Brave, else none («Sin búsqueda web»). A failed block keeps what was done; «Reintentar» resumes.
+4. **Revisar** — the guide line («Guía oficial: … (año)» / «Sin fuente oficial», the scope note, «Tus directrices cambian la guía:»), blocks («Entra en esta prueba») → points (origin badge; «Ampliación (N)» with «Ascender a punto extra») → target ideas with source and links; edit, remove, add, unlink; «Volver a investigar este punto / todo».
 5. **Tiempo** → **Active**. Target ideas live in the exam, not the graph: they enter it only when taught. The exam's ideas join Repaso as before (exempt from the cap, due earlier for the date, a final review in the last days).
 6. **Archived** — after the date (final coverage frozen) or by hand.
 
 Exams made before v2 keep their point links; the exam page offers «Investigar temario» to add target ideas to the points without them.
+
+## Official guide first (owner 2026-11-06)
+
+Before, a syllabus with no guidelines text was outlined from the names of the folder ideas, so the blocks were whatever the notes held (rules, study tips, unrelated literature). Now the official guide leads and the graph only enriches:
+
+- **Guide finder** (`src/agent/subagents/exam-guide-finder.ts`, strong slot, owner-approved prompt): the learner's materials first, then the web (same search as the research); copies the guide's contents in its own words (blocks → points; a block that lists nothing is split by the model, those points `fromGuide: false` → origin `model`), scoped to the test on the exam date (`inSitting`, `scopeNote` «Entra en febrero: temas 1–6»), subject matter only. Runs for every context type but **Personal** (or an empty context) — `guideWanted`. Mapping state `guide` («Buscando la guía oficial…»).
+- **Not found** → state `needs_guide`, `guide.state = missing` with the reason: «Pegar texto» (saved as the material «Guía (pegada)»), «Adjuntar archivo», «Añadir enlace» (then searches again), «Buscar de nuevo», «Seguir sin guía» (`guide.state = none`: the guidelines, or the model's proposal from the context, marked «Sin fuente oficial»). `POST /api/exams/[id]/guide { action: retry | skip }`.
+- **Mapper** (owner-approved prompt): keeps the guide's blocks/points (origin `official`); the guidelines restrict, remove, add (origin `user`) or bring an out-of-sitting block in — contradictions listed in `guide.conflicts`. No rules/tutor kinds any more (manual instructions still work). Candidates only **link** (`nodeIds`) or go to the closest point's **ampliación** (`extension`); unrelated ones stay out.
+- **Out of this sitting** (`SyllabusBlock.excluded`): kept, greyed in Revisar, not studied nor researched (`studyPoints`/`instructionPoints` skip them); «Entra en esta prueba» brings it in.
+- **Origin** (`SyllabusPoint.origin`): «Guía oficial» · «Tu texto» · «Propuesto por el modelo» · «Punto extra».
+- **«Ascender a punto extra»** (`promoteExtension`, `POST /api/exams/[id]/promote`): an ampliación idea becomes its own counted point (origin `extra`) with one target from the idea («De tus notas», source kind `notes`).
+- **«Contrastar con la guía»** (exam page, `POST/PUT/DELETE /api/exams/[id]/contrast`, `exam-contrast.ts`): finds the guide, the model says which current points cover each official point; «Faltan en tu temario (N)» (add, in-sitting ones pre-checked) and «No están en la guía (N)» («Pasar a ampliación» → its ideas to the closest official point's ampliación, or «Mantener como punto extra»). Nothing changes until «Aplicar»; added points are researched right after.
+- The research task carries `GUIDE: título (año) enlace` and reads it first.
 
 ## Target ideas and ampliación
 
@@ -84,12 +97,15 @@ Folded into the desktop clock (`POST /api/review/notify` → `deskNotice`): the 
 |---|---|
 | `GET/POST /api/exams` | list / create a draft (with context) |
 | `GET/POST /api/exams/folders` | the wizard's folder tree / what «Leer y mapear» adds |
-| `POST/DELETE /api/exams/[id]/materials` | add a material (multipart file or `{ url }`) / remove one |
+| `POST/DELETE /api/exams/[id]/materials` | add a material (multipart file, `{ url }` or pasted `{ text, name }`) / remove one |
+| `POST /api/exams/[id]/guide` | while the guide is missing: `{ action: "retry" }` / `{ action: "skip" }` |
+| `POST/PUT/DELETE /api/exams/[id]/contrast` | «Contrastar con la guía»: start / apply `{ add, extras }` / discard |
+| `POST /api/exams/[id]/promote` | «Ascender a punto extra» `{ pointId, ideaId }` |
 | `POST /api/exams/[id]/research` | resume (`{}`), the pending type changes (`{ mode: "pending" }`), redo all (`{ mode: "all" }`) or one point (`{ pointId }`) |
 | `POST /api/exams/[id]/kind` | change a block's or point's type (`{ blockId, pointId?, kind }`); changed points wait as pending |
 | `POST /api/exams/[id]/classify` | «Clasificar temario»: the model types blocks and points, changed ones are researched again |
 | `GET/PUT/DELETE /api/exams/[id]` | detail with the derived plan / edit, activate, archive, real grade / delete |
-| `POST /api/exams/[id]/map` | start read → outline → research (202; 503 without a strong model) |
+| `POST /api/exams/[id]/map` | start read → guide → outline → research (202; 503 without a strong model) |
 | `POST /api/exams/[id]/preview` | the wizard's what-if forecast |
 | `POST /api/exams/[id]/sessions` | start a block: placement, practice, review, teach, mock, deepen |
 | `POST /api/exams/syllabus-file` | a syllabus file → text |

@@ -33,7 +33,7 @@ For each point of the block you receive, produce its TARGET IDEAS: the propositi
 
 Sources, in this order:
 1. The learner's materials (read_material) — when they cover a point, they decide its content and wording.
-2. The web — first the official syllabus or guide for this exam and sitting (see CONTEXT), then recent past papers and official marking criteria; prefer the exam's own body, then universities and education authorities, then reputable textbooks. Use web_search, then web_fetch / web_fetch_pdf on the best results.
+2. The OFFICIAL GUIDE in the task when given, then the web — recent past papers and official marking criteria; prefer the exam's own body, then universities and education authorities, then reputable textbooks. Use web_search, then web_fetch / web_fetch_pdf on the best results.
 3. Your own knowledge — for what the sources leave out.
 
 Dates: today is ${input.today}; the exam is on ${input.examDate} (sitting ${input.sitting || "not given"}). Prefer the guide for that sitting; if it is not published yet, use the most recent one. Mark material from before a syllabus change as outdated. Give each source its year when known.
@@ -64,6 +64,8 @@ export interface ResearchCandidate {
 
 export interface ResearchTask {
 	exam: { title: string; examDate: string };
+	/** The official guide the syllabus came from («GUIDE: título (año) enlace»). */
+	guide?: { title: string; year?: string; ref?: string };
 	/** Context lines already labelled («Type: Official»…), empty ones out. */
 	context: string[];
 	materials: ResearchMaterial[];
@@ -80,6 +82,7 @@ export function examResearchPrompt(task: ResearchTask): string {
 	return [
 		`EXAM: ${task.exam.title} — ${task.exam.examDate}`,
 		`CONTEXT:\n${task.context.length ? task.context.join("\n") : "(none given)"}`,
+		...(task.guide ? [`GUIDE: ${task.guide.title}${task.guide.year ? ` (${task.guide.year})` : ""}${task.guide.ref ? ` ${task.guide.ref}` : ""}`] : []),
 		`MATERIALS:\n${materials}`,
 		`BLOCK ${task.block.index} of ${task.block.total}: ${task.block.title}`,
 		`POINTS:\n${task.block.points.map((p) => `[${p.id}] (KIND: ${p.kind}) ${p.text}`).join("\n")}`,

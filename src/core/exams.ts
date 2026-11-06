@@ -96,7 +96,16 @@ export interface SyllabusPoint {
 	/** Its type changed and it waits for «Investigar cambios» (owner
 	 *  2026-11-06): the type its targets/rules were made for. */
 	pendingFrom?: PointKind;
+	/** Where the point comes from (owner 2026-11-06, «guía oficial
+	 *  primero»): the official guide, the learner's guidelines, the model's
+	 *  proposal, or an ampliación idea promoted to «punto extra». Absent on
+	 *  points made before. */
+	origin?: PointOrigin;
 }
+
+export type PointOrigin = "official" | "user" | "model" | "extra";
+
+const isPointOrigin = (v: unknown): v is PointOrigin => v === "official" || v === "user" || v === "model" || v === "extra";
 
 /** Owner 2026-11-06: a syllabus point is something to learn; «rules» are
  *  the subject's instructions (how the exam runs: allowed, scored,
@@ -113,8 +122,9 @@ export const pointKind = (block: Pick<SyllabusBlock, "kind">, point: Pick<Syllab
 
 /** Where a target idea comes from (owner 2026-11-06). */
 export interface TargetSource {
-	/** user = added by hand in the review. */
-	kind: "material" | "web" | "model" | "user";
+	/** user = added by hand in the review; notes = an ampliación idea
+	 *  promoted to «punto extra» («De tus notas»). */
+	kind: "material" | "web" | "model" | "user" | "notes";
 	/** Material name, page title, or "" for the model's knowledge. */
 	title: string;
 	/** Material id or URL. */
@@ -164,6 +174,10 @@ export interface SyllabusBlock {
 	points: SyllabusPoint[];
 	/** The block's type, inherited by its points (absent = syllabus). */
 	kind?: PointKind;
+	/** Not in this sitting (owner 2026-11-06): the guide leaves it out of
+	 *  the test on the exam date. Kept, not studied; «Entra en esta prueba»
+	 *  brings it back. */
+	excluded?: boolean;
 }
 
 /** Set a block's type (its points follow it, own types cleared) or one
@@ -247,7 +261,48 @@ export type ExamStatus = "draft" | "active" | "archived";
 
 /** reading = the chosen unread folders are being read into the graph
  *  first (owner 2026-11-06); the mapping starts on its own after. */
-export type MappingState = "none" | "reading" | "running" | "researching" | "done" | "error";
+export type MappingState = "none" | "reading" | "guide" | "needs_guide" | "running" | "researching" | "done" | "error";
+
+/** The official guide behind the syllabus (owner 2026-11-06, «guía oficial
+ *  primero»). found = the guide finder found it; missing = it didn't (the
+ *  mapping waits: paste/attach/link, search again, or go on without);
+ *  none = the learner went on without one; skipped = a Personal exam or an
+ *  empty context — no search. */
+export interface ExamGuide {
+	state: "found" | "missing" | "none" | "skipped";
+	title?: string;
+	/** URL, or the material id. */
+	ref?: string;
+	sourceKind?: "material" | "web";
+	year?: string;
+	/** «Entra en febrero: temas 1–6» — the learner's language. */
+	scopeNote?: string;
+	/** Why it was not found (state missing). */
+	reason?: string;
+	/** The guide's own outline (kept for «Contrastar con la guía»). */
+	outline?: GuideBlock[];
+	/** Where the learner's guidelines contradict the guide. */
+	conflicts?: string[];
+}
+
+export interface GuideBlock {
+	title: string;
+	inSitting: boolean;
+	points: Array<{ text: string; fromGuide: boolean }>;
+}
+
+/** «Contrastar con la guía» (owner 2026-11-06): what differs between the
+ *  exam's syllabus and the official one — nothing changes until applied. */
+export interface ExamContrast {
+	state: "running" | "ready" | "error";
+	at: string;
+	error?: string;
+	/** Official points no current point covers. */
+	missing?: Array<{ id: string; blockTitle: string; text: string; inSitting: boolean }>;
+	/** Current points that cover no official point, with the official point
+	 *  (its text) they are closest to, or null. */
+	extras?: Array<{ pointId: string; closest: string | null }>;
+}
 
 /** The exam's context (owner 2026-11-06, all optional): it steers the
  *  research toward the right official guide / school / sitting. */
@@ -270,6 +325,13 @@ export interface ExamContext {
 }
 
 export const EMPTY_EXAM_CONTEXT: ExamContext = { kind: null, name: "", institution: "", location: "", sitting: "", goal: "" };
+
+/** Search the official guide? (owner 2026-11-06): every exam type but
+ *  Personal, unless the context is empty. */
+export function guideWanted(context: ExamContext): boolean {
+	if (context.kind === "personal") return false;
+	return context.kind !== null || context.name.trim() !== "" || context.institution.trim() !== "";
+}
 
 /** A research source the learner gave (owner 2026-11-06): a file stored
  *  with the exam (data/exams/<id>/materials/<file>) or a web link. Never
@@ -327,6 +389,8 @@ export interface ExamRecord {
 	mapping: { state: MappingState; error?: string; at?: string };
 	reading?: ExamReading;
 	research?: ExamResearch;
+	guide?: ExamGuide;
+	contrast?: ExamContrast;
 	/** The syllabus's points carry types (owner 2026-11-06): set by the
 	 *  outline of new exams or by «Clasificar temario»; older exams lack it. */
 	classified?: boolean;
@@ -570,7 +634,7 @@ export function sanitizeTargets(raw: unknown): TargetIdea[] | undefined {
 		if (!id || !statement || seen.has(id)) continue;
 		seen.add(id);
 		const src = r.source !== null && typeof r.source === "object" ? (r.source as Record<string, unknown>) : {};
-		const kind = src.kind === "material" || src.kind === "web" || src.kind === "user" ? src.kind : "model";
+		const kind = src.kind === "material" || src.kind === "web" || src.kind === "user" || src.kind === "notes" ? src.kind : "model";
 		const ref = shortText(src.ref, 2000);
 		const year = shortText(src.year, 20);
 		out.push({
@@ -593,6 +657,68 @@ function sanitizeReading(raw: unknown): ExamReading | null {
 				.map((f) => ({ path: f.path as string, error: typeof f.error === "string" ? f.error.slice(0, 500) : "" }))
 		: [];
 	return { added: strList(r.added), paths: strList(r.paths), failed };
+}
+
+export function sanitizeGuideOutline(raw: unknown): GuideBlock[] {
+	if (!Array.isArray(raw)) return [];
+	const out: GuideBlock[] = [];
+	for (const b of raw) {
+		if (b === null || typeof b !== "object") continue;
+		const r = b as Record<string, unknown>;
+		const title = shortText(r.title, 500);
+		if (!title) continue;
+		const points = (Array.isArray(r.points) ? r.points : [])
+			.filter((p): p is Record<string, unknown> => p !== null && typeof p === "object")
+			.map((p) => ({ text: shortText(p.text, 2000), fromGuide: p.fromGuide !== false }))
+			.filter((p) => p.text);
+		out.push({ title, inSitting: r.inSitting !== false, points });
+	}
+	return out;
+}
+
+function sanitizeGuide(raw: unknown): ExamGuide | null {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+	const r = raw as Record<string, unknown>;
+	if (r.state !== "found" && r.state !== "missing" && r.state !== "none" && r.state !== "skipped") return null;
+	const text = (v: unknown, max: number) => {
+		const s = shortText(v, max);
+		return s ? s : undefined;
+	};
+	const outline = sanitizeGuideOutline(r.outline);
+	const conflicts = strList(r.conflicts).map((c) => c.slice(0, 1000));
+	const g: ExamGuide = { state: r.state };
+	const title = text(r.title, 500);
+	const ref = text(r.ref, 2000);
+	const year = text(r.year, 20);
+	const scopeNote = text(r.scopeNote, 500);
+	const reason = text(r.reason, 1000);
+	if (title) g.title = title;
+	if (ref) g.ref = ref;
+	if (r.sourceKind === "material" || r.sourceKind === "web") g.sourceKind = r.sourceKind;
+	if (year) g.year = year;
+	if (scopeNote) g.scopeNote = scopeNote;
+	if (reason) g.reason = reason;
+	if (outline.length) g.outline = outline;
+	if (conflicts.length) g.conflicts = conflicts;
+	return g;
+}
+
+function sanitizeContrast(raw: unknown): ExamContrast | null {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+	const r = raw as Record<string, unknown>;
+	if ((r.state !== "running" && r.state !== "ready" && r.state !== "error") || typeof r.at !== "string") return null;
+	const c: ExamContrast = { state: r.state, at: r.at };
+	if (typeof r.error === "string") c.error = r.error.slice(0, 1000);
+	if (Array.isArray(r.missing))
+		c.missing = r.missing
+			.filter((m): m is Record<string, unknown> => m !== null && typeof m === "object")
+			.map((m) => ({ id: shortText(m.id, 64), blockTitle: shortText(m.blockTitle, 500), text: shortText(m.text, 2000), inSitting: m.inSitting !== false }))
+			.filter((m) => m.id && m.text);
+	if (Array.isArray(r.extras))
+		c.extras = r.extras
+			.filter((m): m is Record<string, unknown> => m !== null && typeof m === "object" && typeof m.pointId === "string")
+			.map((m) => ({ pointId: m.pointId as string, closest: typeof m.closest === "string" ? m.closest.slice(0, 2000) : null }));
+	return c;
 }
 
 export function sanitizeBlocks(raw: unknown): SyllabusBlock[] {
@@ -624,9 +750,10 @@ export function sanitizeBlocks(raw: unknown): SyllabusBlock[] {
 				...(extension.length ? { extension } : {}),
 				...(isPointKind(point.kind) ? { kind: point.kind } : {}),
 				...(isPointKind(point.pendingFrom) ? { pendingFrom: point.pendingFrom } : {}),
+				...(isPointOrigin(point.origin) ? { origin: point.origin } : {}),
 			});
 		}
-		out.push({ id, title, points, ...(isPointKind(block.kind) && block.kind !== "syllabus" ? { kind: block.kind } : {}) });
+		out.push({ id, title, points, ...(isPointKind(block.kind) && block.kind !== "syllabus" ? { kind: block.kind } : {}), ...(block.excluded === true ? { excluded: true } : {}) });
 	}
 	return out;
 }
@@ -648,12 +775,14 @@ export function sanitizeExamRecord(raw: unknown): ExamRecord | null {
 	const syllabus = (r.syllabus !== null && typeof r.syllabus === "object" ? r.syllabus : {}) as Record<string, unknown>;
 	const mapping = (r.mapping !== null && typeof r.mapping === "object" ? r.mapping : {}) as Record<string, unknown>;
 	const mappingState: MappingState =
-		mapping.state === "reading" || mapping.state === "running" || mapping.state === "researching" || mapping.state === "done" || mapping.state === "error"
+		mapping.state === "reading" || mapping.state === "guide" || mapping.state === "needs_guide" || mapping.state === "running" || mapping.state === "researching" || mapping.state === "done" || mapping.state === "error"
 			? mapping.state
 			: "none";
 	const final = r.final !== null && typeof r.final === "object" ? (r.final as Record<string, unknown>) : null;
 	const reading = sanitizeReading(r.reading);
 	const research = sanitizeResearch(r.research);
+	const guide = sanitizeGuide(r.guide);
+	const contrast = sanitizeContrast(r.contrast);
 	return {
 		version: CURRENT_EXAM_VERSION,
 		id,
@@ -674,6 +803,8 @@ export function sanitizeExamRecord(raw: unknown): ExamRecord | null {
 		},
 		...(reading ? { reading } : {}),
 		...(research ? { research } : {}),
+		...(guide ? { guide } : {}),
+		...(contrast ? { contrast } : {}),
 		...(r.classified === true ? { classified: true } : {}),
 		priorityBlocks: strList(r.priorityBlocks),
 		...(typeof r.archivedAt === "string" ? { archivedAt: r.archivedAt } : {}),
@@ -687,13 +818,14 @@ export function sanitizeExamRecord(raw: unknown): ExamRecord | null {
 export const allPoints = (exam: Pick<ExamRecord, "blocks">): Array<SyllabusPoint & { blockId: string }> =>
 	exam.blocks.flatMap((b) => b.points.map((p) => ({ ...p, blockId: b.id })));
 
-/** The points to STUDY (type syllabus): coverage, placement, plan, sort. */
+/** The points to STUDY (type syllabus, in this sitting): coverage,
+ *  placement, plan, sort. */
 export const studyPoints = (exam: Pick<ExamRecord, "blocks">): Array<SyllabusPoint & { blockId: string }> =>
-	exam.blocks.flatMap((b) => b.points.filter((p) => pointKind(b, p) === "syllabus").map((p) => ({ ...withoutStaleContent(p), blockId: b.id })));
+	exam.blocks.filter((b) => !b.excluded).flatMap((b) => b.points.filter((p) => pointKind(b, p) === "syllabus").map((p) => ({ ...withoutStaleContent(p), blockId: b.id })));
 
 /** The instruction points of one type, with their block. */
 export const instructionPoints = (exam: Pick<ExamRecord, "blocks">, kind: Exclude<PointKind, "syllabus">): Array<SyllabusPoint & { blockId: string; blockTitle: string }> =>
-	exam.blocks.flatMap((b) => b.points.filter((p) => pointKind(b, p) === kind).map((p) => ({ ...withoutStaleContent(p), blockId: b.id, blockTitle: b.title })));
+	exam.blocks.filter((b) => !b.excluded).flatMap((b) => b.points.filter((p) => pointKind(b, p) === kind).map((p) => ({ ...withoutStaleContent(p), blockId: b.id, blockTitle: b.title })));
 
 // ─── days ───────────────────────────────────────────────────────────────────
 
@@ -1564,7 +1696,12 @@ export function syllabusCandidates(input: {
 
 /** Give mapped blocks stable ids (b1…, p1…), in order. */
 export function numberBlocks(
-	blocks: ReadonlyArray<{ title: string; kind?: PointKind; points: ReadonlyArray<{ text: string; nodeIds: readonly string[]; kind?: PointKind }> }>,
+	blocks: ReadonlyArray<{
+		title: string;
+		kind?: PointKind;
+		excluded?: boolean;
+		points: ReadonlyArray<{ text: string; nodeIds: readonly string[]; kind?: PointKind; origin?: PointOrigin; extension?: readonly string[] }>;
+	}>,
 ): SyllabusBlock[] {
 	let p = 0;
 	return blocks.map((b, i) => {
@@ -1573,13 +1710,110 @@ export function numberBlocks(
 			id: `b${i + 1}`,
 			title: b.title,
 			...(blockKind !== "syllabus" ? { kind: blockKind } : {}),
+			...(b.excluded ? { excluded: true } : {}),
 			points: b.points.map((pt) => {
 				const kind = pt.kind ?? blockKind;
 				// Instruction points hold rules, never graph links.
-				return { id: `p${++p}`, text: pt.text, nodeIds: kind === "syllabus" ? [...pt.nodeIds] : [], ...(kind !== blockKind ? { kind } : {}) };
+				const syllabus = kind === "syllabus";
+				return {
+					id: `p${++p}`,
+					text: pt.text,
+					nodeIds: syllabus ? [...pt.nodeIds] : [],
+					...(kind !== blockKind ? { kind } : {}),
+					...(pt.origin ? { origin: pt.origin } : {}),
+					...(syllabus && pt.extension?.length ? { extension: [...pt.extension] } : {}),
+				};
 			}),
 		};
 	});
+}
+
+/** The guide's outline as the mapper/contrast read it: blocks and points
+ *  with ids (o1…), out-of-sitting blocks and non-guide points marked. */
+export function guideOutlineText(outline: readonly GuideBlock[]): { text: string; points: Array<{ id: string; blockTitle: string; text: string; inSitting: boolean }> } {
+	const points: Array<{ id: string; blockTitle: string; text: string; inSitting: boolean }> = [];
+	const lines: string[] = [];
+	for (const b of outline) {
+		lines.push(`## ${b.title}${b.inSitting ? "" : " [OUT OF THIS SITTING]"}`);
+		for (const pt of b.points) {
+			const id = `o${points.length + 1}`;
+			points.push({ id, blockTitle: b.title, text: pt.text, inSitting: b.inSitting });
+			lines.push(`- [${id}] ${pt.text}${pt.fromGuide ? "" : " [NOT FROM THE GUIDE]"}`);
+		}
+	}
+	return { text: lines.join("\n"), points };
+}
+
+/** «Ascender a punto extra» (owner 2026-11-06): an ampliación idea becomes
+ *  its own counted point, right after the point it hung from, with one
+ *  target idea taken from the idea itself («De tus notas»). Pure. */
+export function promoteExtension(blocks: readonly SyllabusBlock[], pointId: string, idea: { id: string; name: string; statement: string }, newIds: { point: string; target: string }): SyllabusBlock[] {
+	return blocks.map((b) => {
+		const at = b.points.findIndex((p) => p.id === pointId);
+		if (at < 0) return b;
+		const from = b.points[at]!;
+		if (!(from.extension ?? []).includes(idea.id)) return b;
+		const rest = (from.extension ?? []).filter((n) => n !== idea.id);
+		const { extension: _e, ...base } = from;
+		const updated: SyllabusPoint = rest.length ? { ...base, extension: rest } : base;
+		const extra: SyllabusPoint = {
+			id: newIds.point,
+			text: idea.name,
+			nodeIds: [idea.id],
+			origin: "extra",
+			targets: [{ id: newIds.target, statement: idea.statement || idea.name, source: { kind: "notes", title: "" }, nodeIds: [idea.id] }],
+		};
+		return { ...b, points: [...b.points.slice(0, at), updated, extra, ...b.points.slice(at + 1)] };
+	});
+}
+
+/** Apply «Contrastar con la guía» (owner 2026-11-06): add the chosen
+ *  missing official points (to the block of the same title, else a new
+ *  block at the end; unresearched — the research runs after), and for each
+ *  chosen extra either keep it as «punto extra» or move its ideas to the
+ *  ampliación of the closest official point (by text) and drop it. Pure;
+ *  `added` = the new points' ids. */
+export function applyContrast(
+	blocks: readonly SyllabusBlock[],
+	input: {
+		add: ReadonlyArray<{ blockTitle: string; text: string; inSitting: boolean }>;
+		extras: ReadonlyArray<{ pointId: string; action: "extension" | "keep"; closest: string | null }>;
+		newId: (prefix: "b" | "p") => string;
+	},
+): { blocks: SyllabusBlock[]; added: string[] } {
+	let next: SyllabusBlock[] = blocks.map((b) => ({ ...b, points: [...b.points] }));
+	const added: string[] = [];
+	const norm = (t: string) => t.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
+	for (const item of input.add) {
+		const point: SyllabusPoint = { id: input.newId("p"), text: item.text, nodeIds: [], origin: "official" };
+		added.push(point.id);
+		const block = next.find((b) => norm(b.title) === norm(item.blockTitle));
+		if (block) block.points.push(point);
+		else next.push({ id: input.newId("b"), title: item.blockTitle, points: [point], ...(item.inSitting ? {} : { excluded: true }) });
+	}
+	for (const extra of input.extras) {
+		if (extra.action === "keep") {
+			next = next.map((b) => ({ ...b, points: b.points.map((p) => (p.id === extra.pointId ? { ...p, origin: "extra" as const } : p)) }));
+			continue;
+		}
+		const source = next.flatMap((b) => b.points).find((p) => p.id === extra.pointId);
+		if (!source) continue;
+		const ideas = [...new Set([...source.nodeIds, ...(source.extension ?? [])])];
+		next = next.map((b) => ({ ...b, points: b.points.filter((p) => p.id !== extra.pointId) }));
+		const target = extra.closest ? next.flatMap((b) => b.points).find((p) => norm(p.text) === norm(extra.closest!)) : undefined;
+		if (target && ideas.length) {
+			next = next.map((b) => ({
+				...b,
+				points: b.points.map((p) => {
+					if (p.id !== target.id) return p;
+					const held = new Set([...p.nodeIds, ...(p.targets ?? []).flatMap((t) => t.nodeIds)]);
+					const extension = [...new Set([...(p.extension ?? []), ...ideas.filter((n) => !held.has(n))])];
+					return extension.length ? { ...p, extension } : p;
+				}),
+			}));
+		}
+	}
+	return { blocks: next.filter((b) => b.points.length > 0), added };
 }
 
 // ─── API views (GET /api/exams, /api/exams/[id]; server and components) ─────

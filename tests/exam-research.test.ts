@@ -161,8 +161,9 @@ describe("instruction points in the research (owner 2026-11-06)", () => {
 		assert.equal(kinds.blocks.get("b2"), "tutor");
 		assert.equal(kinds.points.get("p2"), "rules");
 	});
-	it("the mapper's rule 4 sorts rules and tutor instructions instead of ignoring them", () => {
-		assert.ok(SYLLABUS_MAPPER_INSTRUCTIONS.includes('4. Give each block and point a kind: "syllabus"'));
-		assert.ok(!SYLLABUS_MAPPER_INSTRUCTIONS.includes("grading rules"));
+	it("the mapper (guía oficial primero) keeps only subject matter and never builds the syllabus from the graph", () => {
+		assert.ok(SYLLABUS_MAPPER_INSTRUCTIONS.includes("Only subject matter: leave out exam rules and logistics"));
+		assert.ok(SYLLABUS_MAPPER_INSTRUCTIONS.includes("Never turn candidate propositions into blocks or points."));
+		assert.ok(!SYLLABUS_MAPPER_INSTRUCTIONS.includes("Give each block and point a kind"));
 	});
 });

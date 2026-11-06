@@ -11,6 +11,11 @@ import { emit, subscribe } from "../core/events.ts";
 import {
 	allPoints,
 	applyClassification,
+	applyContrast,
+	guideOutlineText,
+	guideWanted,
+	promoteExtension,
+	type ExamGuide,
 	instructionPoints,
 	pointKind,
 	setPointKind,
@@ -70,6 +75,8 @@ import { CLAUDE_CODE_PROVIDER } from "../core/contracts/claude-code.ts";
 import { examAppendix } from "../agent/prompt-segments.ts";
 import { runExamClassifier } from "../agent/subagents/exam-classifier.ts";
 import { runSyllabusMapper } from "../agent/subagents/syllabus-mapper.ts";
+import { guideFinderInstructions, runGuideFinder } from "../agent/subagents/exam-guide-finder.ts";
+import { runExamContrast } from "../agent/subagents/exam-contrast.ts";
 import { examResearchInstructions, runExamResearcher } from "../agent/subagents/exam-researcher.ts";
 import { runExamSorter } from "../agent/subagents/exam-sorter.ts";
 import { examSearchProvider, readMaterialPart } from "./exam-research-io.ts";
@@ -181,8 +188,12 @@ export function getExamsState(now = Date.now(), whatIf?: ExamsWhatIf): ExamsStat
 	}
 	// Interrupted mappings (the process restarted mid-call) say so.
 	for (const record of records) {
-		if ((record.mapping.state === "running" || record.mapping.state === "researching") && !running().has(record.id)) {
+		if ((record.mapping.state === "guide" || record.mapping.state === "running" || record.mapping.state === "researching") && !running().has(record.id)) {
 			writeExam({ ...touch(record, now), mapping: { state: "error", error: "interrupted", at: new Date(now).toISOString() } });
+			archived = true;
+		}
+		if (record.contrast?.state === "running" && !running().has(record.id)) {
+			writeExam({ ...touch(readExam(record.id) ?? record, now), contrast: { state: "error", error: "interrupted", at: new Date(now).toISOString() } });
 			archived = true;
 		}
 	}
@@ -646,7 +657,11 @@ export function ensureExamSortHook(): void {
 
 // ─── materials (owner 2026-11-06) ───────────────────────────────────────────
 
-export function addExamMaterial(id: string, input: { kind: "file"; name: string; bytes: Uint8Array } | { kind: "link"; url: string; name?: string }, now = Date.now()): ParseResult<ExamMaterial> {
+export function addExamMaterial(
+	id: string,
+	input: { kind: "file"; name: string; bytes: Uint8Array; storeAs?: string } | { kind: "link"; url: string; name?: string },
+	now = Date.now(),
+): ParseResult<ExamMaterial> {
 	const exam = readExam(id);
 	if (!exam) return { ok: false, error: "not_found" };
 	if (exam.materials.length >= MAX_EXAM_MATERIALS) return { ok: false, error: `at most ${MAX_EXAM_MATERIALS} materials` };
@@ -654,7 +669,7 @@ export function addExamMaterial(id: string, input: { kind: "file"; name: string;
 	let material: ExamMaterial;
 	if (input.kind === "file") {
 		const name = input.name.slice(0, 500) || "material";
-		material = { ...base, kind: "file", name, file: writeMaterialFile(id, name, input.bytes) };
+		material = { ...base, kind: "file", name, file: writeMaterialFile(id, input.storeAs ?? name, input.bytes) };
 	} else {
 		if (!/^https?:\/\//i.test(input.url) || input.url.length > 2000) return { ok: false, error: "url must be http(s)" };
 		material = { ...base, kind: "link", name: (input.name ?? input.url).slice(0, 500), url: input.url };
@@ -672,7 +687,7 @@ export function removeExamMaterial(id: string, materialId: string): boolean {
 	return true;
 }
 
-export { materialPath };
+export { materialPath, guideWanted };
 
 // ─── the syllabus mapping job ───────────────────────────────────────────────
 
@@ -710,9 +725,54 @@ function beginMapping(id: string, now = Date.now()): MappingStart {
 		return { ok: false, status: 503, error: "models_not_configured" };
 	}
 	running().add(id);
-	save({ ...touch(exam, now), mapping: { state: "running", at: new Date(now).toISOString() } });
+	const searching = guideWanted(exam.context) && exam.guide?.state !== "found" && exam.guide?.state !== "none";
+	save({ ...touch(exam, now), mapping: { state: searching ? "guide" : "running", at: new Date(now).toISOString() } });
 	void withEngine(id, spec, (engine) => runMapping(readExam(id)!, engine));
 	return { ok: true };
+}
+
+
+/** Run the guide finder for an exam (materials first, then the web). */
+async function findGuide(exam: ExamRecord, engine: ReturnType<typeof piEngineForSpec>): Promise<ExamGuide> {
+	const search = await examSearchProvider();
+	const pdfDir = fs.mkdtempSync(path.join(os.tmpdir(), "np-exam-guide-"));
+	try {
+		const result = await runGuideFinder({
+			engine,
+			instructions: guideFinderInstructions({ today: reviewDay(Date.now()), examDate: exam.examDate }),
+			task: {
+				exam: { title: exam.title, examDate: exam.examDate },
+				context: contextLines(exam.context),
+				materials: exam.materials.map((m) => ({ id: m.id, name: m.name, kind: m.kind, ...(m.url ? { url: m.url } : {}) })),
+			},
+			search: () => search,
+			readMaterial: (materialId, offset) => readMaterialPart(exam.id, exam.materials, materialId, offset),
+			pdfDir,
+		});
+		if (!result.found) return { state: "missing", ...(result.reason ? { reason: result.reason } : {}) };
+		return {
+			state: "found",
+			title: result.title,
+			sourceKind: result.sourceKind,
+			...(result.ref ? { ref: result.ref } : {}),
+			...(result.year ? { year: result.year } : {}),
+			...(result.scopeNote ? { scopeNote: result.scopeNote } : {}),
+			outline: result.outline,
+		};
+	} finally {
+		fs.rmSync(pdfDir, { recursive: true, force: true });
+	}
+}
+
+/** «Buscar de nuevo» / «Seguir sin guía» (owner 2026-11-06) while the
+ *  mapping waits for a guide. */
+export function resolveMissingGuide(id: string, action: "retry" | "skip", now = Date.now()): MappingStart {
+	const exam = readExam(id);
+	if (!exam) return { ok: false, status: 404, error: "not_found" };
+	if (running().has(id) || exam.mapping.state === "reading") return { ok: false, status: 409, error: "mapping already running" };
+	const { guide: _g, ...rest } = exam;
+	save({ ...touch(rest as ExamRecord, now), ...(action === "skip" ? { guide: { state: "none" as const } } : {}) });
+	return beginMapping(id, now);
 }
 
 /** Build the strong-slot engine inside the background job (a Claude Code
@@ -746,23 +806,40 @@ function scopeNodeIds(exam: ExamRecord, nodes: ReturnType<typeof stores.graphSto
 
 async function runMapping(exam: ExamRecord, engine: ReturnType<typeof piEngineForSpec>): Promise<void> {
 	try {
+		// 1. The official guide first (owner 2026-11-06), unless found already
+		//    or the learner went on without one.
+		let guide: ExamGuide | undefined = exam.guide;
+		if (!guideWanted(exam.context)) guide = { state: "skipped" };
+		else if (guide?.state !== "found" && guide?.state !== "none") {
+			guide = await findGuide(exam, engine);
+			const current = readExam(exam.id);
+			if (!current) return;
+			if (guide.state === "missing") {
+				save({ ...touch(current), guide, mapping: { state: "needs_guide", at: new Date().toISOString() } });
+				return;
+			}
+			save({ ...touch(current), guide, mapping: { state: "running", at: new Date().toISOString() } });
+		}
+		// 2. The outline: the guide's, adjusted by the guidelines; the graph
+		//    only links (and feeds ampliación), never shapes it.
 		const nodes = stores.graphStore.readNodes();
 		const folderNodeIds = scopeNodeIds(exam, nodes);
-		const ids = syllabusCandidates({ text: exam.syllabus.text, nodes, folderNodeIds });
+		const official = guide.state === "found" && guide.outline ? guideOutlineText(guide.outline).text : "";
+		const ids = syllabusCandidates({ text: [official, exam.syllabus.text].join("\n"), nodes, folderNodeIds });
 		const byId = new Map(nodes.map((n) => [n.id, n]));
 		const candidates = ids.map((id) => byId.get(id)!).map((n) => ({ id: n.id, name: n.name, statement: n.statement }));
-		// A folders-only syllabus: the folder ideas' names stand in for the text.
-		const syllabus = exam.syllabus.text.trim() || candidates.map((c) => `- ${c.name}`).join("\n");
-		const mapped = await runSyllabusMapper({ engine, syllabus, candidates });
+		const mapped = await runSyllabusMapper({ engine, official, guidelines: exam.syllabus.text, context: contextLines(exam.context), candidates });
 		const current = readExam(exam.id);
 		if (!current) return; // deleted meanwhile
-		const blocks = numberBlocks(mapped);
+		const blocks = numberBlocks(mapped.blocks);
+		const { conflicts: _c, ...guideRest } = guide;
 		save({
 			...touch(current),
 			blocks,
+			guide: { ...guideRest, ...(mapped.conflicts.length ? { conflicts: mapped.conflicts } : {}) },
 			classified: true,
 			mapping: { state: "researching", at: new Date().toISOString() },
-			research: { done: 0, total: blocks.length, web: (await examSearchProvider()) !== null },
+			research: { done: 0, total: blocks.filter((b) => !b.excluded).length, web: (await examSearchProvider()) !== null },
 		});
 		await runResearch(exam.id, engine, { mode: "missing" });
 	} catch (err) {
@@ -798,7 +875,9 @@ export type ResearchScope = { mode: "missing" } | { mode: "pending" } | { mode: 
 async function runResearch(id: string, engine: ReturnType<typeof piEngineForSpec>, scope: ResearchScope): Promise<void> {
 	const first = readExam(id);
 	if (!first) return;
-	const todo = first.blocks
+	// Blocks out of this sitting are not researched unless asked by point.
+	const eligible = first.blocks.filter((b) => scope.mode === "points" || !b.excluded);
+	const todo = eligible
 		.map((b) => ({
 			...b,
 			points: b.points
@@ -813,7 +892,7 @@ async function runResearch(id: string, engine: ReturnType<typeof piEngineForSpec
 	const byId = new Map(nodes.map((n) => [n.id, n]));
 	const folderNodeIds = scopeNodeIds(first, nodes);
 	const pdfDir = fs.mkdtempSync(path.join(os.tmpdir(), "np-exam-research-"));
-	const total = first.blocks.length;
+	const total = eligible.length;
 	let done = scope.mode === "missing" ? total - todo.length : 0;
 	const progress = (patch: Partial<NonNullable<ExamRecord["research"]>>) => {
 		const current = readExam(id);
@@ -838,9 +917,10 @@ async function runResearch(id: string, engine: ReturnType<typeof piEngineForSpec
 				instructions: examResearchInstructions({ today: reviewDay(Date.now()), examDate: exam.examDate, sitting: exam.context.sitting, depth: researchDepth(exam.standard) }),
 				task: {
 					exam: { title: exam.title, examDate: exam.examDate },
+					...(exam.guide?.state === "found" && exam.guide.title ? { guide: { title: exam.guide.title, ...(exam.guide.year ? { year: exam.guide.year } : {}), ...(exam.guide.ref ? { ref: exam.guide.ref } : {}) } } : {}),
 					context: contextLines(exam.context),
 					materials: exam.materials.map((m) => ({ id: m.id, name: m.name, kind: m.kind, ...(m.url ? { url: m.url } : {}) })),
-					block: { index: scope.mode === "missing" ? exam.blocks.findIndex((b) => b.id === block.id) + 1 : i + 1, total: scope.mode === "missing" ? total : todo.length, title: block.title, points: block.points.map((p) => ({ id: p.id, text: p.text, kind: p.kind })) },
+					block: { index: scope.mode === "missing" ? eligible.findIndex((b) => b.id === block.id) + 1 : i + 1, total: scope.mode === "missing" ? total : todo.length, title: block.title, points: block.points.map((p) => ({ id: p.id, text: p.text, kind: p.kind })) },
 					candidates: ids.map((n) => ({ id: n, name: byId.get(n)!.name, statement: byId.get(n)!.statement })),
 				},
 				search: () => search,
@@ -893,6 +973,104 @@ export function startExamResearch(id: string, scope: ResearchScope, now = Date.n
 	running().add(id);
 	save({ ...touch(exam, now), mapping: { state: "researching", at: new Date(now).toISOString() } });
 	void withEngine(id, spec, (engine) => runResearch(id, engine, scope));
+	return { ok: true };
+}
+
+// ─── «Contrastar con la guía» and «Ascender a punto extra» (owner 2026-11-06)
+
+/** Find the official guide and compare the exam's syllabus with it; the
+ *  differences wait in `contrast` until applied or discarded. */
+export function startExamContrast(id: string, now = Date.now()): MappingStart {
+	const exam = readExam(id);
+	if (!exam) return { ok: false, status: 404, error: "not_found" };
+	if (!guideWanted(exam.context)) return { ok: false, status: 409, error: "no official guide for a personal exam" };
+	if (running().has(id) || exam.mapping.state === "reading" || exam.mapping.state === "needs_guide") return { ok: false, status: 409, error: "mapping already running" };
+	const spec = resolveRoleSpec("syllabusMapper", stores.settingsStore.readSettings());
+	if (!spec) return { ok: false, status: 503, error: "models_not_configured" };
+	running().add(id);
+	save({ ...touch(exam, now), contrast: { state: "running", at: new Date(now).toISOString() } });
+	void (async () => {
+		const fail = (error: string) => {
+			const current = readExam(id);
+			if (current) save({ ...touch(current), contrast: { state: "error", error, at: new Date().toISOString() } });
+		};
+		try {
+			if (spec.provider === CLAUDE_CODE_PROVIDER) await refreshClaudeCodeStatus().catch(() => null);
+			const engine = piEngineForSpec(spec);
+			const guide = await findGuide(readExam(id) ?? exam, engine);
+			if (guide.state !== "found" || !guide.outline) return fail(`no_guide:${guide.reason ?? ""}`);
+			const outline = guideOutlineText(guide.outline);
+			const current = readExam(id);
+			if (!current) return;
+			const points = current.blocks.flatMap((b) => b.points.filter((p) => pointKind(b, p) === "syllabus").map((p) => ({ id: p.id, blockTitle: b.title, text: p.text })));
+			const result = await runExamContrast({ engine, official: { text: outline.text, ids: outline.points.map((p) => p.id) }, current: points });
+			const byId = new Map(outline.points.map((p) => [p.id, p]));
+			const latest = readExam(id);
+			if (!latest) return;
+			const { conflicts: _c, ...kept } = latest.guide ?? { state: "found" as const };
+			save({
+				...touch(latest),
+				guide: { ...kept, ...guide },
+				contrast: {
+					state: "ready",
+					at: new Date().toISOString(),
+					missing: result.missing.map((oid) => byId.get(oid)!).filter(Boolean),
+					extras: result.extras.map((e) => ({ pointId: e.pointId, closest: e.closest ? (byId.get(e.closest)?.text ?? null) : null })),
+				},
+			});
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err));
+		} finally {
+			running().delete(id);
+		}
+	})();
+	return { ok: true };
+}
+
+const freshId = (prefix: string) => `${prefix}_${Date.now().toString(36)}${crypto.randomUUID().slice(0, 6)}`;
+
+/** Apply the chosen differences (or discard: both empty + discard). Added
+ *  points are researched right after. */
+export function applyExamContrast(
+	id: string,
+	input: { discard: true } | { add: string[]; extras: Array<{ pointId: string; action: "extension" | "keep" }> },
+	now = Date.now(),
+): MappingStart {
+	const exam = readExam(id);
+	if (!exam) return { ok: false, status: 404, error: "not_found" };
+	if (running().has(id)) return { ok: false, status: 409, error: "mapping already running" };
+	const contrast = exam.contrast;
+	if (!contrast) return { ok: false, status: 409, error: "no contrast to apply" };
+	const { contrast: _c, ...rest } = exam;
+	if ("discard" in input) {
+		save(touch(rest as ExamRecord, now));
+		return { ok: true };
+	}
+	if (contrast.state !== "ready") return { ok: false, status: 409, error: "no contrast to apply" };
+	const missing = new Map((contrast.missing ?? []).map((m) => [m.id, m]));
+	const closest = new Map((contrast.extras ?? []).map((e) => [e.pointId, e.closest]));
+	const { blocks, added } = applyContrast(exam.blocks, {
+		add: input.add.map((oid) => missing.get(oid)).filter((m): m is NonNullable<typeof m> => !!m),
+		extras: input.extras.filter((e) => closest.has(e.pointId)).map((e) => ({ ...e, closest: closest.get(e.pointId) ?? null })),
+		newId: (prefix) => freshId(prefix),
+	});
+	save({ ...touch(rest as ExamRecord, now), blocks: syncPointLinks(blocks) });
+	// Applied either way; a research that can't start now is left to
+	// «Investigar temario» (the added points have no targets yet).
+	if (added.length > 0) startExamResearch(id, { mode: "points", pointIds: added }, now);
+	return { ok: true };
+}
+
+/** «Ascender a punto extra»: an ampliación idea becomes a counted point. */
+export function promoteExamIdea(id: string, pointId: string, ideaId: string, now = Date.now()): MappingStart {
+	const exam = readExam(id);
+	if (!exam) return { ok: false, status: 404, error: "not_found" };
+	if (running().has(id)) return { ok: false, status: 409, error: "mapping already running" };
+	const point = allPoints(exam).find((p) => p.id === pointId);
+	const node = stores.graphStore.readNodes().find((n) => n.id === ideaId);
+	if (!point || !node || !(point.extension ?? []).includes(ideaId)) return { ok: false, status: 404, error: "no such idea in that point's ampliación" };
+	const blocks = promoteExtension(exam.blocks, pointId, { id: node.id, name: node.name, statement: node.statement }, { point: freshId("p"), target: freshId("t") });
+	save({ ...touch(exam, now), blocks: syncPointLinks(blocks) });
 	return { ok: true };
 }
 

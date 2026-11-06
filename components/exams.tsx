@@ -43,6 +43,7 @@ import {
 	type ExamContext,
 	type ExamContextKind,
 	EMPTY_EXAM_CONTEXT,
+	guideWanted,
 	EXAM_CONTEXT_KINDS,
 	folderCheck,
 	toggleFolder,
@@ -60,6 +61,7 @@ import {
 	instructionPoints,
 	POINT_KINDS,
 	type PointKind,
+	type PointOrigin,
 	type ExamMaterial,
 	type ExamRecord,
 } from "@/src/core";
@@ -763,6 +765,7 @@ function ResearchProgress({ exam }: { exam: ExamDetailView }) {
 	};
 	let line: string;
 	if (mapping.state === "reading") line = t("exams.wizard.readingFolders", { done: exam.reading?.done ?? 0, total: exam.reading?.total ?? 0 });
+	else if (mapping.state === "guide") line = t("exams.guide.searching");
 	else if (mapping.state === "running") line = t("exams.wizard.outlining");
 	else if (mapping.state === "researching") line = t("exams.wizard.researching", { i: Math.min((research?.done ?? 0) + 1, research?.total ?? 1), n: research?.total ?? 1, title: research?.current ?? "" });
 	else line = "";
@@ -784,7 +787,8 @@ function ResearchProgress({ exam }: { exam: ExamDetailView }) {
 					{line}
 				</p>
 			)}
-			{research && !research.web && mapping.state !== "reading" && <p className="px-1 text-sm text-warn" data-testid="exam-no-web">{t("exams.wizard.noWeb")}</p>}
+			{mapping.state === "needs_guide" && <GuideRequest exam={exam} />}
+			{research && !research.web && mapping.state !== "reading" && mapping.state !== "needs_guide" && <p className="px-1 text-sm text-warn" data-testid="exam-no-web">{t("exams.wizard.noWeb")}</p>}
 			{(failure || error) && (
 				<div className="flex flex-col gap-3 px-1">
 					<p role="alert" className="text-sm text-warn">
@@ -799,11 +803,134 @@ function ResearchProgress({ exam }: { exam: ExamDetailView }) {
 	);
 }
 
+/** The guide was not found (owner 2026-11-06): paste it (→ material
+ *  «Guía (pegada)»), attach it, link it, search again, or go on without. */
+function GuideRequest({ exam }: { exam: ExamDetailView }) {
+	const t = useT();
+	const [mode, setMode] = useState<"paste" | "link" | null>(null);
+	const [value, setValue] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const fileRef = useRef<HTMLInputElement>(null);
+	const reason = exam.record.guide?.reason;
+	const act = async (action: "retry" | "skip") => {
+		setBusy(true);
+		setError(null);
+		const res = await sendJson(`/api/exams/${exam.id}/guide`, "POST", { action });
+		setBusy(false);
+		if (!res.ok) setError(res.body.code === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.wizard.mapFailed", { error: String(res.body.error ?? "") }));
+	};
+	/** Save what the learner gave as a material, then search again. */
+	const addAndRetry = async (send: () => Promise<boolean>) => {
+		setBusy(true);
+		setError(null);
+		const ok = await send();
+		setBusy(false);
+		if (!ok) {
+			setError(t("exams.wizard.saveFailed"));
+			return;
+		}
+		setMode(null);
+		setValue("");
+		await act("retry");
+	};
+	const saveTyped = () =>
+		addAndRetry(async () => {
+			const body = mode === "paste" ? { text: value, name: t("exams.guide.pastedName") } : { url: value.trim() };
+			return (await sendJson(`/api/exams/${exam.id}/materials`, "POST", body)).ok;
+		});
+	const onFile = (file: File) =>
+		addAndRetry(async () => {
+			const form = new FormData();
+			form.append("file", file);
+			const res = await fetch(`/api/exams/${exam.id}/materials`, { method: "POST", body: form }).catch(() => null);
+			return !!res?.ok;
+		});
+	return (
+		<div className="flex flex-col gap-3 px-1" data-testid="exam-guide-missing">
+			<p role="alert" className="text-sm text-warn">
+				{reason ? t("exams.guide.missing", { reason: reason.replace(/[.\s]+$/, "") }) : t("exams.guide.missingNoReason")}
+			</p>
+			{mode && (
+				<div className="flex flex-col gap-2">
+					{mode === "paste" ? (
+						<textarea value={value} onChange={(e) => setValue(e.target.value)} rows={8} placeholder={t("exams.guide.pastePlaceholder")} className="rounded-[10px] border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50" data-testid="exam-guide-paste" />
+					) : (
+						<input value={value} onChange={(e) => setValue(e.target.value)} placeholder="https://…" className="rounded-[10px] border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50" data-testid="exam-guide-link" />
+					)}
+					<button type="button" className={cn(primaryBtn, "self-start")} disabled={busy || !value.trim() || (mode === "link" && !/^https?:\/\//i.test(value.trim()))} onClick={() => void saveTyped()}>
+						{t("exams.guide.save")}
+					</button>
+				</div>
+			)}
+			<input ref={fileRef} type="file" accept={MATERIAL_ACCEPT} className="hidden" onChange={(e) => e.target.files?.[0] && void onFile(e.target.files[0])} />
+			<div className="flex flex-wrap gap-2">
+				<button type="button" className={quietBtn} disabled={busy} onClick={() => setMode(mode === "paste" ? null : "paste")}>
+					{t("exams.guide.paste")}
+				</button>
+				<button type="button" className={quietBtn} disabled={busy} onClick={() => fileRef.current?.click()}>
+					{t("exams.guide.attach")}
+				</button>
+				<button type="button" className={quietBtn} disabled={busy} onClick={() => setMode(mode === "link" ? null : "link")}>
+					{t("exams.guide.link")}
+				</button>
+				<button type="button" className={quietBtn} disabled={busy} onClick={() => void act("retry")} data-testid="exam-guide-retry">
+					{t("exams.guide.retry")}
+				</button>
+				<button type="button" className={quietBtn} disabled={busy} onClick={() => void act("skip")} data-testid="exam-guide-skip">
+					{t("exams.guide.skip")}
+				</button>
+			</div>
+			{error && <p role="alert" className="text-sm text-warn">{error}</p>}
+		</div>
+	);
+}
+
+/** The guide line of Revisar and the exam page (owner 2026-11-06). */
+function GuideHeader({ exam }: { exam: ExamDetailView }) {
+	const t = useT();
+	const guide = exam.record.guide;
+	if (!guide || guide.state === "missing") return null;
+	const label =
+		guide.state === "found" && guide.title ? (guide.year ? t("exams.guide.foundYear", { title: guide.title, year: guide.year }) : t("exams.guide.found", { title: guide.title })) : t("exams.guide.none");
+	const link = guide.state === "found" && guide.sourceKind === "web" && guide.ref && /^https?:\/\//i.test(guide.ref) ? guide.ref : null;
+	return (
+		<div className="flex flex-col gap-1 px-1 text-sm" data-testid="exam-guide">
+			{link ? (
+				<a href={link} target="_blank" rel="noreferrer" className="font-medium underline-offset-2 hover:underline">
+					{label}
+				</a>
+			) : (
+				<span className={cn("font-medium", guide.state !== "found" && "text-warn")}>{label}</span>
+			)}
+			{guide.scopeNote && <span className="text-muted-foreground">{guide.scopeNote}</span>}
+			{(guide.conflicts?.length ?? 0) > 0 && (
+				<div className="text-warn" data-testid="exam-guide-conflicts">
+					<span>{t("exams.guide.conflicts")}</span>
+					<ul className="list-disc pl-5">
+						{guide.conflicts!.map((c) => (
+							<li key={c}>{c}</li>
+						))}
+					</ul>
+				</div>
+			)}
+		</div>
+	);
+}
+
+/** A point's origin badge (owner 2026-11-06). */
+function OriginBadge({ origin }: { origin?: PointOrigin }) {
+	const t = useT();
+	if (!origin) return null;
+	return <span className={cn("shrink-0 rounded-full border px-2 text-xs", origin === "official" ? "text-muted-foreground" : origin === "extra" ? "text-primary" : "text-warn")}>{t(`exams.origin.${origin}` as MessageKey)}</span>;
+}
+
 /** A target's source line (owner-approved texts). */
 export function targetSourceLabel(target: TargetIdea, materials: readonly ExamMaterial[], t: Translate): string {
 	const { source } = target;
 	if (source.kind === "user") return "";
 	if (source.kind === "model") return t("exams.targets.model");
+	if (source.kind === "notes") return t("exams.targets.notes");
 	if (source.kind === "material") return t("exams.targets.material", { name: materials.find((m) => m.id === source.ref)?.name ?? source.title });
 	return source.year ? t("exams.targets.webYear", { title: source.title, year: source.year }) : t("exams.targets.web", { title: source.title });
 }
@@ -835,6 +962,33 @@ async function changeKind(examId: string, blockId: string, pointId: string | nul
 	const res = await sendJson(`/api/exams/${examId}/kind`, "POST", { blockId, pointId, kind });
 	if (res.ok) return null;
 	return res.body.code === "models_not_configured" ? "models_not_configured" : String(res.body.error ?? "");
+}
+
+/** Revisar's «Ampliación (N)» of a point, each idea with «Ascender a
+ *  punto extra» (owner 2026-11-06). */
+function ReviewExtension({ ids, names, onPromote }: { ids: readonly string[]; names: ReadonlyMap<string, string>; onPromote: (ideaId: string) => void }) {
+	const t = useT();
+	const [openList, setOpenList] = useState(false);
+	return (
+		<div className="mt-1 pl-4" data-testid="exam-review-extension">
+			<button type="button" aria-expanded={openList} onClick={() => setOpenList((v) => !v)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+				<ChevronRightIcon className={cn("size-3.5 transition-transform", openList && "rotate-90")} />
+				{t("exams.extension.title", { n: ids.length })}
+			</button>
+			{openList && (
+				<ul className="mt-0.5 flex flex-col gap-0.5 pl-4 text-xs text-muted-foreground">
+					{ids.map((n) => (
+						<li key={n} className="flex items-center justify-between gap-2">
+							<span className="min-w-0 truncate">{names.get(n) ?? n}</span>
+							<button type="button" onClick={() => onPromote(n)} className="shrink-0 underline-offset-2 hover:text-foreground hover:underline" data-testid="exam-promote">
+								{t("exams.extension.promote")}
+							</button>
+						</li>
+					))}
+				</ul>
+			)}
+		</div>
+	);
 }
 
 /** Step 4 — review: blocks → points → target ideas with their source and
@@ -886,6 +1040,13 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 		if (!res.ok) setError(res.body.code === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.wizard.mapFailed", { error: String(res.body.error ?? "") }));
 		return res.ok;
 	};
+	/** «Ascender a punto extra»: save the edits first, then promote. */
+	const promote = async (pointId: string, ideaId: string) => {
+		setError(null);
+		if (!(await persist())) return;
+		const res = await sendJson(`/api/exams/${exam.id}/promote`, "POST", { pointId, ideaId });
+		if (!res.ok) setError(t("exams.wizard.mapFailed", { error: String(res.body.error ?? "") }));
+	};
 	const rerun = async (body: { pointId: string } | { mode: "all" }) => {
 		setError(null);
 		if (!(await persist())) return;
@@ -905,10 +1066,25 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 				</p>
 			)}
 			{exam.record.research && !exam.record.research.web && <p className="px-1 text-sm text-warn">{t("exams.wizard.noWeb")}</p>}
+			<GuideHeader exam={exam} />
 			{blocks.map((b) => (
-				<div key={b.id} className="overflow-hidden rounded-xl border">
+				<div key={b.id} className={cn("overflow-hidden rounded-xl border", b.excluded && "opacity-60")} data-testid="exam-review-block">
 					<div className="flex items-center gap-2 border-b bg-accent/30 px-2 py-1.5">
 						<input value={b.title} onChange={(e) => edit(b.id, (x) => ({ ...x, title: e.target.value }))} aria-label={t("exams.wizard.blockTitle")} className={cn(input, "font-medium")} />
+						<label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+							<input
+								type="checkbox"
+								checked={!b.excluded}
+								onChange={(e) =>
+									edit(b.id, (x) => {
+										const { excluded: _e, ...rest } = x;
+										return e.target.checked ? rest : { ...rest, excluded: true };
+									})
+								}
+								data-testid="exam-in-sitting"
+							/>
+							{t("exams.guide.inSitting")}
+						</label>
 						<KindSelect value={b.kind ?? "syllabus"} label={t("exams.kind.label", { text: b.title })} onChange={(k) => setKind(b.id, null, k)} />
 						<button type="button" aria-label={t("exams.wizard.removeBlock", { title: b.title })} onClick={() => edit(b.id, () => null)} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
 							<XIcon className="size-4" />
@@ -922,6 +1098,7 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 							<li key={p.id} className="border-b px-2 py-1.5 text-sm last:border-b-0" data-testid="exam-review-point">
 								<div className="flex items-center gap-2">
 									<input value={p.text} onChange={(e) => editPoint(b.id, p.id, (y) => ({ ...y, text: e.target.value }))} aria-label={t("exams.wizard.pointText")} className={input} />
+									<OriginBadge origin={p.origin} />
 									<KindSelect value={kind} label={t("exams.kind.label", { text: p.text })} onChange={(k) => setKind(b.id, p.id, k)} />
 									{p.pendingFrom ? (
 										<span className="shrink-0 text-warn" data-testid="exam-kind-pending">{t("exams.kind.pending")}</span>
@@ -1001,6 +1178,9 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 											</button>
 										</div>
 									</div>
+								)}
+								{(p.extension?.length ?? 0) > 0 && !p.pendingFrom && (
+									<ReviewExtension ids={p.extension!} names={names} onPromote={(ideaId) => void promote(p.id, ideaId)} />
 								)}
 								{open === p.id && !p.pendingFrom && !p.targets && !isRule && (
 									<ul className="mt-1 flex flex-col gap-1 pl-4">
@@ -1574,7 +1754,11 @@ function ResearchedPoint({ exam, point, ideas, onDeepen, kindSelect }: { exam: E
 											<IdeaRow
 												idea={idea}
 												action={
-													picking === n ? (
+													<span className="flex items-center gap-2">
+													<button type="button" className={smallBtn} onClick={() => void sendJson(`/api/exams/${exam.id}/promote`, "POST", { pointId: point.id, ideaId: n })} data-testid="exam-promote">
+														{t("exams.extension.promote")}
+													</button>
+													{picking === n ? (
 														<select autoFocus aria-label={t("exams.extension.pickTarget")} defaultValue="" onChange={(e) => e.target.value && move(n, { target: e.target.value })} onBlur={() => setPicking(null)} className="max-w-56 rounded-md border bg-background px-1 py-0.5">
 															<option value="" disabled>
 																{t("exams.extension.pickTarget")}
@@ -1589,7 +1773,8 @@ function ResearchedPoint({ exam, point, ideas, onDeepen, kindSelect }: { exam: E
 														<button type="button" className={smallBtn} onClick={() => setPicking(n)}>
 															{t("exams.extension.toPoint")}
 														</button>
-													)
+													)}
+													</span>
 												}
 											/>
 										</ul>
@@ -1604,6 +1789,117 @@ function ResearchedPoint({ exam, point, ideas, onDeepen, kindSelect }: { exam: E
 	);
 }
 
+/** «Contrastar con la guía» (owner 2026-11-06): the differences, chosen
+ *  one by one; nothing changes until «Aplicar». */
+function ContrastPanel({ exam }: { exam: ExamDetailView }) {
+	const t = useT();
+	const contrast = exam.record.contrast!;
+	const missing = contrast.missing ?? [];
+	const extras = contrast.extras ?? [];
+	const pointText = useMemo(() => new Map(exam.record.blocks.flatMap((b) => b.points.map((p) => [p.id, p.text] as const))), [exam.record.blocks]);
+	const [add, setAdd] = useState<Set<string>>(() => new Set(missing.filter((m) => m.inSitting).map((m) => m.id)));
+	const [actions, setActions] = useState<Record<string, "extension" | "keep">>(() => Object.fromEntries(extras.map((e) => [e.pointId, "extension" as const])));
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const send = async (method: "PUT" | "DELETE") => {
+		setBusy(true);
+		setError(null);
+		const res = await sendJson(
+			`/api/exams/${exam.id}/contrast`,
+			method,
+			method === "PUT" ? { add: [...add], extras: extras.filter((e) => pointText.has(e.pointId)).map((e) => ({ pointId: e.pointId, action: actions[e.pointId] ?? "extension" })) } : {},
+		);
+		setBusy(false);
+		if (!res.ok) setError(t("exams.wizard.mapFailed", { error: String(res.body.error ?? "") }));
+	};
+	if (contrast.state === "error") {
+		const noGuide = contrast.error?.startsWith("no_guide:");
+		const reason = noGuide ? contrast.error!.slice("no_guide:".length) : "";
+		return (
+			<div className="flex flex-col gap-2 rounded-xl border px-4 py-3 text-sm" data-testid="exam-contrast-panel">
+				<p role="alert" className="text-warn">
+					{noGuide ? (reason ? t("exams.guide.missing", { reason: reason.replace(/[.\s]+$/, "") }) : t("exams.guide.missingNoReason")) : t("exams.contrast.failed", { error: contrast.error ?? "" })}
+				</p>
+				<button type="button" className={cn(quietBtn, "self-start")} disabled={busy} onClick={() => void send("DELETE")}>
+					{t("exams.contrast.discard")}
+				</button>
+			</div>
+		);
+	}
+	const shownExtras = extras.filter((e) => pointText.has(e.pointId));
+	return (
+		<div className="flex flex-col gap-3 rounded-xl border px-4 py-3 text-sm" data-testid="exam-contrast-panel">
+			{missing.length === 0 && shownExtras.length === 0 ? (
+				<p>{t("exams.contrast.same")}</p>
+			) : (
+				<>
+					{missing.length > 0 && (
+						<div className="flex flex-col gap-1">
+							<p className="font-medium">{t("exams.contrast.missing", { n: missing.length })}</p>
+							<ul className="flex flex-col gap-1">
+								{missing.map((m) => (
+									<li key={m.id} className={cn("flex items-start gap-2", !m.inSitting && "opacity-60")}>
+										<input
+											type="checkbox"
+											aria-label={t("exams.contrast.add")}
+											checked={add.has(m.id)}
+											onChange={(e) =>
+												setAdd((cur) => {
+													const next = new Set(cur);
+													if (e.target.checked) next.add(m.id);
+													else next.delete(m.id);
+													return next;
+												})
+											}
+											className="mt-1"
+										/>
+										<span className="min-w-0">
+											<span className="text-muted-foreground">{m.blockTitle} · </span>
+											{m.text}
+											{!m.inSitting && <span className="text-muted-foreground"> · {t("exams.guide.outOfSitting")}</span>}
+										</span>
+									</li>
+								))}
+							</ul>
+						</div>
+					)}
+					{shownExtras.length > 0 && (
+						<div className="flex flex-col gap-1">
+							<p className="font-medium">{t("exams.contrast.extras", { n: shownExtras.length })}</p>
+							<ul className="flex flex-col gap-1">
+								{shownExtras.map((e) => (
+									<li key={e.pointId} className="flex items-center justify-between gap-3">
+										<span className="min-w-0">{pointText.get(e.pointId)}</span>
+										<select
+											value={actions[e.pointId] ?? "extension"}
+											onChange={(ev) => setActions((cur) => ({ ...cur, [e.pointId]: ev.target.value as "extension" | "keep" }))}
+											className="shrink-0 rounded-md border bg-background px-1 py-0.5 text-xs"
+										>
+											<option value="extension">{t("exams.contrast.toExtension")}</option>
+											<option value="keep">{t("exams.contrast.keep")}</option>
+										</select>
+									</li>
+								))}
+							</ul>
+						</div>
+					)}
+				</>
+			)}
+			{error && <p role="alert" className="text-warn">{error}</p>}
+			<div className="flex justify-end gap-2">
+				<button type="button" className={quietBtn} disabled={busy} onClick={() => void send("DELETE")} data-testid="exam-contrast-discard">
+					{t("exams.contrast.discard")}
+				</button>
+				{(missing.length > 0 || shownExtras.length > 0) && (
+					<button type="button" className={primaryBtn} disabled={busy} onClick={() => void send("PUT")} data-testid="exam-contrast-apply">
+						{t("exams.contrast.apply")}
+					</button>
+				)}
+			</div>
+		</div>
+	);
+}
+
 function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight: boolean }) {
 	const t = useT();
 	const [open, setOpen] = useState<string | null>(null);
@@ -1611,7 +1907,13 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 	const ideas = useMemo(() => new Map((exam.model?.ideas ?? []).map((i) => [i.nodeId, i])), [exam.model]);
 	const priority = new Set(exam.record.priorityBlocks);
 	const { start } = useStartExamSession(exam.id);
-	const unresearched = exam.record.blocks.some((b) => b.points.some((p) => !p.targets));
+	const unresearched = exam.record.blocks.some((b) => !b.excluded && b.points.some((p) => !p.targets));
+	const contrast = exam.record.contrast;
+	const startContrast = async () => {
+		setKindError(null);
+		const res = await sendJson(`/api/exams/${exam.id}/contrast`, "POST", {});
+		if (!res.ok) setKindError(res.body.code === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.wizard.mapFailed", { error: String(res.body.error ?? "") }));
+	};
 	const researching = exam.record.mapping.state === "researching" || exam.record.mapping.state === "running";
 	const [kindError, setKindError] = useState<string | null>(null);
 	const setKind = async (blockId: string, pointId: string | null, kind: PointKind) => {
@@ -1643,9 +1945,13 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 		<section className="flex flex-col gap-3" data-testid="exam-syllabus" id="exam-syllabus">
 			<SectionTitle
 				right={
-					exam.record.status === "active" && (unresearched || !exam.record.classified || pendingIds.size > 0) ? (
+					exam.record.status === "active" ? (
 						<span className="flex flex-wrap justify-end gap-2">
-							{researching ? (
+							{contrast?.state === "running" ? (
+								<span className="px-1 text-sm text-muted-foreground" aria-live="polite">
+									{t("exams.contrast.running")}
+								</span>
+							) : researching ? (
 								<span className="px-1 text-sm text-muted-foreground" aria-live="polite">
 									{exam.record.mapping.state === "running" ? t("exams.wizard.outlining") : progress}
 								</span>
@@ -1666,6 +1972,11 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 											{t("exams.syllabus.research")}
 										</button>
 									)}
+									{!contrast && guideWanted(exam.record.context) && (
+										<button type="button" className={cn(quietBtn, "px-3 py-1 text-sm")} onClick={() => void startContrast()} data-testid="exam-contrast">
+											{t("exams.contrast.button")}
+										</button>
+									)}
 								</>
 							)}
 						</span>
@@ -1675,6 +1986,8 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 				{t("exams.syllabus.title")}
 			</SectionTitle>
 			{kindError && <p role="alert" className="px-1 text-sm text-warn">{kindError}</p>}
+			<GuideHeader exam={exam} />
+			{contrast && contrast.state !== "running" && <ContrastPanel exam={exam} />}
 			{highlight && <p className="px-1 text-sm text-muted-foreground">{t("exams.syllabus.prioritizeHint")}</p>}
 			<ul className="overflow-hidden rounded-xl border">
 				{exam.record.blocks.map((b) => {
