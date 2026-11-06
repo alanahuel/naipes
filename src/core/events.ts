@@ -71,6 +71,15 @@ export interface ServerEvents {
 		/** Inbox notes with a folder suggestion (phase 3): `count` = all the
 		 *  suggestions now visible; sent when a new one appears. */
 		| { kind: "suggestions"; count: number; chatId?: undefined };
+	/** Photos arrived from the phone page («Enviar desde el móvil», owner
+	 *  2026-11-06): the tray that opened the QR (`trayId`) adds the refs
+	 *  (core/attachments AttachmentRef — inlined: this file imports nothing). */
+	"phone-attachments": {
+		chatId: string;
+		trayId: string;
+		token: string;
+		refs: { id: string; mimeType: "image/jpeg"; width: number; height: number }[];
+	};
 }
 
 export type ServerEventType = keyof ServerEvents;
@@ -91,6 +100,7 @@ export const SERVER_EVENT_TYPES = [
 	"exams-changed",
 	"exam-notice",
 	"vault-notice",
+	"phone-attachments",
 ] as const satisfies readonly ServerEventType[];
 
 /** One notification: the type discriminates the payload. */

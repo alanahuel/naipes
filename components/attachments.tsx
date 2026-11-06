@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { PaperclipIcon, XIcon } from "lucide-react";
+import { PaperclipIcon, SmartphoneIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useT } from "@/components/i18n";
 import { BrailleSpinner } from "@/components/braille-spinner";
@@ -29,6 +29,10 @@ export const AttachmentsContext = createContext<{
 	chatId: string;
 	vision: boolean;
 	openImage: (src: string) => void;
+	/** «Enviar desde el móvil» is on (settings.phone.enabled, phase 2). */
+	phone?: boolean;
+	/** Open the phone QR for this tray (the chat page mounts the overlay). */
+	openPhone?: (tray: AttachmentTray) => void;
 } | null>(null);
 
 export function attachmentUrl(chatId: string, id: string): string {
@@ -74,6 +78,11 @@ async function prepareImage(file: Blob): Promise<Blob> {
 	}
 }
 
+/** Local previews are object URLs; phone arrivals use the server route. */
+function revokePreview(url: string): void {
+	if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+}
+
 export interface TrayItem {
 	key: string;
 	/** Local preview (object URL) — shown while uploading and after. */
@@ -84,7 +93,9 @@ export interface TrayItem {
 
 /** One input's pending images. `refs` are the uploaded ones in order;
  *  `uploading` blocks the send until every image has landed. */
-export function useAttachmentTray(scopeOverride?: { chatId: string; vision: boolean } | null) {
+export function useAttachmentTray(
+	scopeOverride?: { chatId: string; vision: boolean; phone?: boolean; openPhone?: (tray: AttachmentTray) => void } | null,
+) : AttachmentTray {
 	// The chat page owns the provider AND the composer's tray, so it hands
 	// its scope in directly; the docks (inside the provider) read context.
 	const context = useContext(AttachmentsContext);
@@ -92,11 +103,13 @@ export function useAttachmentTray(scopeOverride?: { chatId: string; vision: bool
 	const [items, setItems] = useState<TrayItem[]>([]);
 	const [refusal, setRefusal] = useState<AttachmentRefusal | null>(null);
 	const itemsRef = useRef<TrayItem[]>([]);
+	// The phone QR addresses THIS tray (phase 2): a stable per-mount id.
+	const [trayId] = useState(() => `tray_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`);
 	const commit = (next: TrayItem[]) => {
 		itemsRef.current = next;
 		setItems(next);
 	};
-	useEffect(() => () => itemsRef.current.forEach((i) => URL.revokeObjectURL(i.preview)), []);
+	useEffect(() => () => itemsRef.current.forEach((i) => revokePreview(i.preview)), []);
 
 	const enabled = scope !== null && scope.vision;
 
@@ -152,7 +165,7 @@ export function useAttachmentTray(scopeOverride?: { chatId: string; vision: bool
 		(key: string) => {
 			const item = itemsRef.current.find((i) => i.key === key);
 			if (!item) return;
-			URL.revokeObjectURL(item.preview);
+			revokePreview(item.preview);
 			commit(itemsRef.current.filter((i) => i.key !== key));
 			setRefusal(null);
 			if (item.ref && scope) void fetch(attachmentUrl(scope.chatId, item.ref.id), { method: "DELETE" });
@@ -164,7 +177,7 @@ export function useAttachmentTray(scopeOverride?: { chatId: string; vision: bool
 	 *  belong to the message — nothing is deleted). */
 	const take = useCallback((): AttachmentRef[] => {
 		const refs = itemsRef.current.flatMap((i) => (i.ref ? [i.ref] : []));
-		itemsRef.current.forEach((i) => URL.revokeObjectURL(i.preview));
+		itemsRef.current.forEach((i) => revokePreview(i.preview));
 		commit([]);
 		setRefusal(null);
 		return refs;
@@ -199,8 +212,25 @@ export function useAttachmentTray(scopeOverride?: { chatId: string; vision: bool
 		},
 	};
 
+	/** Photos that arrived from the phone (already on the server): they
+	 *  join the tray as ready items, previewed from the attachment route. */
+	const addRefs = useCallback(
+		(refs: readonly AttachmentRef[]) => {
+			if (!scope || refs.length === 0) return;
+			const known = new Set(itemsRef.current.flatMap((i) => (i.ref ? [i.ref.id] : [])));
+			const fresh = refs.filter((r) => !known.has(r.id)).slice(0, Math.max(0, MAX_ATTACHMENTS - itemsRef.current.length));
+			if (fresh.length === 0) return;
+			setRefusal(null);
+			commit([
+				...itemsRef.current,
+				...fresh.map((ref) => ({ key: `tray_${ref.id}`, preview: attachmentUrl(scope.chatId, ref.id), ref })),
+			]);
+		},
+		[scope],
+	);
+
 	const uploading = items.some((i) => !i.ref);
-	return {
+	const tray: AttachmentTray = {
 		available: scope !== null,
 		enabled,
 		items,
@@ -210,14 +240,41 @@ export function useAttachmentTray(scopeOverride?: { chatId: string; vision: bool
 		count: items.filter((i) => i.ref).length,
 		full: items.length >= MAX_ATTACHMENTS,
 		add,
+		addRefs,
 		remove,
 		take,
 		onPaste,
 		dropProps,
+		trayId,
+		liveCount: () => itemsRef.current.length,
+		/** The phone button shows (setting on, inside a chat page). */
+		phoneAvailable: scope !== null && scope.phone === true && typeof scope.openPhone === "function",
+		openPhone: () => scope?.openPhone?.(tray),
 	};
+	return tray;
 }
 
-export type AttachmentTray = ReturnType<typeof useAttachmentTray>;
+/** One input's tray, as useAttachmentTray returns it. */
+export interface AttachmentTray {
+	available: boolean;
+	enabled: boolean;
+	items: TrayItem[];
+	refusal: AttachmentRefusal | null;
+	uploading: boolean;
+	count: number;
+	full: boolean;
+	add: (files: readonly File[]) => Promise<void>;
+	addRefs: (refs: readonly AttachmentRef[]) => void;
+	remove: (key: string) => void;
+	take: () => AttachmentRef[];
+	onPaste: (e: React.ClipboardEvent) => void;
+	dropProps: { onDragOver: (e: React.DragEvent) => void; onDrop: (e: React.DragEvent) => void };
+	trayId: string;
+	/** The tray's CURRENT size (read through the ref — never stale). */
+	liveCount: () => number;
+	phoneAvailable: boolean;
+	openPhone: () => void;
+}
 
 /** The clip button: opens the file picker; disabled (with the reason as
  *  its tooltip) when the session's model has no vision. */
@@ -242,6 +299,22 @@ export function AttachButton({ tray, className }: { tray: AttachmentTray; classN
 			>
 				<PaperclipIcon className="size-4" />
 			</button>
+			{tray.phoneAvailable && (
+				<button
+					type="button"
+					data-testid="phone-button"
+					aria-label={tray.enabled ? t("session.phone.open") : t("session.attach.noVision")}
+					title={tray.enabled ? t("session.phone.open") : t("session.attach.noVision")}
+					disabled={!tray.enabled || tray.full}
+					onClick={() => tray.openPhone()}
+					className={cn(
+						"flex size-10 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-auto disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
+						className,
+					)}
+				>
+					<SmartphoneIcon className="size-4" />
+				</button>
+			)}
 			<input
 				ref={inputRef}
 				type="file"

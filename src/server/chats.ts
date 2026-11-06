@@ -1,6 +1,7 @@
 import { abortExtraction, extractionStatuses } from "../agent/subagents/extraction.ts";
 import { isJobLive } from "../agent/subagents/aborts.ts";
 import { coverageOf } from "../core/coverage.ts";
+import { closePhoneSessionsForChat } from "./phone.ts";
 import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../core/graph-deletion.ts";
 import { titleFromPrompt } from "../core/contracts.ts";
 import { chainsForSelection, formatChainLine } from "../core/chains.ts";
@@ -159,6 +160,7 @@ export async function deleteChatSession(chatId: string, mode: ChatDeleteMode): P
 	}
 	// The session's images go with it (owner, 2026-11-06).
 	stores.attachmentStore.removeChat(chatId);
+	closePhoneSessionsForChat(chatId);
 	return { ok: true, mode, stats, jobsRemoved, graphRevision: graphRevision() };
 }
 

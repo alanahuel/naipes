@@ -25,7 +25,7 @@ import type {
 	RoleModelOverride,
 } from "../core/settings.ts";
 import { isLocale } from "../core/i18n.ts";
-import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, CONFIRM_ABOVE_RUNS_MIN, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, REVIEW_RETENTION_MAX, REVIEW_RETENTION_MIN, normalizeClockTime, normalizeVaultFolder, isThemeMode, isWeeklyMinutes, EXAM_INT_FIELDS, type DesktopSettings, type ExamSettings, type ObsidianSettings, type ReviewSettings } from "../core/settings.ts";
+import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, CONFIRM_ABOVE_RUNS_MIN, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, REVIEW_RETENTION_MAX, REVIEW_RETENTION_MIN, normalizeClockTime, normalizeVaultFolder, isThemeMode, isWeeklyMinutes, EXAM_INT_FIELDS, type DesktopSettings, type PhoneSettings, type ExamSettings, type ObsidianSettings, type ReviewSettings } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
 
@@ -502,6 +502,15 @@ export function parseDesktopSettingsBody(body: unknown): SettingsBodyResult<Desk
 	return { ok: true, settings };
 }
 
+/** phone: { enabled?: boolean } (owner, 2026-11-06). */
+export function parsePhoneSettingsBody(body: unknown): SettingsBodyResult<PhoneSettings> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	if (raw.enabled === undefined) return { ok: true, settings: {} };
+	if (typeof raw.enabled !== "boolean") return { ok: false, error: "enabled must be a boolean" };
+	return { ok: true, settings: { enabled: raw.enabled } };
+}
+
 /** exams: every field optional; strict types and ranges (400 otherwise). */
 export function parseExamSettingsBody(body: unknown): SettingsBodyResult<ExamSettings> {
 	const raw = asRecord(body);
@@ -535,6 +544,7 @@ export const SETTINGS_SECTIONS = {
 	review: parseReviewSettingsBody,
 	exams: parseExamSettingsBody,
 	desktop: parseDesktopSettingsBody,
+	phone: parsePhoneSettingsBody,
 } as const;
 
 export type SettingsSectionName = keyof typeof SETTINGS_SECTIONS;

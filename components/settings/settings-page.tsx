@@ -20,6 +20,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+	PHONE_PORT,
 	CURRENT_SETTINGS_VERSION,
 	type AgentSettings,
 	type AppearanceSettings,
@@ -46,11 +47,12 @@ import { ObsidianSection } from "./obsidian-section.tsx";
 import { ReviewSettingsSection } from "./review-section.tsx";
 import { ExamSettingsSection } from "./exams-section.tsx";
 import { UpdateSettings } from "./update-settings.tsx";
+import { SettingsRow, Toggle } from "./controls.tsx";
 import type { SettingsPageId } from "./pages.ts";
 
 export { SETTINGS_PAGE_IDS, isSettingsPage, pageForSection, type SettingsPageId } from "./pages.ts";
 
-type WritableSection = "general" | "agent" | "models" | "appearance" | "graph" | "compaction" | "obsidian" | "review" | "exams" | "desktop";
+type WritableSection = "general" | "agent" | "models" | "appearance" | "graph" | "compaction" | "obsidian" | "review" | "exams" | "desktop" | "phone";
 
 /** The settings record + its one writer. */
 export function useSettingsRecord() {
@@ -213,6 +215,17 @@ export function SettingsPage({ page, initialRow }: { page: SettingsPageId; initi
 								onSectionChange={(next: AgentSettings) => void write("agent", next)}
 								onCompactionChange={(next: CompactionSettings) => void write("compaction", next)}
 							/>
+						</Block>
+						{/* «Enviar desde el móvil» (owner, 2026-11-06): off by default. */}
+						<Block title={t("settings.phone.title")} testid="section-phone">
+							<SettingsRow label={t("settings.phone.enabled")} hint={t("settings.phone.hint", { port: PHONE_PORT })}>
+								<Toggle
+									checked={record.phone?.enabled === true}
+									label={t("settings.phone.enabled")}
+									testid="phone-enabled"
+									onChange={(on) => void write("phone", { enabled: on })}
+								/>
+							</SettingsRow>
 						</Block>
 						<Block title={t("settings.page.updates")} testid="section-general">
 							<UpdateSettings

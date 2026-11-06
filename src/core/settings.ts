@@ -282,6 +282,13 @@ export const EXAM_WEEKDAYS = 7;
 
 /** The desktop shell (owner, 2026-11-04 — «Repaso» stage 2). Read by
  *  electron/main.cjs straight from settings.json on its minute clock. */
+/** «Enviar desde el móvil» (owner, 2026-11-06 — image attachments phase
+ *  2): off by default — the phone listener needs a firewall rule for port
+ *  PHONE_PORT, so the button only shows once the learner turns it on. */
+export interface PhoneSettings {
+	enabled?: boolean;
+}
+
 export interface DesktopSettings {
 	/** Closing the window keeps Naipes in the system tray (factory on). */
 	tray?: boolean;
@@ -488,6 +495,7 @@ export interface UserSettings {
 	review?: ReviewSettings;
 	exams?: ExamSettings;
 	desktop?: DesktopSettings;
+	phone?: PhoneSettings;
 	[key: string]: unknown;
 }
 

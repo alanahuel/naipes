@@ -59,7 +59,9 @@ import { QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
 import { PracticeDock } from "@/components/practice-dock";
-import { AttachmentsContext, AttachmentThumbs, ImageLightbox, useAttachmentTray } from "@/components/attachments";
+import { AttachmentsContext, AttachmentThumbs, ImageLightbox, useAttachmentTray, type AttachmentTray } from "@/components/attachments";
+import { PhoneOverlay } from "@/components/phone-overlay";
+import { useSettingsSaved } from "@/components/settings-signal";
 import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
 import { TopBar } from "@/components/top-bar";
@@ -393,7 +395,7 @@ export function Chat({
 		const onAbort = () => {
 			const target = escAbortTarget({
 				abortAsk: abortAskRef.current !== null,
-				mermaidFocus: mermaidFocusRef.current !== null || figureFocusRef.current !== null || imageFocusRef.current !== null,
+				mermaidFocus: mermaidFocusRef.current !== null || figureFocusRef.current !== null || imageFocusRef.current !== null || phoneTrayRef.current !== null,
 				planOpen: planOpenRef.current,
 				setupOpen: setupOpenRef.current,
 				pending: pendingRef.current !== null,
@@ -600,7 +602,26 @@ export function Chat({
 	const [imageFocus, setImageFocus] = useState<string | null>(null);
 	const imageFocusRef = useRef(imageFocus);
 	imageFocusRef.current = imageFocus;
-	const attachScope = useMemo(() => ({ chatId, vision, openImage: setImageFocus }), [chatId, vision]);
+	// «Enviar desde el móvil» (phase 2): the setting gates the button; the
+	// open panel remembers WHICH tray opened it.
+	const [phoneEnabled, setPhoneEnabled] = useState(false);
+	const readPhoneSetting = useCallback(() => {
+		void fetch("/api/settings")
+			.then((r) => (r.ok ? r.json() : null))
+			.then((body: { settings?: { phone?: { enabled?: boolean } } } | null) => setPhoneEnabled(body?.settings?.phone?.enabled === true))
+			.catch(() => {});
+	}, []);
+	useEffect(readPhoneSetting, [readPhoneSetting]);
+	useSettingsSaved((section) => {
+		if (section === "phone") readPhoneSetting();
+	});
+	const [phoneTray, setPhoneTray] = useState<AttachmentTray | null>(null);
+	const phoneTrayRef = useRef(phoneTray);
+	phoneTrayRef.current = phoneTray;
+	const attachScope = useMemo(
+		() => ({ chatId, vision, openImage: setImageFocus, phone: phoneEnabled, openPhone: (tray: AttachmentTray) => setPhoneTray(tray) }),
+		[chatId, vision, phoneEnabled],
+	);
 	const composerTray = useAttachmentTray(attachScope);
 	const [setupOpen, setSetupOpen] = useState(false);
 	/** The last explicitly-sent draft (composer send): the
@@ -1844,6 +1865,7 @@ export function Chat({
 					/>
 				)}
 				{imageFocus !== null && <ImageLightbox src={imageFocus} onClose={() => setImageFocus(null)} />}
+				{phoneTray !== null && <PhoneOverlay chatId={chatId} tray={phoneTray} onClose={() => setPhoneTray(null)} />}
 				{planOpen && <PlanPopup messages={messages} onClose={() => setPlanOpen(false)} />}
 				<AbortTurnDialog mode={abortAsk} onClose={() => setAbortAsk(null)} onConfirm={confirmAbort} busy={busy} />
 				</div>
