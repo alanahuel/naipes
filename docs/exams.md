@@ -56,7 +56,7 @@ Exams made before v2 keep their point links; the exam page offers «Investigar t
 - Every block has a type — **Temario** (`syllabus`, the default), **Instrucciones de la asignatura** (`rules`: how the exam runs — allowed/forbidden, what scores, timing, format) or **Instrucciones para el tutor** (`tutor`: how to teach and check) — and its points inherit it unless they carry their own (`SyllabusBlock.kind`, `SyllabusPoint.kind`, `pointKind`). Setting a block's type resets its points' own.
 - The outline proposes the types (mapper rule 4); new exams are `classified`. Older exams get «Clasificar temario» (`exam-classifier.ts`, strong slot, `POST /api/exams/[id]/classify`).
 - The research turns instruction points into concrete **rules** (stored in `targets`, ≤ 12, with source and year, never linked to graph ideas) — subject rules from the official guide and marking criteria first.
-- Only syllabus points are studied (`studyPoints`): coverage, placement, plan, sorter, «Profundizar». A point whose type changes (`setPointKind`, `POST /api/exams/[id]/kind`) loses its targets/rules, links and ampliación and is researched again at once.
+- Only syllabus points are studied (`studyPoints`): coverage, placement, plan, sorter, «Profundizar». Changing a type researches nothing (`setPointKind`; Revisar edits locally, the exam page via `POST /api/exams/[id]/kind`): the point is marked pending (`pendingFrom` = the type its content was made for), its old content is hidden («Pendiente de investigar»), and setting the old type back cancels it. «Investigar cambios (N)» (research `{ mode: "pending" }`) researches them; in Revisar «Confirmar →» does it first and then goes on to step 5. The research settles a point by replacing its content and dropping its ampliación.
 - Every exam session (placement, teach, consolidate, deepen, practice, mock) gets `instructions.md` appended with the rules and tutor instructions (an empty part left out; an unresearched point stands in with its text): the tutor checks each reply against them and may step outside an exam rule briefly when it truly helps, saying so and why.
 - Revisar has a type selector per block and point («Reglas (n)» for instruction points); the exam page shows only studied points under Temario, and two editable sections «Instrucciones de la asignatura» / «Instrucciones para el tutor».
 
@@ -85,8 +85,8 @@ Folded into the desktop clock (`POST /api/review/notify` → `deskNotice`): the 
 | `GET/POST /api/exams` | list / create a draft (with context) |
 | `GET/POST /api/exams/folders` | the wizard's folder tree / what «Leer y mapear» adds |
 | `POST/DELETE /api/exams/[id]/materials` | add a material (multipart file or `{ url }`) / remove one |
-| `POST /api/exams/[id]/research` | resume (`{}`), redo all (`{ mode: "all" }`) or one point (`{ pointId }`) |
-| `POST /api/exams/[id]/kind` | change a block's or point's type (`{ blockId, pointId?, kind }`); changed points are researched again |
+| `POST /api/exams/[id]/research` | resume (`{}`), the pending type changes (`{ mode: "pending" }`), redo all (`{ mode: "all" }`) or one point (`{ pointId }`) |
+| `POST /api/exams/[id]/kind` | change a block's or point's type (`{ blockId, pointId?, kind }`); changed points wait as pending |
 | `POST /api/exams/[id]/classify` | «Clasificar temario»: the model types blocks and points, changed ones are researched again |
 | `GET/PUT/DELETE /api/exams/[id]` | detail with the derived plan / edit, activate, archive, real grade / delete |
 | `POST /api/exams/[id]/map` | start read → outline → research (202; 503 without a strong model) |

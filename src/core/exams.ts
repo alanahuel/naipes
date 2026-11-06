@@ -93,6 +93,9 @@ export interface SyllabusPoint {
 	/** The point's own type when it differs from its block's (owner
 	 *  2026-11-06). For an instruction point `targets` holds its RULES. */
 	kind?: PointKind;
+	/** Its type changed and it waits for «Investigar cambios» (owner
+	 *  2026-11-06): the type its targets/rules were made for. */
+	pendingFrom?: PointKind;
 }
 
 /** Owner 2026-11-06: a syllabus point is something to learn; «rules» are
@@ -164,16 +167,18 @@ export interface SyllabusBlock {
 }
 
 /** Set a block's type (its points follow it, own types cleared) or one
- *  point's. Points whose effective type changed lose their targets/rules,
- *  links and ampliación — they are researched again for the new type
- *  (owner 2026-11-06). */
+ *  point's. Nothing is researched here (owner 2026-11-06): a point whose
+ *  effective type changed is marked PENDING (`pendingFrom` = the type its
+ *  content was made for) and keeps that content hidden until «Investigar
+ *  cambios»; setting the old type back cancels the change. */
 export function setPointKind(blocks: readonly SyllabusBlock[], blockId: string, pointId: string | null, kind: PointKind): { blocks: SyllabusBlock[]; changed: string[] } {
 	const changed: string[] = [];
-	const reset = (p: SyllabusPoint, before: PointKind, after: PointKind): SyllabusPoint => {
+	const mark = (p: SyllabusPoint, before: PointKind, after: PointKind): SyllabusPoint => {
 		if (before === after) return p;
 		changed.push(p.id);
-		const { targets: _t, extension: _e, ...rest } = p;
-		return { ...rest, nodeIds: [] };
+		const from = p.pendingFrom ?? before;
+		const { pendingFrom: _f, ...rest } = p;
+		return from === after ? rest : { ...rest, pendingFrom: from };
 	};
 	const next = blocks.map((b) => {
 		if (b.id !== blockId) return b;
@@ -182,7 +187,7 @@ export function setPointKind(blocks: readonly SyllabusBlock[], blockId: string, 
 			if (kind === "syllabus") delete block.kind;
 			block.points = b.points.map((p) => {
 				const { kind: _k, ...own } = p;
-				return reset(own, pointKind(b, p), kind);
+				return mark(own, pointKind(b, p), kind);
 			});
 			return block;
 		}
@@ -192,11 +197,22 @@ export function setPointKind(blocks: readonly SyllabusBlock[], blockId: string, 
 				if (p.id !== pointId) return p;
 				const { kind: _k, ...own } = p;
 				const withKind: SyllabusPoint = kind === (b.kind ?? "syllabus") ? own : { ...own, kind };
-				return reset(withKind, pointKind(b, p), kind);
+				return mark(withKind, pointKind(b, p), kind);
 			}),
 		};
 	});
 	return { blocks: next, changed };
+}
+
+/** Points with a type change waiting for «Investigar cambios». */
+export const pendingKindPoints = (exam: Pick<ExamRecord, "blocks">): string[] => exam.blocks.flatMap((b) => b.points.filter((p) => p.pendingFrom).map((p) => p.id));
+
+/** A pending point's content belongs to its old type: hidden until it is
+ *  researched again. */
+export function withoutStaleContent<P extends SyllabusPoint>(p: P): P {
+	if (!p.pendingFrom) return p;
+	const { targets: _t, extension: _e, ...rest } = p;
+	return { ...rest, nodeIds: [] } as unknown as P;
 }
 
 /** Apply «Clasificar temario»'s answer: each block's kind, then the
@@ -607,6 +623,7 @@ export function sanitizeBlocks(raw: unknown): SyllabusBlock[] {
 				...(targets ? { targets } : {}),
 				...(extension.length ? { extension } : {}),
 				...(isPointKind(point.kind) ? { kind: point.kind } : {}),
+				...(isPointKind(point.pendingFrom) ? { pendingFrom: point.pendingFrom } : {}),
 			});
 		}
 		out.push({ id, title, points, ...(isPointKind(block.kind) && block.kind !== "syllabus" ? { kind: block.kind } : {}) });
@@ -672,11 +689,11 @@ export const allPoints = (exam: Pick<ExamRecord, "blocks">): Array<SyllabusPoint
 
 /** The points to STUDY (type syllabus): coverage, placement, plan, sort. */
 export const studyPoints = (exam: Pick<ExamRecord, "blocks">): Array<SyllabusPoint & { blockId: string }> =>
-	exam.blocks.flatMap((b) => b.points.filter((p) => pointKind(b, p) === "syllabus").map((p) => ({ ...p, blockId: b.id })));
+	exam.blocks.flatMap((b) => b.points.filter((p) => pointKind(b, p) === "syllabus").map((p) => ({ ...withoutStaleContent(p), blockId: b.id })));
 
 /** The instruction points of one type, with their block. */
 export const instructionPoints = (exam: Pick<ExamRecord, "blocks">, kind: Exclude<PointKind, "syllabus">): Array<SyllabusPoint & { blockId: string; blockTitle: string }> =>
-	exam.blocks.flatMap((b) => b.points.filter((p) => pointKind(b, p) === kind).map((p) => ({ ...p, blockId: b.id, blockTitle: b.title })));
+	exam.blocks.flatMap((b) => b.points.filter((p) => pointKind(b, p) === kind).map((p) => ({ ...withoutStaleContent(p), blockId: b.id, blockTitle: b.title })));
 
 // ─── days ───────────────────────────────────────────────────────────────────
 

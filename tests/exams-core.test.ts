@@ -35,6 +35,7 @@ import {
 	reduceFolders,
 	sanitizeExamRecord,
 	setPointKind,
+	pendingKindPoints,
 	applyClassification,
 	numberBlocks,
 	studyPoints,
@@ -549,23 +550,33 @@ describe("point types: syllabus, rules, tutor (owner 2026-11-06)", () => {
 		assert.deepEqual(instructionPoints(record, "tutor").map((p) => [p.id, p.blockTitle]), [["p3", "Cómo enseñar"]]);
 		assert.equal(pointKind(record.blocks[1]!, record.blocks[1]!.points[0]!), "tutor");
 	});
-	it("a changed point loses targets, links and ampliación; the block's type resets its points' own", () => {
+	it("a type change only marks the point pending; its old content hides until researched; the old type back cancels", () => {
 		const one = setPointKind(blocks(), "b1", "p1", "tutor");
 		assert.deepEqual(one.changed, ["p1"]);
 		const p1 = one.blocks[0]!.points[0]!;
 		assert.equal(p1.kind, "tutor");
-		assert.equal(p1.targets, undefined);
-		assert.equal(p1.extension, undefined);
-		assert.deepEqual(p1.nodeIds, []);
-		const same = setPointKind(blocks(), "b1", "p2", "rules");
-		assert.deepEqual(same.changed, []);
+		assert.equal(p1.pendingFrom, "syllabus");
+		assert.ok(p1.targets, "content kept until research");
+		assert.deepEqual(pendingKindPoints({ blocks: one.blocks }), ["p1"]);
+		assert.deepEqual(studyPoints({ blocks: one.blocks }), []);
+		const shown = instructionPoints({ blocks: one.blocks }, "tutor").find((p) => p.id === "p1")!;
+		assert.equal(shown.targets, undefined);
+		assert.equal(shown.extension, undefined);
+		// Through rules and back: still pending from syllabus, then cancelled.
+		const twice = setPointKind(one.blocks, "b1", "p1", "rules");
+		assert.equal(twice.blocks[0]!.points[0]!.pendingFrom, "syllabus");
+		const back = setPointKind(twice.blocks, "b1", "p1", "syllabus");
+		assert.equal(back.blocks[0]!.points[0]!.pendingFrom, undefined);
+		assert.deepEqual(studyPoints({ blocks: back.blocks })[0]!.targets!.map((x) => x.id), ["t1"]);
+		assert.deepEqual(setPointKind(blocks(), "b1", "p2", "rules").changed, []);
 		const whole = setPointKind(blocks(), "b1", null, "rules");
 		assert.deepEqual(whole.changed, ["p1"]);
 		assert.equal(whole.blocks[0]!.kind, "rules");
 		assert.equal(whole.blocks[0]!.points[1]!.kind, undefined, "own type cleared: it follows the block");
-		assert.ok(whole.blocks[0]!.points[1]!.targets, "unchanged point keeps its rules");
-		const back = setPointKind(blocks(), "b2", "p3", "syllabus");
-		assert.equal(back.blocks[1]!.points[0]!.kind, "syllabus", "differs from its tutor block");
+		assert.equal(whole.blocks[0]!.points[1]!.pendingFrom, undefined);
+		const tutorBack = setPointKind(blocks(), "b2", "p3", "syllabus");
+		assert.equal(tutorBack.blocks[1]!.points[0]!.kind, "syllabus", "differs from its tutor block");
+		assert.equal(sanitizeExamRecord({ ...exam(), blocks: one.blocks })!.blocks[0]!.points[0]!.pendingFrom, "syllabus");
 	});
 	it("classification: block kinds, differing points; only real changes reset", () => {
 		const r = applyClassification(blocks(), { blocks: new Map([["b1", "syllabus"], ["b2", "tutor"]]), points: new Map([["p2", "rules"]]) });

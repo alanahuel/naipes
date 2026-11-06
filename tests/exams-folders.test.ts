@@ -120,16 +120,19 @@ describe("exam folder tree (whole knowledge folder)", () => {
 		assert.ok(only.includes("Instructions for you as tutor, from the learner's syllabus:\n- Comprueba cada paso"));
 		assert.ok(!only.includes("The exam's own rules"));
 	});
-	it("changing a type without a strong model keeps the change but cannot research", () => {
+	it("a type change is saved as pending without researching; «Investigar cambios» needs a strong model", () => {
 		const parsed = exams.parseExamCreate({ title: "Mates 2", examDate: "2027-05-20", syllabus: { text: "x" } });
 		const exam = exams.createExam(parsed.ok ? parsed.value : (null as never));
-		exams.updateExam(exam.id, { blocks: [{ id: "b1", title: "F", points: [{ id: "p1", text: "Límites", nodeIds: ["n1"], extension: ["n1"] }] }] } as never);
-		const started = exams.setExamPointKind(exam.id, { blockId: "b1", pointId: "p1", kind: "rules" });
-		assert.equal(started.ok, false);
-		const point = store.readExam(exam.id)!.blocks[0]!.points[0]!;
+		const tg = { id: "t1", statement: "Un límite es…", source: { kind: "model", title: "" }, nodeIds: ["n1"] };
+		exams.updateExam(exam.id, { blocks: [{ id: "b1", title: "F", points: [{ id: "p1", text: "Límites", nodeIds: ["n1"], targets: [tg], extension: ["n1"] }] }] } as never);
+		assert.equal(exams.setExamPointKind(exam.id, { blockId: "b1", pointId: "p1", kind: "rules" }).ok, true);
+		const record = store.readExam(exam.id)!;
+		const point = record.blocks[0]!.points[0]!;
 		assert.equal(point.kind, "rules");
-		assert.deepEqual(point.nodeIds, []);
-		assert.equal(point.extension, undefined);
+		assert.equal(point.pendingFrom, "syllabus");
+		assert.equal(record.mapping.state, "none", "nothing started");
+		assert.ok(exams.examInstructions(record)!.includes("- Límites"), "a pending point stands in with its text");
+		assert.equal(exams.startExamResearch(exam.id, { mode: "pending" }).ok, false);
 		assert.equal(exams.setExamPointKind(exam.id, { blockId: "b1", pointId: "nope", kind: "rules" }).ok, false);
 		assert.equal(exams.classifyExam(exam.id).ok, false);
 	});

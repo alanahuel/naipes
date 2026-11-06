@@ -791,7 +791,7 @@ export function contextLines(context: ExamRecord["context"]): string[] {
  *  ideas sharing words with the block (scope ideas first). */
 const BLOCK_CANDIDATES = 150;
 
-export type ResearchScope = { mode: "missing" } | { mode: "all" } | { mode: "points"; pointIds: string[] };
+export type ResearchScope = { mode: "missing" } | { mode: "pending" } | { mode: "all" } | { mode: "points"; pointIds: string[] };
 
 /** Research the exam's blocks in order, saving after each (progress is
  *  visible; a failure keeps what was done and a retry resumes). */
@@ -802,7 +802,9 @@ async function runResearch(id: string, engine: ReturnType<typeof piEngineForSpec
 		.map((b) => ({
 			...b,
 			points: b.points
-				.filter((p) => (scope.mode === "all" ? true : scope.mode === "points" ? scope.pointIds.includes(p.id) : p.targets === undefined))
+				.filter((p) =>
+					scope.mode === "all" ? true : scope.mode === "points" ? scope.pointIds.includes(p.id) : scope.mode === "pending" ? !!p.pendingFrom : p.targets === undefined || !!p.pendingFrom,
+				)
 				.map((p) => ({ ...p, kind: pointKind(b, p) })),
 		}))
 		.filter((b) => b.points.length > 0);
@@ -853,7 +855,9 @@ async function runResearch(id: string, engine: ReturnType<typeof piEngineForSpec
 					const targets = result.get(p.id);
 					if (!targets || !block.points.some((q) => q.id === p.id)) return p;
 					const withIds = targets.map((t, n) => ({ id: `t_${p.id}_${Date.now().toString(36)}${n}`, statement: t.statement, source: t.source, nodeIds: t.nodeIds }));
-					return { ...p, targets: withIds, nodeIds: [...new Set(withIds.flatMap((t) => t.nodeIds))] };
+					// A pending type change is settled: the old content and ampliación go.
+					const { pendingFrom, extension, ...rest } = p;
+					return { ...rest, ...(extension && !pendingFrom ? { extension } : {}), targets: withIds, nodeIds: [...new Set(withIds.flatMap((t) => t.nodeIds))] };
 				}),
 			}));
 			done++;
@@ -894,18 +898,16 @@ export function startExamResearch(id: string, scope: ResearchScope, now = Date.n
 
 // ─── point types (owner-approved 2026-11-06) ────────────────────────────────
 
-/** Change a block's or a point's type; the points whose type changed are
- *  researched again for it at once (their old targets/rules dropped). */
+/** Change a block's or a point's type. Nothing is researched (owner
+ *  2026-11-06): changed points wait for «Investigar cambios». */
 export function setExamPointKind(id: string, input: { blockId: string; pointId: string | null; kind: PointKind }, now = Date.now()): MappingStart {
 	const exam = readExam(id);
 	if (!exam) return { ok: false, status: 404, error: "not_found" };
 	if (running().has(id) || exam.mapping.state === "reading") return { ok: false, status: 409, error: "mapping already running" };
 	const block = exam.blocks.find((b) => b.id === input.blockId);
 	if (!block || (input.pointId !== null && !block.points.some((p) => p.id === input.pointId))) return { ok: false, status: 404, error: "no such point" };
-	const { blocks, changed } = setPointKind(exam.blocks, input.blockId, input.pointId, input.kind);
-	save({ ...touch(exam, now), blocks });
-	if (changed.length === 0) return { ok: true };
-	return startExamResearch(id, { mode: "points", pointIds: changed }, now);
+	save({ ...touch(exam, now), blocks: setPointKind(exam.blocks, input.blockId, input.pointId, input.kind).blocks });
+	return { ok: true };
 }
 
 /** «Clasificar temario» (exams made before point types): the model

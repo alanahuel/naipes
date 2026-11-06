@@ -195,6 +195,8 @@ export default {
 	"exams.kind.rules": "Subject instructions",
 	"exams.kind.tutor": "Instructions for the tutor",
 	"exams.kind.researching": "Researching the point…",
+	"exams.kind.pending": "Waiting to be researched",
+	"exams.kind.researchPending": "Research changes ({n})",
 	"exams.rules.title": "Rules ({n})",
 	"exams.rules.add": "Add rule",
 	"exams.rules.statement": "Rule",

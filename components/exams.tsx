@@ -55,6 +55,8 @@ import {
 	type TargetStatus,
 	moveIdea,
 	pointKind,
+	pendingKindPoints,
+	setPointKind,
 	instructionPoints,
 	POINT_KINDS,
 	type PointKind,
@@ -870,15 +872,19 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 	const confirm = async () => {
 		setSaving(true);
 		setError(null);
-		const ok = await persist();
+		const ok = pending > 0 ? await researchPending() : await persist();
 		setSaving(false);
 		if (ok) onDone();
 	};
-	const setKind = async (blockId: string, pointId: string | null, kind: PointKind) => {
+	// Owner 2026-11-06: a type change only marks the point pending.
+	const setKind = (blockId: string, pointId: string | null, kind: PointKind) => setBlocks((list) => setPointKind(list, blockId, pointId, kind).blocks);
+	const pending = pendingKindPoints({ blocks }).length;
+	const researchPending = async () => {
 		setError(null);
-		if (!(await persist())) return;
-		const failed = await changeKind(exam.id, blockId, pointId, kind);
-		if (failed) setError(failed === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.wizard.mapFailed", { error: failed }));
+		if (!(await persist())) return false;
+		const res = await sendJson(`/api/exams/${exam.id}/research`, "POST", { mode: "pending" });
+		if (!res.ok) setError(res.body.code === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.wizard.mapFailed", { error: String(res.body.error ?? "") }));
+		return res.ok;
 	};
 	const rerun = async (body: { pointId: string } | { mode: "all" }) => {
 		setError(null);
@@ -903,7 +909,7 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 				<div key={b.id} className="overflow-hidden rounded-xl border">
 					<div className="flex items-center gap-2 border-b bg-accent/30 px-2 py-1.5">
 						<input value={b.title} onChange={(e) => edit(b.id, (x) => ({ ...x, title: e.target.value }))} aria-label={t("exams.wizard.blockTitle")} className={cn(input, "font-medium")} />
-						<KindSelect value={b.kind ?? "syllabus"} label={t("exams.kind.label", { text: b.title })} onChange={(k) => void setKind(b.id, null, k)} />
+						<KindSelect value={b.kind ?? "syllabus"} label={t("exams.kind.label", { text: b.title })} onChange={(k) => setKind(b.id, null, k)} />
 						<button type="button" aria-label={t("exams.wizard.removeBlock", { title: b.title })} onClick={() => edit(b.id, () => null)} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
 							<XIcon className="size-4" />
 						</button>
@@ -916,8 +922,10 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 							<li key={p.id} className="border-b px-2 py-1.5 text-sm last:border-b-0" data-testid="exam-review-point">
 								<div className="flex items-center gap-2">
 									<input value={p.text} onChange={(e) => editPoint(b.id, p.id, (y) => ({ ...y, text: e.target.value }))} aria-label={t("exams.wizard.pointText")} className={input} />
-									<KindSelect value={kind} label={t("exams.kind.label", { text: p.text })} onChange={(k) => void setKind(b.id, p.id, k)} />
-									{p.targets ? (
+									<KindSelect value={kind} label={t("exams.kind.label", { text: p.text })} onChange={(k) => setKind(b.id, p.id, k)} />
+									{p.pendingFrom ? (
+										<span className="shrink-0 text-warn" data-testid="exam-kind-pending">{t("exams.kind.pending")}</span>
+									) : p.targets ? (
 										<button type="button" aria-expanded={open === p.id} onClick={() => setOpen(open === p.id ? null : p.id)} className="shrink-0 text-muted-foreground hover:text-foreground">
 											{t(isRule ? "exams.rules.title" : "exams.targets.title", { n: p.targets.length })}
 										</button>
@@ -936,7 +944,7 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 										<XIcon className="size-4" />
 									</button>
 								</div>
-								{open === p.id && (p.targets || isRule) && (
+								{open === p.id && !p.pendingFrom && (p.targets || isRule) && (
 									<div className="mt-1 flex flex-col gap-2 pl-4" data-testid="exam-targets">
 										<ul className="flex flex-col gap-2">
 											{(p.targets ?? []).map((target) => {
@@ -994,7 +1002,7 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 										</div>
 									</div>
 								)}
-								{open === p.id && !p.targets && !isRule && (
+								{open === p.id && !p.pendingFrom && !p.targets && !isRule && (
 									<ul className="mt-1 flex flex-col gap-1 pl-4">
 										{p.nodeIds.map((n) => (
 											<li key={n} className="flex items-center justify-between gap-2 text-muted-foreground">
@@ -1020,6 +1028,11 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 				<button type="button" onClick={() => setBlocks((list) => [...list, { id: localId("b_"), title: t("exams.wizard.newBlock"), points: [] }])} className={quietBtn}>
 					{t("exams.wizard.addBlock")}
 				</button>
+				{pending > 0 && (
+					<button type="button" onClick={() => void researchPending()} className={quietBtn} data-testid="exam-research-pending">
+						{t("exams.kind.researchPending", { n: pending })}
+					</button>
+				)}
 				<button type="button" onClick={() => void rerun({ mode: "all" })} className={quietBtn} data-testid="exam-rerun-all">
 					{t("exams.targets.rerunAll")}
 				</button>
@@ -1258,7 +1271,10 @@ function DraftWizard({ exam, reload }: { exam: ExamDetailView; reload: () => voi
 	const router = useRouter();
 	const auto = draftStep(exam.record.mapping.state);
 	const [confirmed, setConfirmed] = useState(false);
-	const step: WizardStep = auto === 4 && confirmed ? 5 : auto;
+	// «Confirmar» with pending type changes researches them first: step 3
+	// until they are settled, then straight on to 5.
+	const waiting = confirmed && auto === 4 && pendingKindPoints(exam.record).length > 0;
+	const step: WizardStep = waiting ? 3 : auto === 4 && confirmed ? 5 : auto;
 	return (
 		<div className="h-full overflow-y-auto" data-testid="exam-wizard">
 			<div className="mx-auto flex w-full max-w-[46rem] flex-col gap-8 px-4 pb-16 pt-10">
@@ -1612,6 +1628,12 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 		const res = await sendJson(`/api/exams/${exam.id}/classify`, "POST", {});
 		if (!res.ok) setKindError(res.body.code === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.wizard.mapFailed", { error: String(res.body.error ?? "") }));
 	};
+	const pendingIds = new Set(pendingKindPoints(exam.record));
+	const researchPending = async () => {
+		setKindError(null);
+		const res = await sendJson(`/api/exams/${exam.id}/research`, "POST", { mode: "pending" });
+		if (!res.ok) setKindError(res.body.code === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.wizard.mapFailed", { error: String(res.body.error ?? "") }));
+	};
 	const progress = t("exams.wizard.researching", { i: Math.min((exam.record.research?.done ?? 0) + 1, exam.record.research?.total ?? 1), n: exam.record.research?.total ?? 1, title: exam.record.research?.current ?? "" });
 	const togglePriority = (blockId: string) => {
 		const next = priority.has(blockId) ? [...priority].filter((b) => b !== blockId) : [...priority, blockId];
@@ -1621,7 +1643,7 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 		<section className="flex flex-col gap-3" data-testid="exam-syllabus" id="exam-syllabus">
 			<SectionTitle
 				right={
-					exam.record.status === "active" && (unresearched || !exam.record.classified) ? (
+					exam.record.status === "active" && (unresearched || !exam.record.classified || pendingIds.size > 0) ? (
 						<span className="flex flex-wrap justify-end gap-2">
 							{researching ? (
 								<span className="px-1 text-sm text-muted-foreground" aria-live="polite">
@@ -1629,12 +1651,17 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 								</span>
 							) : (
 								<>
+									{pendingIds.size > 0 && (
+										<button type="button" className={cn(quietBtn, "px-3 py-1 text-sm")} onClick={() => void researchPending()} data-testid="exam-research-pending">
+											{t("exams.kind.researchPending", { n: pendingIds.size })}
+										</button>
+									)}
 									{!exam.record.classified && (
 										<button type="button" className={cn(quietBtn, "px-3 py-1 text-sm")} onClick={() => void classify()} data-testid="exam-classify">
 											{t("exams.syllabus.classify")}
 										</button>
 									)}
-									{unresearched && (
+									{unresearched && pendingIds.size === 0 && (
 										<button type="button" className={cn(quietBtn, "px-3 py-1 text-sm")} onClick={() => void sendJson(`/api/exams/${exam.id}/research`, "POST", { mode: "missing" })} data-testid="exam-research-syllabus">
 											{t("exams.syllabus.research")}
 										</button>
@@ -1689,7 +1716,7 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 												<span className="min-w-0 truncate">{p.text}</span>
 												<span className="flex shrink-0 items-center gap-3 text-muted-foreground">
 													{exam.record.status === "active" && kindSelect(b, p.id, p.text)}
-													{pointNeedLabel(p, t)}
+													{pendingIds.has(p.id) ? <span className="text-warn">{t("exams.kind.pending")}</span> : pointNeedLabel(p, t)}
 												</span>
 											</div>
 											{p.nodeIds.length > 0 && (
@@ -1762,7 +1789,9 @@ function InstructionsSection({ exam, kind }: { exam: ExamDetailView; kind: "rule
 								<span className="min-w-0 truncate font-medium">{p.text}</span>
 								{editable && <KindSelect value={pointKind(block, p)} label={t("exams.kind.label", { text: p.text })} disabled={researching} onChange={(k) => void setKind(p.blockId, p.id, k)} />}
 							</div>
-							{!p.targets && researching ? (
+							{p.pendingFrom ? (
+								<p className="mt-1 pl-4 text-warn">{researching ? t("exams.kind.researching") : t("exams.kind.pending")}</p>
+							) : !p.targets && researching ? (
 								<p className="mt-1 pl-4 text-muted-foreground">{t("exams.kind.researching")}</p>
 							) : (
 								<ul className="mt-1 flex flex-col gap-1 pl-4">
@@ -1799,7 +1828,7 @@ function InstructionsSection({ exam, kind }: { exam: ExamDetailView; kind: "rule
 									))}
 								</ul>
 							)}
-							{editable && (
+							{editable && !p.pendingFrom && (
 								<button
 									type="button"
 									className="mt-1 pl-4 text-xs text-muted-foreground hover:text-foreground"
