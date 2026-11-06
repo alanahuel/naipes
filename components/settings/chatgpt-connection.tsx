@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Toggle } from "./controls";
 import { useChatGPTBridge } from "./subscription-client";
 import { translator, useT, type Translate } from "@/components/i18n";
+import { Select } from "@/components/ui/select";
 
 const en = translator("en");
 
@@ -285,10 +286,7 @@ export function ChatGPTUIProvider({ children }: { children: React.ReactNode }) {
 			</div> : <>
 				{dialog.kind === "connect" ? <>
 					{status.accounts.length > 0 && <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-						<select aria-label={t("settings.chatgpt.savedAccount")} value={registration} onChange={(event) => setRegistration(event.target.value)} disabled={busy || status.pending} className="min-w-0 rounded-sm border border-border bg-background px-2 py-1.5 text-foreground">
-							<option value="">{t("settings.chatgpt.addAnother")}</option>
-							{status.accounts.map((a) => <option key={a.id} value={a.id}>{a.email || t("settings.chatgpt.account")}</option>)}
-						</select>
+						<Select ariaLabel={t("settings.chatgpt.savedAccount")} value={registration} onChange={setRegistration} disabled={busy || status.pending} size="sm" className="min-w-0" options={[{ value: "", label: t("settings.chatgpt.addAnother") }, ...status.accounts.map((a) => ({ value: a.id, label: a.email || t("settings.chatgpt.account") }))]} />
 						{registration && <Button variant="ghost" size="xs" disabled={busy} onClick={() => context.manage(registration)}>{t("settings.connection.manage")}</Button>}
 					</div>}
 					<p className="mt-3 text-xs leading-relaxed text-muted-foreground" data-testid="chatgpt-privacy-notice">{chatGPTNotice(web, t)}</p>
@@ -309,9 +307,7 @@ export function ChatGPTUIProvider({ children }: { children: React.ReactNode }) {
 				{context.error && <p role="alert" className="mt-3 text-xs text-warn">{say(context.error, t)}</p>}
 				{dialog.kind === "manage" && managed && <div className="mt-4 flex flex-wrap items-center justify-between gap-3" data-testid="chatgpt-account-strip">
 					<div data-testid="chatgpt-managed-identity" className="flex min-w-0 items-center gap-2 text-xs text-foreground">
-						{status.accounts.length > 1 && managedPresent && !busy ? <select aria-label={t("settings.chatgpt.manageAccount")} value={managed.id} onChange={(event) => context.manage(event.target.value)} className="min-w-0 rounded-sm border border-border bg-background px-2 py-1.5">
-							{status.accounts.map((a) => <option key={a.id} value={a.id}>{a.email || t("settings.chatgpt.account")}</option>)}
-						</select> : <span className="break-all">{managed.email || t("settings.chatgpt.account")}</span>}
+						{status.accounts.length > 1 && managedPresent && !busy ? <Select ariaLabel={t("settings.chatgpt.manageAccount")} value={managed.id} onChange={(v) => context.manage(v)} size="sm" className="min-w-0" options={status.accounts.map((a) => ({ value: a.id, label: a.email || t("settings.chatgpt.account") }))} /> : <span className="break-all">{managed.email || t("settings.chatgpt.account")}</span>}
 					</div>
 					<Button variant="ghost" size="sm" data-testid="chatgpt-add-accounts" className="cursor-pointer text-muted-foreground disabled:cursor-not-allowed" onClick={() => openConnect()} disabled={busy || status.pending || !status.available}>{t("settings.chatgpt.addAccounts")}</Button>
 				</div>}
@@ -350,9 +346,7 @@ export function ChatGPTConnection({ labelClassName }: { setup?: boolean; labelCl
 	const accounts = ui.status.accounts.filter((a) => a.connected);
 	return <div className="flex flex-col gap-2" data-testid="chatgpt-connection">
 		<ConnectionRow label="ChatGPT" labelClassName={labelClassName} actionTestid={active ? undefined : "chatgpt-login"} action={active ? t("settings.connection.manage") : t("settings.connection.connect")} primary={!active} disabled={!ui.status.available || ui.busy || ui.status.pending} onAction={() => active ? ui.manage(active.id) : ui.connect()}>
-			{active && <select aria-label={t("settings.chatgpt.account")} value={active.id} disabled={ui.busy || ui.status.pending} onChange={(event) => ui.select(event.target.value)} className="min-w-0 rounded-sm border border-border bg-background px-2 py-1 text-xs text-foreground">
-				{accounts.map((a) => <option key={a.id} value={a.id}>{a.email || t("settings.chatgpt.account")}</option>)}
-			</select>}
+			{active && <Select ariaLabel={t("settings.chatgpt.account")} value={active.id} disabled={ui.busy || ui.status.pending} onChange={(v) => ui.select(v)} size="sm" className="min-w-0" options={accounts.map((a) => ({ value: a.id, label: a.email || t("settings.chatgpt.account") }))} />}
 		</ConnectionRow>
 		{ui.inlineError && <p role="alert" className="text-xs text-warn">{say(ui.inlineError, t)}</p>}
 		{ui.warning && <div role="alert" data-testid="chatgpt-revocation-warning" className="rounded-sm border border-border px-3 py-2 text-xs text-muted-foreground">{say(ui.warning, t)}<button type="button" className="ml-2 cursor-pointer underline underline-offset-2" onClick={ui.dismissWarning}>{t("settings.connection.dismiss")}</button></div>}

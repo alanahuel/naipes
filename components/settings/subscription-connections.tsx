@@ -9,6 +9,7 @@ import { ClaudeCodeConnection } from "./claude-code-connection";
 import { Toggle } from "./controls";
 import { useNativeSubscriptionBridge } from "./subscription-client";
 import { translator, useT, type Translate } from "@/components/i18n";
+import { Select } from "@/components/ui/select";
 
 const en = translator("en");
 
@@ -104,8 +105,8 @@ export function NativeSubscriptionUIProvider({ children }: { children: React.Rea
 					{interaction.userCode && <p>{t("settings.subscriptions.deviceCode")} <code className="select-text font-mono">{interaction.userCode}</code></p>}
 					{interaction.browser && <Button variant="outline" size="sm" disabled={busy} onClick={() => bridge && void bridge.open(dialog, interaction.attemptId, interaction.browser!.id).catch(() => setError(t("settings.subscriptions.browserFailed")))}>{t("settings.subscriptions.openBrowser")}</Button>}
 					{prompt && <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); if (bridge) void bridge.respond(dialog, interaction.attemptId, prompt.id, promptValue).catch(() => setError(t("settings.subscriptions.controlError"))); }}>
-						<label className="block" htmlFor="subscription-auth-prompt">{prompt.message}</label>
-						{prompt.type === "select" ? <select id="subscription-auth-prompt" value={promptValue} onChange={(event) => setPromptValue(event.target.value)} className="w-full rounded-sm border border-border bg-background px-2 py-1.5"><option value="" disabled>{t("settings.subscriptions.select")}</option>{prompt.options?.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select> : <input id="subscription-auth-prompt" type={prompt.type === "secret" ? "password" : "text"} autoComplete="off" value={promptValue} placeholder={prompt.placeholder} onChange={(event) => setPromptValue(event.target.value)} className="w-full rounded-sm border border-border bg-background px-2 py-1.5" />}
+						<p>{prompt.message}</p>
+						{prompt.type === "select" ? <Select value={promptValue} ariaLabel={prompt.message} placeholder={t("settings.subscriptions.select")} onChange={setPromptValue} className="w-full" options={(prompt.options ?? []).map((option) => ({ value: option.id, label: option.label }))} /> : <input id="subscription-auth-prompt" type={prompt.type === "secret" ? "password" : "text"} autoComplete="off" value={promptValue} placeholder={prompt.placeholder} onChange={(event) => setPromptValue(event.target.value)} className="w-full rounded-sm border border-border bg-background px-2 py-1.5" />}
 						<Button type="submit" variant="outline" size="sm" disabled={busy || (prompt.type === "select" && !promptValue)}>{t("settings.connection.continue")}</Button>
 					</form>}
 				</div>}

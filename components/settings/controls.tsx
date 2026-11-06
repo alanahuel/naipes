@@ -11,6 +11,7 @@
 
 import { useState, type ComponentPropsWithRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { Select, type SelectOption } from "@/components/ui/select";
 
 /** A section block: pronounced mono heading + content. */
 export function SettingsSection({
@@ -47,7 +48,7 @@ export function SettingsGroup({
 }) {
 	return (
 		<div data-testid={testid} className="mt-5 border-t border-border/60 pt-4 first:mt-0 first:border-t-0 first:pt-0">
-			<p className="mb-3 text-[15px] font-semibold text-foreground">{label}</p>
+			<p className="mb-3 text-lg font-semibold text-foreground">{label}</p>
 			<div className="flex flex-col gap-2">{children}</div>
 		</div>
 	);
@@ -173,37 +174,24 @@ export function Toggle({
 	);
 }
 
-/** A thin select — native element, options as given. */
+/** A thin select — the shared Select (design pass 2026-11-06: no native
+ *  <select> anywhere), sized for settings rows. */
 export function ThinSelect({
 	value,
 	onChange,
-	children,
+	options,
 	ariaLabel,
 	testid,
 	disabled,
 }: {
 	value: string;
 	onChange: (next: string) => void;
-	children: React.ReactNode;
+	options: readonly SelectOption[];
 	ariaLabel: string;
 	testid?: string;
 	disabled?: boolean;
 }) {
-	return (
-		<select
-			value={value}
-			aria-label={ariaLabel}
-			data-testid={testid}
-			disabled={disabled}
-			onChange={(e) => onChange(e.target.value)}
-			className={cn(
-				"h-7 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground outline-none",
-				disabled && "cursor-not-allowed",
-			)}
-		>
-			{children}
-		</select>
-	);
+	return <Select value={value} onChange={onChange} options={options} ariaLabel={ariaLabel} testid={testid} disabled={disabled} size="sm" className="min-w-28" />;
 }
 
 /** A thin hex/text input committing on blur + Enter (settings pace, not

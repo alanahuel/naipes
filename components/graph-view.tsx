@@ -79,6 +79,7 @@ import { MenuShell } from "@/components/menu-shell.tsx";
 import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { Hint } from "@/components/ui/hint";
+import { Select } from "@/components/ui/select";
 import {
 	ARROW_LENGTH_LADDER,
 	CHARGE_RANGE,
@@ -217,6 +218,14 @@ function tokenHex(cssVar: string): string {
 	return value ? cssColorToHex(value) : "#888888";
 }
 
+/** Relative luminance below the midpoint = a dark sheet. */
+function isDarkHex(hex: string): boolean {
+	const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(hex);
+	if (!m) return true;
+	const [r, g, b] = [m[1], m[2], m[3]].map((h) => parseInt(h!, 16) / 255);
+	return 0.2126 * r! + 0.7152 * g! + 0.0722 * b! < 0.5;
+}
+
 // ---- Component ------------------------------------------------------------
 
 interface Selection {
@@ -259,7 +268,7 @@ function SettingSlider({
 }) {
 	return (
 		<label className={`flex flex-col gap-1${disabled ? " opacity-40" : ""}`}>
-			<span className="flex items-center justify-between text-[11px] text-muted-foreground">
+			<span className="flex items-center justify-between text-2xs text-muted-foreground">
 				{label}
 				<span className="tabular-nums">{display ?? value}</span>
 			</span>
@@ -397,7 +406,7 @@ function GraphCostPanel({ costs }: { costs: GraphCostSummary }) {
 	return (
 		<div className="w-80 max-w-[calc(100vw-1.5rem)] rounded-xl border bg-card/95 p-3 text-xs shadow-lg backdrop-blur">
 			<div className="mb-2 flex items-baseline justify-between">
-				<span className="text-[10px] font-medium text-muted-foreground">
+				<span className="text-2xs font-medium text-muted-foreground">
 					{t("graph.view.costTitle")}
 				</span>
 				<span className="text-foreground tabular-nums">
@@ -409,7 +418,7 @@ function GraphCostPanel({ costs }: { costs: GraphCostSummary }) {
 			</div>
 			<div className="flex flex-col gap-1">
 				{stageRows.map(([label, stage]) => (
-					<div key={label} className="flex items-baseline justify-between gap-2 text-[11px]">
+					<div key={label} className="flex items-baseline justify-between gap-2 text-2xs">
 						<span className="shrink-0 text-muted-foreground">{label}</span>
 						<span className="min-w-0 text-right tabular-nums">
 							{fmtRunCost(stage.runs - stage.unpricedRuns - (stage.subscriptionRuns ?? 0) <= 0 ? null : stage.dollars, graphProviders(stage))}
@@ -426,7 +435,7 @@ function GraphCostPanel({ costs }: { costs: GraphCostSummary }) {
 			</div>
 			<div className="mt-2 flex flex-col gap-0.5 border-t pt-2">
 				{costs.runs.map((run) => (
-						<div key={run.startedAt} className="flex items-baseline justify-between gap-2 text-[11px]">
+						<div key={run.startedAt} className="flex items-baseline justify-between gap-2 text-2xs">
 							<span className="min-w-0 flex-1 truncate text-muted-foreground">
 								<span className="text-foreground/70">{timeAgo(run.startedAt, t)}</span>{" "}
 								{run.title}
@@ -508,7 +517,7 @@ function GraphSettingsControl({
 							{/* «Modo ligero» (owner, 2026-11-03): manual, off by
 							    default — no regions, 1x canvas, no live physics. */}
 							<label
-								className="flex cursor-pointer items-center justify-between text-[11px] text-muted-foreground"
+								className="flex cursor-pointer items-center justify-between text-2xs text-muted-foreground"
 								title={t("graph.view.lightModeHint")}
 							>
 								<span>{t("graph.view.lightMode")}</span>
@@ -595,10 +604,10 @@ function GraphSettingsControl({
 						    the whole build (splat/blur/readback/blit), not just
 						    the paint. */}
 						<div className="mt-1.5 flex flex-col gap-1.5 border-t pt-1.5">
-							<span className="text-[10px] font-medium text-muted-foreground">
+							<span className="text-2xs font-medium text-muted-foreground">
 								{t("graph.view.regions")}
 							</span>
-							<label className="flex cursor-pointer items-center justify-between text-[11px] text-muted-foreground">
+							<label className="flex cursor-pointer items-center justify-between text-2xs text-muted-foreground">
 								<span>{t("graph.view.backgroundColors")}</span>
 								<input
 									type="checkbox"
@@ -655,33 +664,30 @@ function GraphSettingsControl({
 									}))}
 							/>
 							<label
-								className={`flex items-center justify-between gap-2 text-[11px] text-muted-foreground${!regionTuning.enabled ? " opacity-40" : ""}`}
+								className={`flex items-center justify-between gap-2 text-2xs text-muted-foreground${!regionTuning.enabled ? " opacity-40" : ""}`}
 							>
 								<span>{t("graph.view.bitmap")}</span>
-								<select
+								<Select
+									size="sm"
 									disabled={!regionTuning.enabled}
-									className="rounded-md border bg-background px-1.5 py-0.5 text-xs tabular-nums text-foreground"
-									value={regionTuning.bitmap}
-									onChange={(e) =>
+									className="tabular-nums"
+									ariaLabel={t("graph.view.bitmap")}
+									value={String(regionTuning.bitmap)}
+									onChange={(v) =>
 										changeSettings((cur) => ({
 											...cur,
-											regions: { ...cur.regions, bitmap: Number(e.target.value) },
+											regions: { ...cur.regions, bitmap: Number(v) },
 										}))
 									}
-								>
-									{REGION_BITMAP_OPTIONS.map((o) => (
-										<option key={o} value={o}>
-											{o}
-										</option>
-									))}
-								</select>
+									options={REGION_BITMAP_OPTIONS.map((o) => ({ value: String(o), label: String(o) }))}
+								/>
 							</label>
 							{/* Cluster labels moved here 2026-09-16 (user: cluster
 							    stuff lives in the regions section). Decoupled from
 							    the Background colors switch above — labels follow
 							    their own clusterLabels toggle. Size is screen px
 							    (constant at any zoom, unlike node labels). */}
-							<label className="flex cursor-pointer items-center justify-between text-[11px] text-muted-foreground">
+							<label className="flex cursor-pointer items-center justify-between text-2xs text-muted-foreground">
 								<span>{t("graph.view.clusterLabels")}</span>
 								<input
 									type="checkbox"
@@ -716,7 +722,7 @@ function GraphSettingsControl({
 						    Order (user 2026-09-17): general forces first; depth
 						    anchor + its gray-out-able controls last. */}
 						<div className="mt-1.5 flex flex-col gap-1.5 border-t pt-1.5">
-							<span className="text-[10px] font-medium text-muted-foreground">
+							<span className="text-2xs font-medium text-muted-foreground">
 								{t("graph.view.physics")}
 							</span>
 							<SettingSlider
@@ -803,20 +809,22 @@ function GraphSettingsControl({
 							    as a self-contained sub-section. */}
 							<label className="flex items-center justify-between gap-2 text-xs">
 								{t("graph.view.depthAnchor")}
-								<select
-									className="rounded border bg-background px-1 py-0.5 text-xs"
+								<Select
+									size="sm"
+									ariaLabel={t("graph.view.depthAnchor")}
 									value={physicsTuning.depthMode}
-									onChange={(e) =>
+									onChange={(depthMode) =>
 										changeSettings((cur) => ({
 											...cur,
-											physics: { ...cur.physics, depthMode: e.target.value as GraphRenderSettings["physics"]["depthMode"] },
+											physics: { ...cur.physics, depthMode },
 										}))
 									}
-								>
-									<option value="off">{t("graph.view.depthOff")}</option>
-									<option value="vertical">{t("graph.view.depthVertical")}</option>
-									<option value="radial">{t("graph.view.depthRadial")}</option>
-								</select>
+									options={[
+										{ value: "off" as const, label: t("graph.view.depthOff") },
+										{ value: "vertical" as const, label: t("graph.view.depthVertical") },
+										{ value: "radial" as const, label: t("graph.view.depthRadial") },
+									]}
+								/>
 							</label>
 							<SettingSlider
 								label={t("graph.view.depthStrength")}
@@ -866,7 +874,7 @@ function GraphSettingsControl({
 								<div className="flex gap-1.5">
 									<button
 										type="button"
-										className="flex-1 rounded-md border border-destructive/50 px-2 py-1 text-[11px] text-destructive hover:bg-destructive/10"
+										className="flex-1 rounded-md border border-destructive/50 px-2 py-1 text-2xs text-destructive hover:bg-destructive/10"
 										onClick={() => {
 											setRelayout("running");
 											onRelayout().then(
@@ -879,7 +887,7 @@ function GraphSettingsControl({
 									</button>
 									<button
 										type="button"
-										className="rounded-md border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent"
+										className="rounded-md border px-2 py-1 text-2xs text-muted-foreground hover:bg-accent"
 										onClick={() => setRelayout("idle")}
 									>
 										{t("graph.view.relayoutCancel")}
@@ -889,7 +897,7 @@ function GraphSettingsControl({
 								<button
 									type="button"
 									disabled={relayout === "running"}
-									className="flex items-center justify-center gap-1.5 rounded-md border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-60"
+									className="flex items-center justify-center gap-1.5 rounded-md border px-2 py-1 text-2xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-60"
 									onClick={() => setRelayout("confirm")}
 								>
 									{relayout === "running" && <Loader2Icon className="size-3 animate-spin" />}
@@ -973,7 +981,7 @@ export function GraphChromeRow({
 					</div>
 					</Hint>
 					{noMatch && (
-						<div className="px-1.5 pt-1 text-[11px] text-muted-foreground">{t("graph.view.noMatch")}</div>
+						<div className="px-1.5 pt-1 text-2xs text-muted-foreground">{t("graph.view.noMatch")}</div>
 					)}
 				</div>
 			)}
@@ -1540,6 +1548,7 @@ export function GraphView({
 				edge: tokenHex("--ring"),
 				label: tokenHex("--muted-foreground"),
 				hoverText: tokenHex("--foreground"),
+				darkSheet: isDarkHex(tokenHex("--background")),
 			},
 			// Match the app typography (Geist via the body's stack).
 			fontFamily: getComputedStyle(document.body).fontFamily,

@@ -19,13 +19,8 @@ export function LanguageSetting({ onLanguageChange }: { onLanguageChange: (local
 					setLocale(value);
 					void onLanguageChange(value);
 				}}
-			>
-				{LOCALES.map((l) => (
-					<option key={l} value={l}>
-						{LOCALE_NAMES[l]}
-					</option>
-				))}
-			</ThinSelect>
+				options={LOCALES.map((l) => ({ value: l, label: LOCALE_NAMES[l] }))}
+			/>
 		</SettingsRow>
 	);
 }

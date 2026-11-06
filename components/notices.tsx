@@ -428,14 +428,14 @@ export function NoticesBell() {
 				{unread > 0 && (
 					<span
 						data-testid="notices-unread"
-						className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold tabular-nums text-primary-foreground"
+						className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-2xs font-semibold tabular-nums text-primary-foreground"
 					>
 						{unread > 9 ? "9+" : unread}
 					</span>
 				)}
 			</button>
 			{open && (
-				<div role="dialog" aria-label={t("notices.title")} data-testid="notices-panel" className="absolute right-0 top-11 z-50 w-80 rounded-[14px] border bg-popover p-1.5 shadow-float">
+				<div role="dialog" aria-label={t("notices.title")} data-testid="notices-panel" className="absolute right-0 top-11 z-50 w-80 rounded-xl border bg-popover p-1.5 shadow-float">
 					<div className="flex items-center justify-between px-3 py-2">
 						<span className="text-sm font-semibold">{t("notices.title")}</span>
 						{unread > 0 && (

@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ChevronDownIcon, ChevronUpIcon, InboxIcon } from "lucide-react";
 import { useServerEvent } from "@/components/server-events";
 import { useT } from "@/components/i18n";
+import { Select } from "@/components/ui/select";
 
 interface FolderCount {
 	folder: string;
@@ -81,15 +82,15 @@ function InboxRow({ item, destinations, busy, act }: {
 						</button>
 					))}
 					<span className="flex items-center gap-1.5">
-						<select
-							className="h-7 min-w-0 flex-1 rounded-sm border border-border bg-background px-1"
+						<Select
+							size="sm"
+							className="min-w-0 flex-1"
 							value={other}
-							aria-label={t("inbox.otherFolder")}
-							onChange={(e) => setOther(e.target.value)}
-						>
-							<option value="">{t("inbox.otherFolder")}</option>
-							{destinations.map((folder) => <option key={folder} value={folder}>{folder}</option>)}
-						</select>
+							ariaLabel={t("inbox.otherFolder")}
+							placeholder={t("inbox.otherFolder")}
+							onChange={setOther}
+							options={destinations.map((folder) => ({ value: folder, label: folder }))}
+						/>
 						<button type="button" className={button} disabled={busy || !other} onClick={() => move(other)}>{t("inbox.move")}</button>
 					</span>
 				</div>

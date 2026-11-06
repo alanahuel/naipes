@@ -214,7 +214,7 @@ export function Home({ initialConfigured }: { initialConfigured: boolean }) {
 		<div className="h-full overflow-y-auto" data-testid="start-page">
 			<div className="mx-auto flex w-full max-w-[46rem] flex-col gap-10 px-4 pb-16 pt-[12vh]">
 				<section className="flex flex-col gap-4">
-					<h1 className="px-1 text-[26px] font-semibold leading-[34px] tracking-tight">{t("graph.home.placeholderLearn")}</h1>
+					<h1 className="px-1 text-2xl font-semibold tracking-tight">{t("graph.home.placeholderLearn")}</h1>
 					<div>
 					{/* The pick bar (owner vision, 2026-10-04): the chain
 					    table's selection is PERSISTENT — picked
@@ -300,7 +300,7 @@ export function Home({ initialConfigured }: { initialConfigured: boolean }) {
 						dictationSlot={<DictationBar dictation={dictation} />}
 						turns={[] as TurnUsage[]}
 						leadingSlot={
-							<div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="home-mode-switch">
+							<div className="flex items-center gap-0.5 rounded-full border bg-card/85 p-0.5 shadow-lg backdrop-blur" data-testid="home-mode-switch">
 								{(["teach", "practice"] as const).map((m) => (
 									<button
 										key={m}
@@ -308,9 +308,9 @@ export function Home({ initialConfigured }: { initialConfigured: boolean }) {
 										data-testid={`home-mode-${m}`}
 										onClick={() => setMode(m)}
 										className={
-											"flex items-center gap-1 rounded-sm px-2 py-0.5 text-[11px] transition-colors " +
+											"flex h-6 items-center gap-1 rounded-full px-2.5 text-xs transition-colors " +
 											(mode === m
-												? "bg-accent text-foreground"
+												? "bg-accent font-medium text-foreground"
 												: "text-muted-foreground hover:text-foreground")
 										}
 									>

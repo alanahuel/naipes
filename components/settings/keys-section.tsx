@@ -239,12 +239,12 @@ function KeyTableRow({
 							target="_blank"
 							rel="noreferrer"
 							onClick={(e) => e.stopPropagation()}
-							className="text-[10px] text-muted-foreground/60 underline-offset-2 hover:text-foreground hover:underline"
+							className="text-2xs text-muted-foreground/60 underline-offset-2 hover:text-foreground hover:underline"
 						>
 							{t("settings.providers.getKey")}
 						</a>
 					)}
-					<span data-testid={`${testid}-status`} className="font-mono text-[11px] text-muted-foreground">
+					<span data-testid={`${testid}-status`} className="font-mono text-2xs text-muted-foreground">
 						{keyStatusLine(status, t)}
 					</span>
 				</span>
@@ -303,7 +303,7 @@ function AddProviderRow({
 				className="flex w-full items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left font-ui text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
 			>
 				<span>{t("settings.providers.addProvider")}</span>
-				{addable.length > 0 && <span className="font-mono text-[11px]">{addable.length}</span>}
+				{addable.length > 0 && <span className="text-2xs tabular-nums">{t("settings.providers.available", { n: addable.length })}</span>}
 			</button>
 			{open && (
 				<MenuShell
@@ -474,7 +474,7 @@ export function KeysSection({
 				{unknownRows.length > 0 && <div data-testid="group-unknown-keys">
 					{unknownRows.map((status) => <div key={status.id} data-testid={`unknown-${status.id}`} className="flex items-center justify-between gap-3 px-1 py-1.5 opacity-40">
 						<span className="font-mono text-xs text-foreground">{status.id}</span>
-						<span className="font-mono text-[11px] text-muted-foreground">{status.masked}</span>
+						<span className="font-mono text-2xs text-muted-foreground">{status.masked}</span>
 					</div>)}
 				</div>}
 			</SettingsGroup>}
@@ -504,7 +504,7 @@ export function KeysSection({
 				))}
 				{label === "Dictation" && <>
 					<DictationLanguageSetting />
-					<p data-testid="dictation-setup-hint" className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
+					<p data-testid="dictation-setup-hint" className="px-1 text-2xs leading-relaxed text-muted-foreground/70">
 						{t("settings.providers.dictationHintBefore")}<a
 							href="https://console.deepgram.com/"
 							target="_blank"

@@ -143,7 +143,7 @@ export function SettingsPage({ page, initialRow }: { page: SettingsPageId; initi
 		<div ref={scrollRef} className="h-full overflow-y-auto" data-testid={`settings-page-${page}`}>
 			<div className="mx-auto flex w-full max-w-[760px] flex-col gap-8 px-8 pb-16 pt-10">
 				<header className="flex flex-col gap-1">
-					<h1 className="text-[26px] font-semibold leading-[34px] tracking-tight">{t(copy.title)}</h1>
+					<h1 className="text-2xl font-semibold tracking-tight">{t(copy.title)}</h1>
 					<p className="text-sm text-muted-foreground">{t(copy.subtitle)}</p>
 				</header>
 				{error && (

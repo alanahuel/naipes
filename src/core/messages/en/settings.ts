@@ -19,6 +19,7 @@ export default {
 	"settings.providers.pasteKey": "Paste key…",
 	"settings.providers.keyAria": "{label} key",
 	"settings.providers.addProvider": "+ Add provider key",
+	"settings.providers.available": "{n} available",
 	"settings.providers.saveFailed": "Save failed ({status})",
 	"settings.providers.dictationHintBefore": "Create a ",
 	"settings.providers.dictationHintLink": "Deepgram API key",

@@ -216,7 +216,7 @@ export function ProviderMenuList({
 							}`}
 						>
 							<span className="truncate text-card-foreground">{p.label}</span>
-							<span className="shrink-0 font-mono text-[11px] text-muted-foreground">{p.envVar}</span>
+							<span className="shrink-0 font-mono text-2xs text-muted-foreground">{p.envVar}</span>
 						</button>
 					</li>
 				))}

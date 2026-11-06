@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronRightIcon, CircleUserRoundIcon, FolderOpenIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, CircleUserRoundIcon, FolderOpenIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NpMark } from "@/components/np-mark";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
@@ -125,7 +125,10 @@ export function TopNav({ pathname }: { pathname: string }) {
 			>
 				<NpMark className="size-6" />
 			</Link>
-			<nav aria-label={t("shell.tabs.label")} className="flex items-center gap-1">
+			{/* Narrow windows (owner 2026-11-06, below 720px): the current
+			    section + a menu instead of the five tabs, which overflowed. */}
+			<NarrowNav pathname={pathname} />
+			<nav aria-label={t("shell.tabs.label")} className="hidden items-center gap-1 min-[720px]:flex">
 				{TABS.map((tab) => {
 					const active = tab.match(pathname);
 					return (
@@ -149,6 +152,70 @@ export function TopNav({ pathname }: { pathname: string }) {
 				<ProfileMenu />
 			</div>
 		</header>
+	);
+}
+
+/** The tabs as a dropdown for narrow windows: the trigger names the
+ *  current section; the menu lists all five (Esc / outside click close). */
+export function NarrowNav({ pathname }: { pathname: string }) {
+	const t = useT();
+	const [open, setOpen] = useState(false);
+	const rootRef = useRef<HTMLDivElement>(null);
+	useEffect(() => setOpen(false), [pathname]);
+	useEffect(() => {
+		if (!open) return;
+		const onPointerDown = (e: PointerEvent) => {
+			if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+		};
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === "Escape") {
+				e.preventDefault();
+				e.stopPropagation();
+				setOpen(false);
+			}
+		};
+		document.addEventListener("pointerdown", onPointerDown);
+		document.addEventListener("keydown", onKeyDown);
+		return () => {
+			document.removeEventListener("pointerdown", onPointerDown);
+			document.removeEventListener("keydown", onKeyDown);
+		};
+	}, [open]);
+	const current = TABS.find((tab) => tab.match(pathname));
+	return (
+		<div ref={rootRef} className="relative min-w-0 min-[720px]:hidden" data-testid="narrow-nav">
+			<button
+				type="button"
+				aria-label={t("shell.tabs.label")}
+				aria-haspopup="menu"
+				aria-expanded={open}
+				data-testid="narrow-nav-button"
+				onClick={() => setOpen((v) => !v)}
+				className="flex h-9 min-w-0 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-foreground transition-colors hover:bg-accent"
+			>
+				<span className="truncate">{current ? t(current.label) : t("shell.tabs.label")}</span>
+				<ChevronDownIcon aria-hidden className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+			</button>
+			{open && (
+				<nav aria-label={t("shell.tabs.label")} data-testid="narrow-nav-menu" className="absolute left-0 top-11 z-50 flex w-60 flex-col rounded-xl border bg-popover p-1.5 shadow-float">
+					{TABS.map((tab) => {
+						const active = tab === current;
+						return (
+							<Link
+								key={tab.href}
+								href={tab.href}
+								aria-current={active ? "page" : undefined}
+								onClick={() => setOpen(false)}
+								className={cn("flex min-h-10 items-center justify-between gap-3 rounded-lg px-3 text-sm transition-colors hover:bg-accent", active ? "font-semibold text-foreground" : "text-muted-foreground")}
+							>
+								{t(tab.label)}
+								{active && <CheckIcon aria-hidden className="size-4" />}
+							</Link>
+						);
+					})}
+				</nav>
+			)}
+		</div>
 	);
 }
 
@@ -197,7 +264,7 @@ export function ProfileMenu({ initiallyOpen = false }: { initiallyOpen?: boolean
 				<div
 					role="menu"
 					data-testid="profile-menu"
-					className="absolute right-0 top-11 z-50 w-72 rounded-[14px] border bg-popover p-1.5 shadow-float"
+					className="absolute right-0 top-11 z-50 w-72 max-w-[calc(100vw-1.5rem)] rounded-xl border bg-popover p-1.5 shadow-float"
 				>
 					{SETTINGS_PAGES.map((page) => (
 						<Link

@@ -88,7 +88,7 @@ export function ToolCallCard({ part }: ArtifactPartProps) {
 						<div className="mb-1 font-medium text-muted-foreground">
 							{t("artifacts.tool.input")}
 						</div>
-						<pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed">
+						<pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-2xs leading-relaxed">
 							{JSON.stringify(p.input, null, 2)}
 						</pre>
 					</div>
@@ -98,7 +98,7 @@ export function ToolCallCard({ part }: ArtifactPartProps) {
 						<div className="mb-1 font-medium text-muted-foreground">
 							{t("artifacts.tool.error")}
 						</div>
-						<pre className="whitespace-pre-wrap break-all font-mono text-[11px] text-warn">
+						<pre className="whitespace-pre-wrap break-all font-mono text-2xs text-warn">
 							{p.errorText}
 						</pre>
 					</div>
@@ -107,7 +107,7 @@ export function ToolCallCard({ part }: ArtifactPartProps) {
 						<div className="mb-1 font-medium text-muted-foreground">
 							{t("artifacts.tool.output")}
 						</div>
-						<pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed">
+						<pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all font-mono text-2xs leading-relaxed">
 							{out}
 						</pre>
 					</div>

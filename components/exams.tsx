@@ -22,6 +22,12 @@ import { useRouter } from "next/navigation";
 import { AlertTriangleIcon, CheckIcon, ChevronRightIcon, MoreHorizontalIcon, PlusIcon, SettingsIcon, StarIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MenuShell } from "@/components/menu-shell";
+import { buttonVariants } from "@/components/ui/button";
+import { Page, PageHeader, SectionTitle } from "@/components/ui/page";
+import { ListCard, ListRow } from "@/components/ui/list";
+import { ProgressBar } from "@/components/ui/progress-bar";
+import { BarChart } from "@/components/ui/bar-chart";
+import { Select } from "@/components/ui/select";
 import { useServerEvent } from "@/components/server-events";
 import { stashOpeningPrompt } from "@/components/opening-prompt";
 import { useLocale, useT, type Translate } from "@/components/i18n";
@@ -221,26 +227,14 @@ export function dateLabel(day: string, locale: string, opts: Intl.DateTimeFormat
 
 // ─── small pieces ───────────────────────────────────────────────────────────
 
-function SectionTitle({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
-	return (
-		<div className="flex items-baseline justify-between gap-3 px-1">
-			<h2 className="text-lg font-semibold">{children}</h2>
-			{right}
-		</div>
-	);
-}
+/** The shared buttons (design pass 2026-11-06): one height, one radius,
+ *  never wrapping — links and buttons alike. */
+const primaryBtn = buttonVariants({ variant: "default" });
+const quietBtn = buttonVariants({ variant: "outline", size: "sm" });
 
-const primaryBtn = "rounded-[10px] bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-50";
-const quietBtn = "rounded-[10px] border px-3 py-1.5 text-sm transition-colors hover:bg-accent disabled:opacity-50";
-
-/** Coverage vs target: track, fill, a hairline tick at the target. */
-function CoverageBar({ value, target, label }: { value: number; target: number; label: string }) {
-	return (
-		<span className="relative block h-2 rounded-full bg-np-data-track" role="img" aria-label={label}>
-			<span className="absolute inset-y-0 left-0 rounded-full bg-np-data" style={{ width: `${Math.min(100, value)}%` }} />
-			<span className="absolute -inset-y-1 w-px bg-foreground/60" style={{ left: `${target}%` }} />
-		</span>
-	);
+/** Coverage vs target (the shared ProgressBar; detail views label the tick). */
+function CoverageBar({ value, target, label, labelled = false }: { value: number; target: number; label: string; labelled?: boolean }) {
+	return <ProgressBar value={value} target={target} label={label} showTargetLabel={labelled} />;
 }
 
 // ─── the list ───────────────────────────────────────────────────────────────
@@ -255,7 +249,7 @@ export function ExamCard({ exam }: { exam: ExamSummaryView }) {
 		<li className="flex items-center border-b transition-colors last:border-b-0 hover:bg-accent/50">
 			<Link href={`/exams/${exam.id}`} className="flex min-w-0 flex-1 flex-col gap-2 px-4 py-3" data-testid={`exam-card-${exam.id}`}>
 				<span className="flex items-baseline justify-between gap-3">
-					<span className="min-w-0 truncate font-medium">{exam.title}</span>
+					<span className="min-w-0 truncate font-medium" title={exam.title}>{exam.title}</span>
 					<span className="shrink-0 text-sm text-muted-foreground">
 						{dateLabel(exam.examDate, locale)} · {exam.status === "archived" ? t("exams.list.past") : days === 0 ? t("exams.days.today") : t("exams.days.left", { n: days })}
 					</span>
@@ -301,21 +295,22 @@ export function ExamsPage() {
 		};
 	}, [data]);
 	return (
-		<div className="h-full overflow-y-auto" data-testid="exams-page">
-			<div className="mx-auto flex w-full max-w-[46rem] flex-col gap-10 px-4 pb-16 pt-10">
-				<header className="flex items-center justify-between gap-3 px-1">
-					<h1 className="text-[26px] font-semibold leading-[34px] tracking-tight">{t("exams.page.title")}</h1>
-					<span className="flex items-center gap-4">
-						<Link href="/settings/exams" className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
-							<SettingsIcon className="size-4" />
-							{t("exams.page.settings")}
-						</Link>
-						<Link href="/exams/new" className={cn(primaryBtn, "flex items-center gap-1.5")} data-testid="exams-new">
-							<PlusIcon className="size-4" />
-							{t("exams.page.new")}
-						</Link>
-					</span>
-				</header>
+		<Page testid="exams-page">
+				<PageHeader
+					title={t("exams.page.title")}
+					actions={
+						<>
+							<Link href="/settings/exams" className={buttonVariants({ variant: "ghost", size: "sm", className: "text-muted-foreground" })}>
+								<SettingsIcon />
+								{t("exams.page.settings")}
+							</Link>
+							<Link href="/exams/new" className={primaryBtn} data-testid="exams-new">
+								<PlusIcon />
+								{t("exams.page.new")}
+							</Link>
+						</>
+					}
+				/>
 				{data === undefined ? (
 					<p className="px-1 text-sm text-muted-foreground">{t("exams.loading")}</p>
 				) : data === null ? (
@@ -327,17 +322,16 @@ export function ExamsPage() {
 						groups[key].length === 0 ? null : (
 							<section key={key} className="flex flex-col gap-3">
 								<SectionTitle>{t(`exams.list.${key}` as MessageKey)}</SectionTitle>
-								<ul className="overflow-hidden rounded-xl border">
+								<ListCard>
 									{groups[key].map((e) => (
 										<ExamCard key={e.id} exam={e} />
 									))}
-								</ul>
+								</ListCard>
 							</section>
 						),
 					)
 				)}
-			</div>
-		</div>
+		</Page>
 	);
 }
 
@@ -348,16 +342,18 @@ type WizardStep = 1 | 2 | 3 | 4 | 5;
 function StepHeader({ step }: { step: WizardStep }) {
 	const t = useT();
 	return (
-		<header className="flex items-center justify-between gap-3 px-1">
-			<h1 className="text-[26px] font-semibold leading-[34px] tracking-tight">{t("exams.wizard.title")}</h1>
-			<ol className="flex gap-1.5 text-sm" aria-label={t("exams.wizard.steps")}>
-				{[1, 2, 3, 4, 5].map((n) => (
-					<li key={n} aria-current={n === step ? "step" : undefined} className={cn("flex size-7 items-center justify-center rounded-full border tabular-nums", n === step ? "bg-primary text-primary-foreground" : n < step ? "text-foreground" : "text-muted-foreground")}>
-						{n}
-					</li>
-				))}
-			</ol>
-		</header>
+		<PageHeader
+			title={t("exams.wizard.title")}
+			actions={
+				<ol className="flex gap-1.5 text-sm" aria-label={t("exams.wizard.steps")}>
+					{[1, 2, 3, 4, 5].map((n) => (
+						<li key={n} aria-current={n === step ? "step" : undefined} className={cn("flex size-7 items-center justify-center rounded-full border tabular-nums", n === step ? "border-primary bg-primary text-primary-foreground" : n < step ? "border-foreground/30 text-foreground" : "text-muted-foreground")}>
+							{n}
+						</li>
+					))}
+				</ol>
+			}
+		/>
 	);
 }
 
@@ -485,9 +481,9 @@ export function FolderPicker({ folders, flagged, onChange }: { folders: VaultFol
 				onChange={(e) => setQuery(e.target.value)}
 				placeholder={t("exams.wizard.folderSearch")}
 				data-testid="exam-folder-search"
-				className="rounded-[10px] border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary/50"
+				className="rounded-md border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary/50"
 			/>
-			<div className="max-h-80 overflow-y-auto rounded-[10px] border px-1 py-1.5">
+			<div className="max-h-80 overflow-y-auto rounded-md border px-1 py-1.5">
 				{rows.length > 0 ? <ul>{rows}</ul> : <p className="px-2 py-1 text-sm text-muted-foreground">{t("exams.wizard.folderNoMatch")}</p>}
 			</div>
 			{chips.length > 0 && (
@@ -507,7 +503,7 @@ export function FolderPicker({ folders, flagged, onChange }: { folders: VaultFol
 	);
 }
 
-const fieldInput = "rounded-[10px] border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50";
+const fieldInput = "h-9 rounded-md border bg-background px-3 text-sm outline-none transition-colors focus:border-primary/50";
 
 /** «Contexto (opcional)» (owner 2026-11-06): steers the research. */
 export function ContextFields({ value, onChange }: { value: ExamContext; onChange: (next: ExamContext) => void }) {
@@ -524,17 +520,16 @@ export function ContextFields({ value, onChange }: { value: ExamContext; onChang
 		<fieldset className="flex flex-col gap-3 px-1" data-testid="exam-context">
 			<legend className="mb-1 text-sm text-muted-foreground">{t("exams.context.title")}</legend>
 			<div className="grid gap-3 sm:grid-cols-2">
-				<label className="flex flex-col gap-1 text-sm">
+				<div className="flex flex-col gap-1 text-sm">
 					<span className="text-muted-foreground">{t("exams.context.kind")}</span>
-					<select value={value.kind ?? ""} onChange={set("kind")} data-testid="exam-context-kind" className={fieldInput}>
-						<option value="">—</option>
-						{EXAM_CONTEXT_KINDS.map((k) => (
-							<option key={k} value={k}>
-								{t(`exams.context.kind.${k}`)}
-							</option>
-						))}
-					</select>
-				</label>
+					<Select
+						value={value.kind ?? "none"}
+						ariaLabel={t("exams.context.kind")}
+						testid="exam-context-kind"
+						options={[{ value: "none", label: "—" }, ...EXAM_CONTEXT_KINDS.map((k) => ({ value: k, label: t(`exams.context.kind.${k}`) }))]}
+						onChange={(k) => onChange({ ...value, kind: k === "none" ? null : (k as ExamContextKind) })}
+					/>
+				</div>
 				{field("name", 300)}
 				{field("institution", 300)}
 				{field("location", 300)}
@@ -711,11 +706,11 @@ export function NewExamWizard() {
 					<div className="grid gap-3 px-1 sm:grid-cols-[1fr_12rem]">
 						<label className="flex flex-col gap-1 text-sm">
 							<span className="text-muted-foreground">{t("exams.wizard.name")}</span>
-							<input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={300} data-testid="exam-title" className="rounded-[10px] border bg-background px-3 py-2 outline-none focus:border-primary/50" />
+							<input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={300} data-testid="exam-title" className={fieldInput} />
 						</label>
 						<label className="flex flex-col gap-1 text-sm">
 							<span className="text-muted-foreground">{t("exams.wizard.date")}</span>
-							<input type="date" value={date} onChange={(e) => onDate(e.target.value)} data-testid="exam-date" className="rounded-[10px] border bg-background px-3 py-2 outline-none focus:border-primary/50" />
+							<input type="date" value={date} onChange={(e) => onDate(e.target.value)} data-testid="exam-date" className={fieldInput} />
 						</label>
 					</div>
 					<textarea
@@ -724,7 +719,7 @@ export function NewExamWizard() {
 						placeholder={t("exams.wizard.textPlaceholder")}
 						rows={10}
 						data-testid="exam-text"
-						className="mx-1 rounded-[10px] border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50"
+						className="mx-1 rounded-md border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-primary/50"
 					/>
 					<div className="flex flex-wrap items-center gap-3 px-1 text-sm">
 						<input ref={fileRef} type="file" accept=".md,.txt,.pdf,.docx,.epub" className="hidden" onChange={(e) => e.target.files?.[0] && void onFile(e.target.files[0])} />
@@ -854,9 +849,9 @@ function GuideRequest({ exam }: { exam: ExamDetailView }) {
 			{mode && (
 				<div className="flex flex-col gap-2">
 					{mode === "paste" ? (
-						<textarea value={value} onChange={(e) => setValue(e.target.value)} rows={8} placeholder={t("exams.guide.pastePlaceholder")} className="rounded-[10px] border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50" data-testid="exam-guide-paste" />
+						<textarea value={value} onChange={(e) => setValue(e.target.value)} rows={8} placeholder={t("exams.guide.pastePlaceholder")} className="rounded-md border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50" data-testid="exam-guide-paste" />
 					) : (
-						<input value={value} onChange={(e) => setValue(e.target.value)} placeholder="https://…" className="rounded-[10px] border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50" data-testid="exam-guide-link" />
+						<input value={value} onChange={(e) => setValue(e.target.value)} placeholder="https://…" className="rounded-md border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50" data-testid="exam-guide-link" />
 					)}
 					<button type="button" className={cn(primaryBtn, "self-start")} disabled={busy || !value.trim() || (mode === "link" && !/^https?:\/\//i.test(value.trim()))} onClick={() => void saveTyped()}>
 						{t("exams.guide.save")}
@@ -940,20 +935,16 @@ export function targetSourceLabel(target: TargetIdea, materials: readonly ExamMa
 function KindSelect({ value, label, disabled, onChange }: { value: PointKind; label: string; disabled?: boolean; onChange: (kind: PointKind) => void }) {
 	const t = useT();
 	return (
-		<select
+		<Select
 			value={value}
 			disabled={disabled}
-			aria-label={label}
-			onChange={(e) => onChange(e.target.value as PointKind)}
-			className="max-w-60 shrink-0 rounded-md border bg-background px-1 py-0.5 text-xs text-muted-foreground disabled:opacity-60"
-			data-testid="exam-kind"
-		>
-			{POINT_KINDS.map((k) => (
-				<option key={k} value={k}>
-					{t(`exams.kind.${k}` as MessageKey)}
-				</option>
-			))}
-		</select>
+			ariaLabel={label}
+			size="sm"
+			onChange={onChange}
+			className="max-w-60 shrink-0 text-muted-foreground"
+			testid="exam-kind"
+			options={POINT_KINDS.map((k) => ({ value: k, label: t(`exams.kind.${k}` as MessageKey) }))}
+		/>
 	);
 }
 
@@ -1244,7 +1235,7 @@ export function StandardPicker({ value, onChange }: { value: ExamStandard; onCha
 							setCustom(false);
 							onChange(presetStandard(p));
 						}}
-						className={cn("rounded-[10px] border px-4 py-2 text-sm transition-colors", value.preset === p ? "border-primary bg-primary/10" : "hover:bg-accent")}
+						className={cn("rounded-md border px-4 py-2 text-sm transition-colors", value.preset === p ? "border-primary bg-primary/10" : "hover:bg-accent")}
 					>
 						{presetLabel(p, t)}
 					</button>
@@ -1260,21 +1251,20 @@ export function StandardPicker({ value, onChange }: { value: ExamStandard; onCha
 				<div className="grid gap-3 sm:grid-cols-3">
 					<label className="flex flex-col gap-1 text-sm">
 						<span className="text-muted-foreground">{t("exams.standard.recall")}</span>
-						<input type="number" min={50} max={99} value={Math.round(value.recall * 100)} onChange={(e) => onChange({ ...value, preset: null, recall: Math.min(99, Math.max(50, Number(e.target.value) || 50)) / 100 })} className="rounded-[10px] border bg-background px-3 py-2" />
+						<input type="number" min={50} max={99} value={Math.round(value.recall * 100)} onChange={(e) => onChange({ ...value, preset: null, recall: Math.min(99, Math.max(50, Number(e.target.value) || 50)) / 100 })} className={fieldInput} />
 					</label>
-					<label className="flex flex-col gap-1 text-sm">
+					<div className="flex flex-col gap-1 text-sm">
 						<span className="text-muted-foreground">{t("exams.standard.mode")}</span>
-						<select value={value.mode} onChange={(e) => onChange({ ...value, preset: null, mode: e.target.value as DemandMode })} className="rounded-[10px] border bg-background px-3 py-2">
-							{(Object.keys(MODE_LEVEL) as DemandMode[]).map((m) => (
-								<option key={m} value={m}>
-									{modeLabel(m, t)}
-								</option>
-							))}
-						</select>
-					</label>
+						<Select
+							value={value.mode}
+							ariaLabel={t("exams.standard.mode")}
+							onChange={(mode) => onChange({ ...value, preset: null, mode })}
+							options={(Object.keys(MODE_LEVEL) as DemandMode[]).map((m) => ({ value: m, label: modeLabel(m, t) }))}
+						/>
+					</div>
 					<label className="flex flex-col gap-1 text-sm">
 						<span className="text-muted-foreground">{t("exams.standard.coverage")}</span>
-						<input type="number" min={5} max={100} value={Math.round(value.coverage * 100)} onChange={(e) => onChange({ ...value, preset: null, coverage: Math.min(100, Math.max(5, Number(e.target.value) || 5)) / 100 })} className="rounded-[10px] border bg-background px-3 py-2" />
+						<input type="number" min={5} max={100} value={Math.round(value.coverage * 100)} onChange={(e) => onChange({ ...value, preset: null, coverage: Math.min(100, Math.max(5, Number(e.target.value) || 5)) / 100 })} className={fieldInput} />
 					</label>
 				</div>
 			)}
@@ -1298,7 +1288,7 @@ export function WeeklyMinutes({ value, onChange }: { value: readonly number[]; o
 						value={m}
 						aria-label={t("exams.weekly.aria", { day: t(WEEKDAY_KEYS[i]!) })}
 						onChange={(e) => onChange(value.map((x, j) => (j === i ? Math.min(720, Math.max(0, Math.round(Number(e.target.value) || 0))) : x)))}
-						className="w-full rounded-[10px] border bg-background px-1 py-2 text-center tabular-nums"
+						className="w-full rounded-md border bg-background px-1 py-2 text-center tabular-nums"
 					/>
 				</label>
 			))}
@@ -1549,7 +1539,7 @@ function LevelSection({ exam, onPrioritize }: { exam: ExamDetailView; onPrioriti
 				<span className="text-sm text-muted-foreground">{t("exams.level.target", { level: standardName(exam.standard, t), n: target })}</span>
 			</div>
 			<div className="px-1">
-				<CoverageBar value={coverage} target={target} label={t("exams.level.bar", { n: coverage, target })} />
+				<CoverageBar labelled value={coverage} target={target} label={t("exams.level.bar", { n: coverage, target })} />
 			</div>
 			<p className="px-1 text-sm text-muted-foreground">{t("exams.level.now", { level: exam.reachedPreset ? presetLabel(exam.reachedPreset, t) : t("exams.level.none") })}</p>
 			{exam.infeasible && (
@@ -1579,62 +1569,24 @@ function LevelSection({ exam, onPrioritize }: { exam: ExamDetailView; onPrioriti
 	);
 }
 
-/** Planned minutes per day, the next 14 days (one data hue, values in
- *  the tooltip and the sr-only table). */
+/** Planned minutes per day, the next 14 days (the shared BarChart:
+ *  values on hover/focus/tap, the sr-only table holds them all). */
 function PlanSection({ exam }: { exam: ExamDetailView }) {
 	const t = useT();
 	const { locale } = useLocale();
-	const [hover, setHover] = useState<number | null>(null);
 	const counts = exam.allocation.slice(0, 14);
 	const days = exam.days.slice(0, counts.length);
 	if (counts.length === 0) return null;
-	const max = Math.max(1, ...counts);
 	const label = (i: number) => (i === 0 ? t("exams.plan.today") : dateLabel(days[i]!, locale, { weekday: "short", day: "numeric" }));
 	return (
 		<section className="flex flex-col gap-3" data-testid="exam-plan">
 			<SectionTitle>{t("exams.plan.title")}</SectionTitle>
-			<div className="px-1">
-				<div className="relative flex h-32 items-end gap-0.5 border-b border-border pt-6">
-					{counts.map((n, i) => (
-						<div
-							key={i}
-							role="img"
-							tabIndex={0}
-							aria-label={t("exams.plan.bar", { date: label(i), n: Math.round(n) })}
-							onPointerEnter={() => setHover(i)}
-							onPointerLeave={() => setHover((h) => (h === i ? null : h))}
-							onFocus={() => setHover(i)}
-							onBlur={() => setHover((h) => (h === i ? null : h))}
-							className="relative flex h-full flex-1 items-end justify-center outline-none"
-						>
-							<span className={cn("w-full max-w-6 rounded-t-[4px] bg-np-data transition-opacity", hover !== null && hover !== i && "opacity-60")} style={{ height: n > 0 ? `${Math.max(2, (n / max) * 100)}%` : 0 }} />
-							{hover === i && (
-								<span className="pointer-events-none absolute z-10 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-xs shadow-sm" style={{ bottom: `calc(${(n / max) * 100}% + 6px)` }}>
-									<strong className="font-semibold tabular-nums">{Math.round(n)} min</strong> <span className="text-muted-foreground">{label(i)}</span>
-								</span>
-							)}
-						</div>
-					))}
-				</div>
-				<div className="mt-1 flex gap-0.5 text-[11px] text-muted-foreground" aria-hidden>
-					{counts.map((_, i) => (
-						<span key={i} className="flex-1 text-center">
-							{i === 0 ? t("exams.plan.today") : dateLabel(days[i]!, locale, { weekday: "narrow" })}
-						</span>
-					))}
-				</div>
-				<table className="sr-only">
-					<caption>{t("exams.plan.title")}</caption>
-					<tbody>
-						{counts.map((n, i) => (
-							<tr key={i}>
-								<th scope="row">{label(i)}</th>
-								<td>{Math.round(n)} min</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
-			</div>
+			<BarChart
+				values={counts}
+				caption={t("exams.plan.title")}
+				axisLabel={(i) => (i === 0 ? t("exams.plan.today") : dateLabel(days[i]!, locale, { weekday: "narrow" }))}
+				barLabel={(i) => t("exams.plan.bar", { date: label(i), n: Math.round(counts[i]!) })}
+			/>
 		</section>
 	);
 }
@@ -1759,16 +1711,17 @@ function ResearchedPoint({ exam, point, ideas, onDeepen, kindSelect }: { exam: E
 														{t("exams.extension.promote")}
 													</button>
 													{picking === n ? (
-														<select autoFocus aria-label={t("exams.extension.pickTarget")} defaultValue="" onChange={(e) => e.target.value && move(n, { target: e.target.value })} onBlur={() => setPicking(null)} className="max-w-56 rounded-md border bg-background px-1 py-0.5">
-															<option value="" disabled>
-																{t("exams.extension.pickTarget")}
-															</option>
-															{targets.map((x) => (
-																<option key={x.id} value={x.id}>
-																	{x.statement.length > 70 ? `${x.statement.slice(0, 67)}…` : x.statement}
-																</option>
-															))}
-														</select>
+														<Select
+															defaultOpen
+															value=""
+															size="sm"
+															ariaLabel={t("exams.extension.pickTarget")}
+															placeholder={t("exams.extension.pickTarget")}
+															onChange={(target) => move(n, { target })}
+															onDismiss={() => setPicking(null)}
+															className="max-w-56"
+															options={targets.map((x) => ({ value: x.id, label: x.statement.length > 70 ? `${x.statement.slice(0, 67)}…` : x.statement }))}
+														/>
 													) : (
 														<button type="button" className={smallBtn} onClick={() => setPicking(n)}>
 															{t("exams.extension.toPoint")}
@@ -1870,14 +1823,17 @@ function ContrastPanel({ exam }: { exam: ExamDetailView }) {
 								{shownExtras.map((e) => (
 									<li key={e.pointId} className="flex items-center justify-between gap-3">
 										<span className="min-w-0">{pointText.get(e.pointId)}</span>
-										<select
+										<Select
+											size="sm"
 											value={actions[e.pointId] ?? "extension"}
-											onChange={(ev) => setActions((cur) => ({ ...cur, [e.pointId]: ev.target.value as "extension" | "keep" }))}
-											className="shrink-0 rounded-md border bg-background px-1 py-0.5 text-xs"
-										>
-											<option value="extension">{t("exams.contrast.toExtension")}</option>
-											<option value="keep">{t("exams.contrast.keep")}</option>
-										</select>
+											ariaLabel={pointText.get(e.pointId) ?? t("exams.contrast.toExtension")}
+											onChange={(v) => setActions((cur) => ({ ...cur, [e.pointId]: v }))}
+											className="shrink-0"
+											options={[
+												{ value: "extension" as const, label: t("exams.contrast.toExtension") },
+												{ value: "keep" as const, label: t("exams.contrast.keep") },
+											]}
+										/>
 									</li>
 								))}
 							</ul>
@@ -2192,7 +2148,7 @@ function ArchivedSection({ exam }: { exam: ExamDetailView }) {
 					maxLength={100}
 					onChange={(e) => setGrade(e.target.value)}
 					onBlur={() => grade !== (exam.realGrade ?? "") && void sendJson(`/api/exams/${exam.id}`, "PUT", { realGrade: grade.trim() || null })}
-					className="w-32 rounded-[10px] border bg-background px-3 py-1.5"
+					className="w-32 rounded-md border bg-background px-3 py-1.5"
 					data-testid="exam-real-grade"
 				/>
 			</label>
@@ -2267,7 +2223,7 @@ export function ExamMenu({
 				<MoreHorizontalIcon className="size-5" />
 			</button>
 			{panel === "menu" && (
-				<MenuShell anchorRef={anchorRef} testid="exam-menu-body" preferredSide="down" menuClass="w-56 rounded-[14px] border bg-popover p-1.5 shadow-float">
+				<MenuShell anchorRef={anchorRef} testid="exam-menu-body" preferredSide="down" menuClass="w-56 rounded-xl border bg-popover p-1.5 shadow-float">
 					<div role="menu">
 						{exam.status === "active" && (
 							<button type="button" role="menuitem" className={item} onClick={() => { setEditing(true); setPanel(null); }}>
@@ -2290,10 +2246,10 @@ export function ExamMenu({
 				</MenuShell>
 			)}
 			{editing && (
-				<div role="dialog" aria-label={t("exams.menu.edit")} className="absolute right-0 top-10 z-50 flex w-[22rem] flex-col gap-3 rounded-[14px] border bg-popover p-4 shadow-float">
+				<div role="dialog" aria-label={t("exams.menu.edit")} className="absolute right-0 top-10 z-50 flex w-[22rem] flex-col gap-3 rounded-xl border bg-popover p-4 shadow-float">
 					<label className="flex flex-col gap-1 text-sm">
 						<span className="text-muted-foreground">{t("exams.wizard.date")}</span>
-						<input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-[10px] border bg-background px-3 py-2" />
+						<input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={fieldInput} />
 					</label>
 					<StandardPicker value={standard} onChange={setStandard} />
 					<div className="flex justify-end gap-2">
@@ -2307,7 +2263,7 @@ export function ExamMenu({
 				</div>
 			)}
 			{panel === "delete" && (
-				<MenuShell anchorRef={anchorRef} testid="exam-delete-confirm" preferredSide="down" menuClass="w-72 rounded-[14px] border bg-popover p-4 shadow-float">
+				<MenuShell anchorRef={anchorRef} testid="exam-delete-confirm" preferredSide="down" menuClass="w-72 rounded-xl border bg-popover p-4 shadow-float">
 					<div role="alertdialog" aria-label={t("exams.menu.deleteTitle")} className="flex flex-col gap-3">
 						<p className="text-sm">{t("exams.menu.deleteBody", { title: exam.title })}</p>
 						<div className="flex justify-end gap-2">
@@ -2336,27 +2292,30 @@ export function ExamPage({ id }: { id: string }) {
 	if (data.status === "draft") return <DraftWizard exam={data} reload={reload} />;
 	const live = data.status === "active";
 	return (
-		<div className="h-full overflow-y-auto" data-testid="exam-page">
-			<div className="mx-auto flex w-full max-w-[46rem] flex-col gap-10 px-4 pb-16 pt-10">
-				<header className="flex items-start justify-between gap-3 px-1">
-					<div className="flex min-w-0 flex-col gap-1">
-						<Link href="/exams" className="text-sm text-muted-foreground hover:text-foreground">
+		<Page testid="exam-page">
+				<PageHeader
+					back={
+						<Link href="/exams" className="transition-colors hover:text-foreground">
 							{t("exams.page.back")}
 						</Link>
-						<h1 className="truncate text-[26px] font-semibold leading-[34px] tracking-tight">{data.title}</h1>
-						<p className="text-sm text-muted-foreground">
+					}
+					title={data.title}
+					subtitle={
+						<>
 							{dateLabel(data.examDate, locale, { day: "numeric", month: "long" })} ·{" "}
 							{data.status === "archived" ? t("exams.list.past") : data.daysLeft === 0 ? t("exams.days.today") : t("exams.days.left", { n: data.daysLeft })}
-						</p>
-					</div>
-					<span className="flex items-center gap-2">
-						<Link href="/settings/exams" className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
-							<SettingsIcon className="size-4" />
-							{t("exams.page.settings")}
-						</Link>
-						<ExamMenu exam={data} onDeleted={() => router.push("/exams")} />
-					</span>
-				</header>
+						</>
+					}
+					actions={
+						<>
+							<Link href="/settings/exams" className={buttonVariants({ variant: "ghost", size: "sm", className: "text-muted-foreground" })}>
+								<SettingsIcon />
+								{t("exams.page.settings")}
+							</Link>
+							<ExamMenu exam={data} onDeleted={() => router.push("/exams")} />
+						</>
+					}
+				/>
 				{live ? (
 					<>
 						<TodaySection exam={data} />
@@ -2381,8 +2340,7 @@ export function ExamPage({ id }: { id: string }) {
 						<InstructionsSection exam={data} kind="tutor" />
 					</>
 				)}
-			</div>
-		</div>
+		</Page>
 	);
 }
 
@@ -2399,15 +2357,19 @@ function HomeExamRow({ exam }: { exam: ExamSummaryView }) {
 		if (first) void start(first.kind, first.pointId);
 		else router.push(`/exams/${exam.id}`);
 	};
+	// Two lines (owner 2026-11-06): the title may truncate, the numbers
+	// never do — they own the second line.
 	return (
-		<li className="flex items-center justify-between gap-4 border-b px-4 py-3 last:border-b-0">
-			<Link href={`/exams/${exam.id}`} className="min-w-0 truncate text-sm hover:underline">
-				{t("exams.home.row", { exam: exam.title, min: Math.round(exam.todayMinutes), n: exam.daysLeft })}
-			</Link>
-			<button type="button" className={primaryBtn} disabled={state === "starting"} onClick={() => void open()}>
-				{state === "starting" ? t("exams.today.starting") : t("exams.today.start")}
-			</button>
-		</li>
+		<ListRow
+			href={`/exams/${exam.id}`}
+			title={exam.title}
+			meta={`${t("exams.list.today", { min: Math.round(exam.todayMinutes) })} · ${exam.daysLeft === 0 ? t("exams.days.today") : t("exams.days.left", { n: exam.daysLeft })}`}
+			action={
+				<button type="button" className={cn(primaryBtn, "min-w-28")} disabled={state === "starting"} onClick={() => void open()}>
+					{state === "starting" ? t("exams.today.starting") : t("exams.today.start")}
+				</button>
+			}
+		/>
 	);
 }
 
@@ -2418,12 +2380,12 @@ export function ExamsTodayCard() {
 	if (today.length === 0) return null;
 	return (
 		<section className="flex flex-col gap-3" data-testid="exams-home">
-			<h2 className="px-1 text-lg font-semibold">{t("exams.home.title")}</h2>
-			<ul className="overflow-hidden rounded-xl border">
+			<SectionTitle>{t("exams.home.title")}</SectionTitle>
+			<ListCard>
 				{today.map((e) => (
 					<HomeExamRow key={e.id} exam={e} />
 				))}
-			</ul>
+			</ListCard>
 		</section>
 	);
 }

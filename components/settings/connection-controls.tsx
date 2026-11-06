@@ -5,10 +5,10 @@ import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 import { Button } from "@/components/ui/button";
 
 export function ConnectionRow({ label, action, primary = action === "Connect", disabled, onAction, children, testid, actionTestid, labelClassName }: { label: string; action: string; /** The outlined (connect) look; defaults to the English "Connect" check for untranslated callers. */ primary?: boolean; disabled: boolean; onAction: () => void; children?: React.ReactNode; testid?: string; actionTestid?: string; labelClassName?: string }) {
-	return <div className="flex flex-wrap items-center gap-3" data-testid={testid}>
+	return <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1" data-testid={testid}>
 		<span className={labelClassName ?? "font-ui text-xs text-foreground"}>{label}</span>
 		{children}
-		<Button type="button" size="xs" variant={primary ? "outline" : "ghost"} className={`cursor-pointer disabled:cursor-not-allowed ${primary ? "" : "text-muted-foreground hover:text-foreground"}`} data-testid={actionTestid} disabled={disabled} onClick={onAction}>{action}</Button>
+		<Button type="button" size="xs" variant={primary ? "outline" : "ghost"} className={`ml-auto cursor-pointer disabled:cursor-not-allowed ${primary ? "" : "text-muted-foreground hover:text-foreground"}`} data-testid={actionTestid} disabled={disabled} onClick={onAction}>{action}</Button>
 	</div>;
 }
 
@@ -28,6 +28,9 @@ export function ConnectionDialog({ children, onClose, busy, label, testid, backd
 		const focusable = () => [...(ref.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])') ?? [])];
 		focusable()[0]?.focus();
 		const key = (event: KeyboardEvent) => {
+			// An open dropdown (the shared Select, portaled) owns its own
+			// Escape and arrows — the dialog stays open under it.
+			if (event.target instanceof Element && event.target.closest("[data-np-menu]")) return;
 			if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); closeRef.current(); }
 			else if (event.key === "Tab") {
 				const items = focusable(), first = items[0], last = items.at(-1);

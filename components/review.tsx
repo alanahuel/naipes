@@ -28,6 +28,11 @@ import { Toggle } from "@/components/settings/controls.tsx";
 import { useServerEvent } from "@/components/server-events";
 import { stashOpeningPrompt } from "@/components/opening-prompt";
 import { useLocale, useT, type Translate } from "@/components/i18n";
+import { buttonVariants } from "@/components/ui/button";
+import { Page, PageHeader, SectionTitle } from "@/components/ui/page";
+import { ListCard, ListRow } from "@/components/ui/list";
+import { ProgressBar } from "@/components/ui/progress-bar";
+import { BarChart } from "@/components/ui/bar-chart";
 import type { ReviewApiResponse, ReviewArea, ReviewItemView, ReviewSources, ReviewSummary } from "@/src/core";
 
 // ─── data ───────────────────────────────────────────────────────────────────
@@ -114,15 +119,6 @@ const pct = (r: number | null) => (r === null ? null : Math.round(r * 100));
 
 // ─── sections ───────────────────────────────────────────────────────────────
 
-function SectionTitle({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
-	return (
-		<div className="flex items-baseline justify-between gap-3 px-1">
-			<h2 className="text-lg font-semibold">{children}</h2>
-			{right}
-		</div>
-	);
-}
-
 function StartButton({ disabled }: { disabled?: boolean }) {
 	const t = useT();
 	const { state, start } = useStartReview();
@@ -133,7 +129,7 @@ function StartButton({ disabled }: { disabled?: boolean }) {
 				data-testid="review-start"
 				disabled={disabled || state === "starting"}
 				onClick={() => void start()}
-				className="rounded-[10px] bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-50"
+				className={buttonVariants({ variant: "default", className: "min-w-28" })}
 			>
 				{state === "starting" ? t("review.today.starting") : t("review.today.start")}
 			</button>
@@ -178,10 +174,7 @@ function RecallMeter({ label, value, target }: { label: string; value: number; t
 			aria-label={t("review.memory.bar", { label, n: value })}
 		>
 			<span className="truncate text-foreground">{label}</span>
-			<span className="relative h-2 rounded-full bg-np-data-track" aria-hidden>
-				<span className="absolute inset-y-0 left-0 rounded-full bg-np-data" style={{ width: `${value}%` }} />
-				<span className="absolute -inset-y-1 w-px bg-foreground/60" style={{ left: `${target}%` }} />
-			</span>
+			<ProgressBar value={value} target={target} />
 			<span className="text-right tabular-nums text-muted-foreground">{value}%</span>
 		</li>
 	);
@@ -239,82 +232,24 @@ export function MemorySection({ summary, target }: { summary: ReviewSummary; tar
 	);
 }
 
-/** Reviews due per day: ≤24px columns, 4px rounded tops, square at the
- *  baseline, 2px air between; today and the peak carry their value; every
- *  column has a hover/focus tooltip; the sr-only table holds them all. */
+/** Reviews due per day (the shared BarChart — owner 2026-11-06: values
+ *  on hover/focus/tap only, «Hoy» emphasized on the axis). */
 export function ForecastChart({ counts, now }: { counts: number[]; now: number }) {
 	const t = useT();
 	const { locale } = useLocale();
-	const [hover, setHover] = useState<number | null>(null);
-	const max = Math.max(1, ...counts);
-	const peak = counts.indexOf(Math.max(...counts));
 	const fmt = useMemo(() => new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short" }), [locale]);
 	const short = useMemo(() => new Intl.DateTimeFormat(locale, counts.length <= 7 ? { weekday: "narrow" } : { day: "numeric" }), [locale, counts.length]);
 	const dayAt = (i: number) => new Date(now + i * DAY_MS);
 	const dateLabel = (i: number) => (i === 0 ? t("review.forecast.today") : fmt.format(dayAt(i)));
 	return (
-		<div className="px-1">
-			<div className="relative flex h-40 items-end gap-0.5 border-b border-border pt-6" data-testid="review-forecast">
-				{counts.map((n, i) => {
-					const labelled = n > 0 && (i === 0 || i === peak);
-					return (
-						<div
-							key={i}
-							role="img"
-							tabIndex={0}
-							aria-label={t("review.forecast.bar", { date: dateLabel(i), n })}
-							onPointerEnter={() => setHover(i)}
-							onPointerLeave={() => setHover((h) => (h === i ? null : h))}
-							onFocus={() => setHover(i)}
-							onBlur={() => setHover((h) => (h === i ? null : h))}
-							className="relative flex h-full flex-1 items-end justify-center outline-none"
-						>
-							{labelled && (
-								<span className="absolute text-xs tabular-nums text-muted-foreground" style={{ bottom: `calc(${(n / max) * 100}% + 4px)` }}>
-									{n}
-								</span>
-							)}
-							<span
-								className={cn("w-full max-w-6 rounded-t-[4px] bg-np-data transition-opacity", hover !== null && hover !== i && "opacity-60")}
-								style={{ height: n > 0 ? `${Math.max(2, (n / max) * 100)}%` : 0 }}
-							/>
-							{hover === i && (
-								<span
-									className="pointer-events-none absolute z-10 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-xs shadow-sm"
-									style={{ bottom: `calc(${(n / max) * 100}% + ${labelled ? 22 : 6}px)` }}
-								>
-									<strong className="font-semibold tabular-nums">{n}</strong> <span className="text-muted-foreground">{dateLabel(i)}</span>
-								</span>
-							)}
-						</div>
-					);
-				})}
-			</div>
-			<div className="mt-1 flex gap-0.5 text-[11px] text-muted-foreground" aria-hidden>
-				{counts.map((_, i) => (
-					<span key={i} className="flex-1 text-center tabular-nums">
-						{counts.length <= 7 || i % 5 === 0 ? (i === 0 ? t("review.forecast.today") : short.format(dayAt(i))) : ""}
-					</span>
-				))}
-			</div>
-			<table className="sr-only">
-				<caption>{t("review.forecast.caption")}</caption>
-				<thead>
-					<tr>
-						<th scope="col">{t("review.forecast.day")}</th>
-						<th scope="col">{t("review.forecast.count")}</th>
-					</tr>
-				</thead>
-				<tbody>
-					{counts.map((n, i) => (
-						<tr key={i}>
-							<th scope="row">{dateLabel(i)}</th>
-							<td>{n}</td>
-						</tr>
-					))}
-				</tbody>
-			</table>
-		</div>
+		<BarChart
+			testid="review-forecast"
+			height="h-40"
+			values={counts}
+			caption={t("review.forecast.caption")}
+			axisLabel={(i) => (counts.length <= 7 || i % 5 === 0 ? (i === 0 ? t("review.forecast.today") : short.format(dayAt(i))) : "")}
+			barLabel={(i) => t("review.forecast.bar", { date: dateLabel(i), n: counts[i]! })}
+		/>
 	);
 }
 
@@ -540,15 +475,16 @@ export function ReviewPage() {
 		[reload, setData],
 	);
 	return (
-		<div className="h-full overflow-y-auto" data-testid="review-page">
-			<div className="mx-auto flex w-full max-w-[46rem] flex-col gap-10 px-4 pb-16 pt-10">
-				<header className="flex items-center justify-between gap-3 px-1">
-					<h1 className="text-[26px] font-semibold leading-[34px] tracking-tight">{t("review.page.title")}</h1>
-					<Link href="/settings/review" className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
-						<SettingsIcon className="size-4" />
-						{t("review.page.settings")}
-					</Link>
-				</header>
+		<Page testid="review-page">
+				<PageHeader
+					title={t("review.page.title")}
+					actions={
+						<Link href="/settings/review" className={buttonVariants({ variant: "ghost", size: "sm", className: "text-muted-foreground" })}>
+							<SettingsIcon />
+							{t("review.page.settings")}
+						</Link>
+					}
+				/>
 				{data === undefined ? (
 					<p className="px-1 text-sm text-muted-foreground">{t("review.loading")}</p>
 				) : data === null ? (
@@ -561,8 +497,7 @@ export function ReviewPage() {
 						<SourcesSection data={data} now={now} onSources={(p) => void updateSources(p)} />
 					</>
 				)}
-			</div>
-		</div>
+		</Page>
 	);
 }
 
@@ -574,13 +509,11 @@ export function ReviewTodayCard() {
 	if (!data || data.summary.dueCount === 0) return null;
 	return (
 		<section className="flex flex-col gap-3" data-testid="review-home">
-			<h2 className="px-1 text-lg font-semibold">{t("review.home.title")}</h2>
-			<div className="flex items-center justify-between gap-4 rounded-xl border px-4 py-3">
-				<Link href="/review" className="min-w-0 truncate text-sm hover:underline">
-					{t("review.home.summary", { n: data.summary.dueCount, topics: topicsLine(data.summary.due, t) })}
-				</Link>
-				<StartButton />
-			</div>
+			<SectionTitle>{t("review.home.title")}</SectionTitle>
+			{/* Two lines, like «Hoy para tu examen» (owner 2026-11-06). */}
+			<ListCard>
+				<ListRow href="/review" title={topicsLine(data.summary.due, t)} meta={t("graph.home.ideas", { n: data.summary.dueCount })} action={<StartButton />} />
+			</ListCard>
 		</section>
 	);
 }

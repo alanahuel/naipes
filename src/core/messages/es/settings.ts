@@ -17,6 +17,7 @@ export default {
 	"settings.providers.pasteKey": "Pega la clave…",
 	"settings.providers.keyAria": "Clave de {label}",
 	"settings.providers.addProvider": "+ Añadir la clave de un proveedor",
+	"settings.providers.available": "{n} disponibles",
 	"settings.providers.saveFailed": "No pude guardar la clave (error {status}). Prueba otra vez.",
 	"settings.providers.dictationHintBefore": "Crea una ",
 	"settings.providers.dictationHintLink": "clave API de Deepgram",

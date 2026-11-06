@@ -282,7 +282,7 @@ export function ChainTableBody({
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				{/* The TOP rule (owner round 5: the table is framed — a line under
 			    the header, a line under the last group, lines between groups). */}
-				<div className="sticky top-0 z-10 flex items-center gap-1 border-b border-border/60 bg-background/80 px-3 py-1.5 text-[11px] text-muted-foreground/70 backdrop-blur">
+				<div className="sticky top-0 z-10 flex items-center gap-1 border-b border-border/60 bg-background/80 px-3 py-1.5 text-2xs text-muted-foreground/70 backdrop-blur">
 					<button
 						type="button"
 						data-testid="sort-name"
@@ -358,7 +358,7 @@ export function ChainTableBody({
 								</span>
 								<span className="min-w-0 flex-1 truncate text-sm font-medium">
 									{group.label ?? <span className="text-muted-foreground/60">{t("graph.chains.unlabeled")}</span>}
-									{group.kind === "notes" && <span className="ml-2 text-[11px] text-muted-foreground/60">{t("graph.chains.notesTag")}</span>}
+									{group.kind === "notes" && <span className="ml-2 text-2xs text-muted-foreground/60">{t("graph.chains.notesTag")}</span>}
 								</span>
 								<span className="w-14 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
 									{group.nodeIds.length}
@@ -412,7 +412,7 @@ export function ChainTableBody({
 												    (white), not the old dim gray. A lonely chip reads
 												    as a standalone proposition (no glyphs at all);
 												    the row's aria-label keeps the plain-text form. */}
-												<span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-0.5 gap-y-1 text-[13px] leading-tight">
+												<span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-0.5 gap-y-1 text-sm leading-tight">
 													{memberIds.map((id, i) => {
 														const isConclusion = i === memberIds.length - 1;
 														return (

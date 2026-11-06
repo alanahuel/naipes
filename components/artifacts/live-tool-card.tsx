@@ -59,7 +59,7 @@ export function LiveToolCard({ part }: ArtifactPartProps) {
 			</summary>
 			<div className="mt-2 rounded-xl border bg-card p-3 text-xs">
 				<div className="mb-1 font-medium text-muted-foreground">{t("artifacts.tool.inputStreaming")}</div>
-				<pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed">
+				<pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-2xs leading-relaxed">
 					{hasInput ? JSON.stringify(p.input, null, 2) : "…"}
 				</pre>
 			</div>

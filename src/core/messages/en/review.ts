@@ -36,7 +36,7 @@ export default {
 	"review.forecast.days7": "7 days",
 	"review.forecast.days30": "30 days",
 	"review.forecast.bar": { one: "{date}: {n} review", other: "{date}: {n} reviews" },
-	"review.forecast.today": "today",
+	"review.forecast.today": "Today",
 	"review.forecast.caption": "Reviews due per day",
 	"review.forecast.day": "Day",
 	"review.forecast.count": "Reviews",

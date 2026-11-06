@@ -29,7 +29,7 @@ export function QueuedSteersBody({ steers }: { steers: QueuedSteerLine[] }) {
 				<span
 					key={s.id}
 					title={s.text || t("session.attach.imageOnly")}
-					className="block max-w-[240px] truncate font-ui text-[11px] text-muted-foreground/60"
+					className="block max-w-[240px] truncate font-ui text-2xs text-muted-foreground/60"
 				>
 					{/* An image-only steer (owner, 2026-11-06) still gets its line. */}
 					{s.text || t("session.attach.imageOnly")}

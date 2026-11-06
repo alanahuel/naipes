@@ -720,7 +720,7 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 					}}
 					aria-label={errorLabel ? t("session.dictation.failed", { error: errorLabel }) : t("session.dictation.start")}
 					data-testid="dictation-toggle"
-					className="flex h-7 w-full items-center justify-center gap-1.5 rounded-md border border-border/50 bg-card/50 text-xs text-muted-foreground/70 shadow-lg backdrop-blur transition-colors hover:border-border hover:text-muted-foreground"
+					className="flex h-7 max-w-full items-center justify-center gap-1.5 rounded-full border bg-card/85 px-3 text-xs text-muted-foreground shadow-lg backdrop-blur transition-colors hover:bg-muted hover:text-foreground"
 				>
 					<MicIcon className="size-3.5" />
 					<span className="max-w-full truncate">{errorLabel ?? t("session.dictation.dictate")}</span>

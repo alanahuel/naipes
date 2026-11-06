@@ -88,12 +88,12 @@ describe("Repaso sections (static render)", () => {
 		assert.ok(!html.includes(">Nueva<"));
 		assert.ok(html.includes('class="sr-only"'));
 	});
-	it("forecast: one column per day, today + peak labelled, every bar named for assistive tech", () => {
+	it("forecast: one column per day, values on hover only (owner 2026-11-06), every bar named for assistive tech", () => {
 		const html = renderToStaticMarkup(<ForecastChart counts={[6, 0, 3, 9, 1, 0, 2]} now={new Date(2026, 10, 4).getTime()} />);
 		assert.equal((html.match(/role="img"/g) ?? []).length, 7);
-		assert.ok(html.includes('aria-label="today: 6 reviews"'));
-		assert.match(html, />9<\/span>/);
-		assert.ok(!/>3<\/span>/.test(html), "only today and the peak carry labels");
+		assert.ok(html.includes('aria-label="Today: 6 reviews"'));
+		assert.ok(!/>9<\/span>/.test(html) && !/>6<\/span>/.test(html), "no fixed numbers over the bars");
+		assert.match(html, /<td>Today: 6 reviews<\/td>/, "the sr-only table carries every value");
 	});
 	it("sources: sessions and areas with their switches and the intake line", () => {
 		const data: ReviewApiResponse = {

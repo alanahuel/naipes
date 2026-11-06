@@ -195,11 +195,12 @@ export function AppearanceSection({
 					ariaLabel={t("settings.appearance.modeAria")}
 					onChange={(v) => onSectionChange({ ...appearance, mode: isThemeMode(v) ? v : undefined })}
 					testid="select-mode"
-				>
-					<option value="system">{t("settings.appearance.system")}</option>
-					<option value="light">{t("settings.appearance.light")}</option>
-					<option value="dark">{t("settings.appearance.dark")}</option>
-				</ThinSelect>
+					options={[
+						{ value: "system", label: t("settings.appearance.system") },
+						{ value: "light", label: t("settings.appearance.light") },
+						{ value: "dark", label: t("settings.appearance.dark") },
+					]}
+				/>
 			</SettingsRow>
 			<SettingsRow
 				label={t("settings.appearance.background")}

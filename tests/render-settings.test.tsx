@@ -283,8 +283,11 @@ describe("KeysSection (thin SSR)", () => {
 describe("AppearanceSection (thin SSR)", () => {
 	it("mode is a live select: System (factory) · Light · Dark", () => {
 		const html = renderToStaticMarkup(<AppearanceSection appearance={undefined} onSectionChange={() => {}} />);
-		assert.ok(!tagOf(html, "select-mode").includes("disabled"), "mode select enabled");
-		for (const option of ["system", "light", "dark"]) assert.ok(html.includes(`value="${option}"`), option);
+		// The shared Select (design pass 2026-11-06): a listbox button whose
+		// options live in the menu; the value rides data-value.
+		assert.ok(!/ disabled=""/.test(tagOf(html, "select-mode")), "mode select enabled");
+		assert.match(tagOf(html, "select-mode"), /aria-haspopup="listbox"/);
+		assert.match(tagOf(html, "select-mode"), /data-value="system"/);
 		assert.ok(html.includes("Follows the system"), "system mode explains itself");
 		assert.ok(!tagOf(html, "row-mode").includes("opacity-40"), "mode row not dimmed");
 	});

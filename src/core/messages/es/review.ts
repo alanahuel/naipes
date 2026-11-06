@@ -33,7 +33,7 @@ export default {
 	"review.forecast.days7": "7 días",
 	"review.forecast.days30": "30 días",
 	"review.forecast.bar": { one: "{date}: {n} repaso", other: "{date}: {n} repasos" },
-	"review.forecast.today": "hoy",
+	"review.forecast.today": "Hoy",
 	"review.forecast.caption": "Repasos previstos por día",
 	"review.forecast.day": "Día",
 	"review.forecast.count": "Repasos",

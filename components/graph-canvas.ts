@@ -128,6 +128,10 @@ export interface CanvasColors {
 	edge: string;
 	label: string;
 	hoverText: string;
+	/** The sheet is dark (design pass 2026-11-06): area/region labels pick
+	 *  a light tint on dark sheets and a deep one on light sheets — the old
+	 *  fixed 78–82% lightness vanished on white. Absent = dark (legacy). */
+	darkSheet?: boolean;
 }
 
 export interface CanvasData {
@@ -2188,10 +2192,10 @@ export class GraphCanvasRenderer {
 			const areaSize = settings.clusterLabelSize * AREA_LABEL_SCALE;
 			const bandsToDraw = [
 				...(bands.area > 0.01
-					? [{ list: this.areaMeta, alpha: bands.area, size: areaSize, font: this.areaFont(settings, data, k), light: 82, a: 0.95 }]
+					? [{ list: this.areaMeta, alpha: bands.area, size: areaSize, font: this.areaFont(settings, data, k), light: data.colors.darkSheet === false ? 34 : 82, a: 0.95 }]
 					: []),
 				...(bands.note > 0.01
-					? [{ list: this.regionMeta, alpha: bands.note, size: settings.clusterLabelSize, font: this.noteFont(settings, data, k), light: 78, a: 0.85 }]
+					? [{ list: this.regionMeta, alpha: bands.note, size: settings.clusterLabelSize, font: this.noteFont(settings, data, k), light: data.colors.darkSheet === false ? 40 : 78, a: 0.85 }]
 					: []),
 			];
 			this.drawRegionLabels(bandsToDraw, w, h);

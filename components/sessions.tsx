@@ -23,6 +23,8 @@ import { BrailleSpinner } from "@/components/braille-spinner";
 import { Hint } from "@/components/ui/hint";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { translator, useT, type Translate } from "@/components/i18n";
+import { buttonVariants } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page";
 import { fuzzyScore, getStoredItem, type ChatDeleteMode, type ChatListItem, type MessageKey } from "@/src/core";
 
 const english = translator("en");
@@ -175,7 +177,7 @@ export function StateLabel({ label, tone }: { label: string; tone: SessionStateT
 			data-testid="session-state"
 			data-tone={tone}
 			className={cn(
-				"inline-flex h-6 shrink-0 items-center rounded-sm px-2 text-[13px] font-medium",
+				"inline-flex h-6 shrink-0 items-center rounded-sm px-2 text-sm font-medium",
 				tone === "attention" ? "bg-attention-soft text-attention" : "bg-muted text-muted-foreground",
 			)}
 		>
@@ -453,26 +455,22 @@ export function SessionsPage() {
 
 	return (
 		<div className="h-full overflow-y-auto" data-testid="sessions-page">
-			<div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-8 pb-16 pt-10">
-				<div className="flex items-center gap-3">
-					<h1 className="flex-1 text-2xl font-semibold tracking-tight">{t("sessions.title")}</h1>
-					<Link
-						href="/chat/new?mode=practice"
-						data-testid="new-session-practice"
-						className="flex h-10 items-center gap-2 rounded-lg border px-4 text-sm transition-colors hover:bg-accent"
-					>
-						<DumbbellIcon className="size-4" />
-						{t("sessions.filter.practice")}
-					</Link>
-					<Link
-						href="/chat/new"
-						data-testid="new-session"
-						className="flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary-hover"
-					>
-						<PlusIcon className="size-4" />
-						{t("sessions.new")}
-					</Link>
-				</div>
+			<div className="mx-auto flex w-full max-w-[46rem] flex-col gap-6 px-4 pb-16 pt-8 sm:pt-10">
+				<PageHeader
+					title={t("sessions.title")}
+					actions={
+						<>
+							<Link href="/chat/new?mode=practice" data-testid="new-session-practice" className={buttonVariants({ variant: "outline" })}>
+								<DumbbellIcon />
+								{t("sessions.filter.practice")}
+							</Link>
+							<Link href="/chat/new" data-testid="new-session" className={buttonVariants({ variant: "default" })}>
+								<PlusIcon />
+								{t("sessions.new")}
+							</Link>
+						</>
+					}
+				/>
 
 				<div className="flex flex-wrap items-center gap-3">
 					<div className="flex items-center gap-1 rounded-full border p-1" data-testid="session-status-filter">
@@ -631,7 +629,7 @@ export function SessionsPage() {
 					anchorRef={ctxAnchorRef}
 					testid="session-context-menu"
 					preferredSide="down"
-					menuClass="flex w-60 flex-col gap-0.5 rounded-[14px] border bg-popover p-1.5 shadow-float"
+					menuClass="flex w-60 flex-col gap-0.5 rounded-xl border bg-popover p-1.5 shadow-float"
 				>
 					<button
 						type="button"
