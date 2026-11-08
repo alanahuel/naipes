@@ -28,6 +28,7 @@ import { useT } from "@/components/i18n";
 import type { MessageKey } from "@/src/core";
 import type { ChatGPTControlBridge, NativeSubscriptionControlBridge } from "@/src/core";
 import type { UpdateState } from "@/components/settings/update-settings.tsx";
+import { McpDeletionHost } from "@/components/mcp-deletion-host";
 
 // Module scope, guarded for SSR (the server has no navigator).
 const IS_ELECTRON = typeof navigator !== "undefined" && navigator.userAgent.includes("Electron");
@@ -331,6 +332,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 			</NoticesProvider>
 			{/* The single document-level keydown listener (keyboard wave A). */}
 			<KeyboardShortcuts />
+			{/* MCP deletions wait for the learner's confirmation (2026-11-08). */}
+			<McpDeletionHost />
 		</SettingsDialogProvider>
 	);
 }

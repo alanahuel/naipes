@@ -24,3 +24,26 @@ describe("MCP settings section", () => {
 		assert.match(html, /data-testid="mcp-regenerate"/);
 	});
 });
+
+const { McpDeletionBody } = await import("../components/mcp-deletion-host.tsx");
+const view = (kind: "session" | "exam" | "proposition") => ({ id: "r1", kind, targetId: "x", label: "Estoicismo", client: "claude-code", suggestTraces: true, expiresAt: 0 });
+const noop = () => {};
+
+describe("MCP deletion confirmation", () => {
+	it("a session: who asks, what, and the traces box at the suggestion", () => {
+		const html = renderToStaticMarkup(<McpDeletionBody request={view("session")} waiting={2} traces={true} busy={false} failure={null} onTraces={noop} onReject={noop} onDelete={noop} />);
+		assert.match(html, /claude-code/);
+		assert.match(html, /Estoicismo/);
+		assert.match(html, /data-testid="mcp-deletion-traces-checkbox"[^>]*checked=""|checked=""[^>]*data-testid="mcp-deletion-traces-checkbox"/);
+		assert.match(html, /data-testid="mcp-deletion-reject"/);
+		assert.match(html, /data-testid="mcp-deletion-confirm"/);
+	});
+
+	it("an exam or a proposition: no traces box; a failure shows its reason", () => {
+		for (const kind of ["exam", "proposition"] as const) {
+			const html = renderToStaticMarkup(<McpDeletionBody request={view(kind)} waiting={0} traces={false} busy={false} failure="A turn is running" onTraces={noop} onReject={noop} onDelete={noop} />);
+			assert.doesNotMatch(html, /mcp-deletion-traces/);
+			assert.match(html, /A turn is running/);
+		}
+	});
+});

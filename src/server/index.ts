@@ -56,3 +56,4 @@ export { vaultOverview, reconfigureVault, startVaultSync, summarizeChatToVault, 
 export { documentText, isNoteFile, isDocumentFile, joinedText, NOTE_EXTENSIONS, type ConvertedDocument } from "./doc-text.ts";
 // «Conexión MCP» (owner, 2026-11-08): the local write API for MCP clients.
 export { reconfigureMcpApi, mcpApiStatus, regenerateMcpToken, type McpApiStatus } from "./mcp-api.ts";
+export { listMcpDeletions, decideMcpDeletion } from "./mcp-deletions.ts";

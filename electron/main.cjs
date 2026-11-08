@@ -293,6 +293,23 @@ function startServer(port) {
 		serverProcess = child;
 		chatgptChild = attachChatGPTChild(child, chatgpt);
 		subscriptionChild = attachSubscriptionChild(child, subscriptions);
+		// MCP deletions (owner, 2026-11-08 — phase 3): the server announces a
+		// request waiting for the learner's confirmation; without a focused
+		// Naipes window, a system notification brings one up (the dialog
+		// then shows on its own).
+		child.on("message", (msg) => {
+			if (!msg || msg.channel !== "np:mcp" || msg.op !== "deletion-requested") return;
+			if (BrowserWindow.getFocusedWindow()) return;
+			const clip = (v) => (typeof v === "string" ? v.slice(0, 300) : "");
+			try {
+				if (!Notification?.isSupported?.()) return;
+				const notice = new Notification({ title: clip(msg.title), body: clip(msg.body), urgency: "critical" });
+				notice.on("click", () => showWindow(null));
+				notice.show();
+			} catch (err) {
+				log(`mcp notification failed: ${err?.message ?? err}`);
+			}
+		});
 		const fwd = (buf) => buf.toString().trimEnd().split("\n").forEach((l) => l && log(`server: ${l}`));
 		child.stdout.on("data", fwd);
 		child.stderr.on("data", fwd);

@@ -74,6 +74,9 @@ export interface ServerEvents {
 	/** Photos arrived from the phone page («Enviar desde el móvil», owner
 	 *  2026-11-06): the tray that opened the QR (`trayId`) adds the refs
 	 *  (core/attachments AttachmentRef — inlined: this file imports nothing). */
+	/** An MCP client's deletion request was added or settled (owner,
+	 *  2026-11-08): the confirmation host refetches /api/mcp/deletions. */
+	"mcp-deletion": { chatId?: undefined };
 	"phone-attachments": {
 		chatId: string;
 		trayId: string;
@@ -101,6 +104,7 @@ export const SERVER_EVENT_TYPES = [
 	"exam-notice",
 	"vault-notice",
 	"phone-attachments",
+	"mcp-deletion",
 ] as const satisfies readonly ServerEventType[];
 
 /** One notification: the type discriminates the payload. */

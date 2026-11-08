@@ -15,7 +15,7 @@ import * as path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { EXAM_MATERIAL_MAX_BYTES, isExamMaterialFileName, presetStandard } from "../core/exams.ts";
-import { EXAM_AGENTS, type McpExamPlan, type McpInboxItem } from "../core/mcp-api.ts";
+import { EXAM_AGENTS, MCP_DELETION_TIMEOUT_MS, type McpDeletionKind, type McpDeletionOutcome, type McpExamPlan, type McpInboxItem } from "../core/mcp-api.ts";
 import { apiConfigured, callApi, type ApiResult } from "./api.ts";
 import type { GraphChain, GraphNode } from "../core/contracts.ts";
 import type { ExamRecord } from "../core/exams.ts";
@@ -36,7 +36,9 @@ How to read this evidence:
 
 Read the material relevant to the user's request, not unrelated private records.
 
-Writing: the write tools act through the running Naipes app (it must be open, with «Conexión MCP» on). Only create sessions, exams or notes, or start background agents, when the user asks for it — exam agents spend the user's model quota. Sessions you create are NOT opened: tell the user they are waiting in Naipes and that the opening message is sent when they open them. Never answer questions or practice on the learner's behalf.`;
+Writing: the write tools act through the running Naipes app (it must be open, with «Conexión MCP» on). Only create sessions, exams or notes, or start background agents, when the user asks for it — exam agents spend the user's model quota. Sessions you create are NOT opened: tell the user they are waiting in Naipes and that the opening message is sent when they open them. Never answer questions or practice on the learner's behalf.
+
+Deleting: the delete tools only ASK — Naipes shows the learner a confirmation dialog and the call waits (up to 2 minutes) for their answer: deleted, rejected or timeout. Only request a deletion when the user asks for it, and tell them to look at Naipes.`;
 
 const json = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] });
 const fail = (message: string) => ({ content: [{ type: "text" as const, text: message }], isError: true });
@@ -516,6 +518,52 @@ export function createNaipesMcpServer(version: string): McpServer {
 		},
 		async ({ id, kind, point_id }) =>
 			written(await callApi<{ id: string; title: string; kind: string }>("POST", `/v1/exams/${encodeURIComponent(id)}/sessions`, { kind, ...(point_id ? { pointId: point_id } : {}) }), (b) => ({ created: b, opened: false })),
+	);
+
+	// ─── deletions (phase 3): requested here, confirmed by the learner ─────
+
+	const DESTRUCTIVE = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false } as const;
+	const requestDeletion = async (kind: McpDeletionKind, id: string, extra: Record<string, unknown> = {}) => {
+		const client = server.server.getClientVersion()?.name ?? "MCP";
+		const r = await callApi<McpDeletionOutcome>("POST", "/v1/deletions", { kind, id, client, ...extra }, MCP_DELETION_TIMEOUT_MS + 30_000);
+		if (!r.ok) return fail(r.error);
+		const note =
+			r.body.outcome === "deleted" ? "The learner confirmed: deleted." : r.body.outcome === "rejected" ? "The learner rejected the deletion: nothing was deleted." : "The learner did not answer in time: nothing was deleted.";
+		return json({ ...r.body, note });
+	};
+	const asksFirst = "Naipes asks the learner to confirm in the app; the call waits up to 2 minutes and returns deleted, rejected or timeout. Requires the running app.";
+
+	server.registerTool(
+		"delete_session",
+		{
+			title: "Delete a session",
+			description: `Request deleting a session (its messages, background jobs and extraction records). ${asksFirst} remove_graph_traces only pre-ticks the dialog's «also remove its graph traces» box — the learner decides.`,
+			inputSchema: { id: z.string(), remove_graph_traces: z.boolean().default(false) },
+			annotations: DESTRUCTIVE,
+		},
+		async ({ id, remove_graph_traces }) => requestDeletion("session", id, { removeGraphTraces: remove_graph_traces }),
+	);
+
+	server.registerTool(
+		"delete_exam",
+		{
+			title: "Delete an exam",
+			description: `Request deleting an exam (its syllabus, plan and materials; its sessions stay). ${asksFirst}`,
+			inputSchema: { id: z.string() },
+			annotations: DESTRUCTIVE,
+		},
+		async ({ id }) => requestDeletion("exam", id),
+	);
+
+	server.registerTool(
+		"delete_proposition",
+		{
+			title: "Delete a graph proposition",
+			description: `Request deleting one proposition from the knowledge graph, with its links and review events. ${asksFirst}`,
+			inputSchema: { id: z.string() },
+			annotations: DESTRUCTIVE,
+		},
+		async ({ id }) => requestDeletion("proposition", id),
 	);
 
 	return server;

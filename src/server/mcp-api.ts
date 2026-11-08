@@ -21,13 +21,15 @@
  *   POST /v1/exams/:id/materials           { url, name? } | { text, name } | { fileName, base64 }
  *   POST /v1/exams/:id/agents/:agent       map | classify | research | guide | contrast
  *   POST /v1/exams/:id/sessions            { kind, pointId? }
+ *   POST /v1/deletions                     { kind, id, removeGraphTraces?, client }
+ *        — waits for the learner's confirmation in the app (mcp-deletions.ts)
  *
  * Sessions created here are NOT opened: their opening waits on the record
  * (ChatRecord.pendingOpening) and is sent when the learner opens them.
  */
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import http from "node:http";
-import { EXAM_AGENTS, MCP_API_MAX_BODY_BYTES, MCP_TOKEN_AUTH_VAR, mcpApiEnabled, mcpApiPort, type ExamAgent, type McpExamPlan, type McpInboxItem } from "../core/mcp-api.ts";
+import { EXAM_AGENTS, MCP_API_MAX_BODY_BYTES, MCP_DELETION_KINDS, type McpDeletionKind, MCP_TOKEN_AUTH_VAR, mcpApiEnabled, mcpApiPort, type ExamAgent, type McpExamPlan, type McpInboxItem } from "../core/mcp-api.ts";
 import { EXAM_MATERIAL_MAX_BYTES, isExamMaterialFileName } from "../core/exams.ts";
 import { authStore } from "../store/auth.ts";
 import { readExam } from "../store/exams.ts";
@@ -48,6 +50,7 @@ import {
 	updateExam,
 	type ResearchScope,
 } from "./exams.ts";
+import { requestMcpDeletion } from "./mcp-deletions.ts";
 import { startReviewSession } from "./review.ts";
 import { stores } from "./stores.ts";
 import { addInboxNote, inboxOverview, startVaultSync } from "./vault.ts";
@@ -165,7 +168,7 @@ function agent(id: string, which: ExamAgent, body: Record<string, unknown>): Mcp
 
 /** One API request, already authenticated (the http adapter's core;
  *  tests drive it directly). */
-export function handleMcpApi(req: McpApiRequest): McpApiResponse {
+export async function handleMcpApi(req: McpApiRequest): Promise<McpApiResponse> {
 	const { method } = req;
 	const parts = req.path.split("?")[0]!.split("/").filter(Boolean).map(decodeURIComponent);
 	if (parts[0] !== "v1") return err(404, "not found");
@@ -225,6 +228,19 @@ export function handleMcpApi(req: McpApiRequest): McpApiResponse {
 			return reply(201, { id: r.session.id, title: r.session.title, kind: r.session.kind });
 		}
 	}
+	if (a === "deletions" && method === "POST" && !b) {
+		// Phase 3: the request WAITS for the learner's answer in the app.
+		if (typeof body.kind !== "string" || !(MCP_DELETION_KINDS as readonly string[]).includes(body.kind)) return err(400, "kind must be session, exam or proposition");
+		if (typeof body.id !== "string" || !body.id) return err(400, "id required");
+		const waiting = requestMcpDeletion({
+			kind: body.kind as McpDeletionKind,
+			targetId: body.id,
+			client: typeof body.client === "string" ? body.client : "MCP",
+			suggestTraces: body.removeGraphTraces === true,
+		});
+		if (!waiting) return err(404, `no ${body.kind} with id ${body.id}`);
+		return reply(200, await waiting);
+	}
 	return err(404, "not found");
 }
 
@@ -283,7 +299,7 @@ function createListener(port: number): http.Server {
 				return send(res, (e as Error).message === "too_large" ? err(413, "body too large") : err(400, "invalid JSON body"));
 			}
 			try {
-				send(res, handleMcpApi({ method: req.method ?? "GET", path: req.url ?? "/", body }));
+				send(res, await handleMcpApi({ method: req.method ?? "GET", path: req.url ?? "/", body }));
 			} catch (e) {
 				console.error("[mcp-api]", e);
 				send(res, err(500, e instanceof Error ? e.message : String(e)));

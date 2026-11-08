@@ -67,3 +67,31 @@ export interface McpInboxItem {
 	suggestion: { folder: string; ideas: number } | null;
 	alternatives: Array<{ folder: string; ideas: number }>;
 }
+
+// ─── deletions (phase 3): requested by the MCP, confirmed in the app ────────
+
+/** How long a deletion request waits for the learner's answer. */
+export const MCP_DELETION_TIMEOUT_MS = 120_000;
+
+export type McpDeletionKind = "session" | "exam" | "proposition";
+export const MCP_DELETION_KINDS: readonly McpDeletionKind[] = ["session", "exam", "proposition"];
+
+/** One pending request, as the app's confirmation dialog shows it. */
+export interface McpDeletionView {
+	id: string;
+	kind: McpDeletionKind;
+	targetId: string;
+	/** The session/exam title or the proposition's name. */
+	label: string;
+	/** The MCP client's name («claude-code»…), as it introduced itself. */
+	client: string;
+	/** Sessions: the model's suggestion for «also remove its graph traces»
+	 *  — the dialog's checkbox starts there; the learner decides. */
+	suggestTraces: boolean;
+	expiresAt: number;
+}
+
+export type McpDeletionOutcome =
+	| { outcome: "deleted"; removedGraphTraces?: boolean }
+	| { outcome: "rejected" }
+	| { outcome: "timeout" };

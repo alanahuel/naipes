@@ -36,6 +36,8 @@ const { reconfigureMcpApi, mcpApiStatus } = await import("../src/server/mcp-api.
 const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
 const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
 const { createNaipesMcpServer } = await import("../src/mcp/server.ts");
+const { listMcpDeletions, decideMcpDeletion, setMcpDeletionTimeoutForTests } = await import("../src/server/mcp-deletions.ts");
+const { readExam } = await import("../src/store/exams.ts");
 
 const iso = new Date().toISOString();
 fs.writeFileSync(
@@ -161,6 +163,49 @@ describe("MCP write path (real listener)", () => {
 		assert.equal(mapped.isError, true);
 		assert.match(mapped.text, /Settings → AI/);
 		assert.match((await call(client, "run_exam_agent", { id, agent: "guide" })).text, /guide_action/);
+	});
+
+	it("deletions wait for the learner: rejected keeps, deleted removes, silence times out", async () => {
+		const pendingOne = async () => {
+			for (let i = 0; i < 200; i++) {
+				const list = listMcpDeletions();
+				if (list.length > 0) return list[0]!;
+				await new Promise((r) => setTimeout(r, 10));
+			}
+			throw new Error("no pending deletion");
+		};
+		const examId = (await call(client, "create_exam", { title: "Para borrar", exam_date: "2027-03-01", syllabus_text: "x" })).json().created.id;
+
+		// Rejected: nothing deleted.
+		const rejected = call(client, "delete_exam", { id: examId });
+		const req = await pendingOne();
+		assert.deepEqual([req.kind, req.targetId, req.label, req.client], ["exam", examId, "Para borrar", "test"]);
+		assert.deepEqual(await decideMcpDeletion(req.id, "reject"), { ok: true });
+		assert.equal((await rejected).json().outcome, "rejected");
+		assert.ok(readExam(examId));
+
+		// Deleted: the session's traces box starts at the model's suggestion,
+		// the learner's answer wins.
+		const chat = (await call(client, "create_session", { goal: "Borrable" })).json().created;
+		const deleted = call(client, "delete_session", { id: chat.id, remove_graph_traces: true });
+		const sreq = await pendingOne();
+		assert.equal(sreq.suggestTraces, true);
+		assert.deepEqual(await decideMcpDeletion(sreq.id, "delete", false), { ok: true });
+		assert.deepEqual((await deleted).json().outcome, "deleted");
+		assert.equal((await deleted).json().removedGraphTraces, false);
+		assert.equal(chatStore.getChat(chat.id), null);
+		assert.equal((await decideMcpDeletion(sreq.id, "delete")).ok, false, "a settled request cannot be decided again");
+
+		// Unknown targets never reach the learner.
+		assert.match((await call(client, "delete_proposition", { id: "n_nope" })).text, /no proposition with id n_nope/);
+		assert.equal(listMcpDeletions().length, 0);
+
+		// Silence: the request expires and nothing is deleted.
+		setMcpDeletionTimeoutForTests(50);
+		const r = await call(client, "delete_proposition", { id: "n_1" });
+		assert.equal(r.json().outcome, "timeout");
+		assert.equal(listMcpDeletions().length, 0);
+		assert.ok(fs.readFileSync(path.join(DIR, "graph", "nodes.jsonl"), "utf-8").includes('"n_1"'));
 	});
 
 	it("without the token or with the app unreachable, writes explain what to do", async () => {

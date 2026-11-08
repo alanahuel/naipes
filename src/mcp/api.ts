@@ -19,7 +19,7 @@ export function apiConfigured(): boolean {
 	return Boolean(process.env[MCP_TOKEN_ENV]);
 }
 
-export async function callApi<T = Record<string, unknown>>(method: "GET" | "POST" | "PUT", path: string, body?: unknown): Promise<ApiResult<T>> {
+export async function callApi<T = Record<string, unknown>>(method: "GET" | "POST" | "PUT", path: string, body?: unknown, timeoutMs = 60_000): Promise<ApiResult<T>> {
 	const token = process.env[MCP_TOKEN_ENV];
 	if (!token) return { ok: false, status: null, error: `This MCP server has no write access to Naipes yet. ${SETUP}` };
 	const port = mcpApiPort(readSettings()?.mcp);
@@ -29,7 +29,7 @@ export async function callApi<T = Record<string, unknown>>(method: "GET" | "POST
 			method,
 			headers: { authorization: `Bearer ${token}`, ...(body !== undefined ? { "content-type": "application/json" } : {}) },
 			...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-			signal: AbortSignal.timeout(60_000),
+			signal: AbortSignal.timeout(timeoutMs),
 		});
 	} catch {
 		return { ok: false, status: null, error: `Naipes is not reachable on port ${port}: open the Naipes app (and check that «Conexión MCP» is on in Settings → Connections).` };
