@@ -63,6 +63,10 @@ export interface ChatStore {
 	/** Archive (true) or restore (false) a session — Mis sesiones' circle.
 	 *  Like a rename, updatedAt stays put; announces chats-changed. */
 	setArchived(id: string, archived: boolean): ChatRecord;
+	/** Set (a string) or clear (null) the opening a not-yet-opened session
+	 *  sends on first open (ChatRecord.pendingOpening). Not conversation
+	 *  activity: updatedAt stays; silent (no list-shape change). */
+	setPendingOpening(id: string, text: string | null): void;
 	/** Delete the session record entirely (session-deletion wave 6, owner
 	 *  2026-09-22). False when the id is unknown. The graph-ledger purge and
 	 *  job cleanup are the caller's choreography (core/graph-deletion.ts +

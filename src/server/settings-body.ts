@@ -25,7 +25,8 @@ import type {
 	RoleModelOverride,
 } from "../core/settings.ts";
 import { isLocale } from "../core/i18n.ts";
-import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, CONFIRM_ABOVE_RUNS_MIN, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, REVIEW_RETENTION_MAX, REVIEW_RETENTION_MIN, normalizeClockTime, normalizeVaultFolder, isThemeMode, isWeeklyMinutes, EXAM_INT_FIELDS, type DesktopSettings, type PhoneSettings, type ExamSettings, type ObsidianSettings, type ReviewSettings } from "../core/settings.ts";
+import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, CONFIRM_ABOVE_RUNS_MIN, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS, REVIEW_RETENTION_MAX, REVIEW_RETENTION_MIN, normalizeClockTime, normalizeVaultFolder, isThemeMode, isWeeklyMinutes, EXAM_INT_FIELDS, type DesktopSettings, type McpSettings, type PhoneSettings, type ExamSettings, type ObsidianSettings, type ReviewSettings } from "../core/settings.ts";
+import { MCP_PORT_MAX, MCP_PORT_MIN, isMcpPort } from "../core/mcp-api.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
 
@@ -511,6 +512,22 @@ export function parsePhoneSettingsBody(body: unknown): SettingsBodyResult<PhoneS
 	return { ok: true, settings: { enabled: raw.enabled } };
 }
 
+/** mcp: { enabled?: boolean, port?: 1024–65535 } (owner, 2026-11-08). */
+export function parseMcpSettingsBody(body: unknown): SettingsBodyResult<McpSettings> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	const settings: McpSettings = {};
+	if (raw.enabled !== undefined) {
+		if (typeof raw.enabled !== "boolean") return { ok: false, error: "enabled must be a boolean" };
+		settings.enabled = raw.enabled;
+	}
+	if (raw.port !== undefined) {
+		if (!isMcpPort(raw.port)) return { ok: false, error: `port must be an integer between ${MCP_PORT_MIN} and ${MCP_PORT_MAX}` };
+		settings.port = raw.port;
+	}
+	return { ok: true, settings };
+}
+
 /** exams: every field optional; strict types and ranges (400 otherwise). */
 export function parseExamSettingsBody(body: unknown): SettingsBodyResult<ExamSettings> {
 	const raw = asRecord(body);
@@ -545,6 +562,7 @@ export const SETTINGS_SECTIONS = {
 	exams: parseExamSettingsBody,
 	desktop: parseDesktopSettingsBody,
 	phone: parsePhoneSettingsBody,
+	mcp: parseMcpSettingsBody,
 } as const;
 
 export type SettingsSectionName = keyof typeof SETTINGS_SECTIONS;

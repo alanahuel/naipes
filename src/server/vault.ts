@@ -42,6 +42,7 @@ import {
 	VAULT_SUBFOLDERS,
 	composeManagedNote,
 	conceptNoteBody,
+	inboxFolderOf,
 	isInOutputFolder,
 	restampManagedNote,
 	managedZoneOf,
@@ -54,6 +55,7 @@ import {
 import { estimateRuns, firstPageOf, type DocSegment } from "../core/doc-chunks.ts";
 import { SUGGEST_ALTERNATIVES, folderOf, rankFolders } from "../core/inbox.ts";
 import { documentText, isDocumentFile, isNoteFile, joinedText } from "./doc-text.ts";
+import { scanNoteFiles } from "../store/vault-scan.ts";
 import type { ChatRecord, GraphNode } from "../core/contracts.ts";
 import { piEngineForSpec } from "../agent/models.ts";
 import { notesSourceId } from "../agent/subagents/extraction.ts";
@@ -204,8 +206,7 @@ function currentConfig(): VaultConfig | null {
 		return null;
 	}
 	const { outputFolder } = obsidian;
-	const inbox = obsidian.suggestFolders ? obsidian.inboxFolder : null;
-	const inboxFolder = inbox && !isInOutputFolder(inbox, outputFolder) && !isInOutputFolder(outputFolder, inbox) ? inbox : null;
+	const inboxFolder = inboxFolderOf(obsidian);
 	const folders = obsidian.folders.filter((f) => !isInOutputFolder(f, outputFolder));
 	// The inbox is always read, unless a selected folder already covers it.
 	if (inboxFolder && !folders.some((f) => isInOutputFolder(inboxFolder, f))) folders.push(inboxFolder);
@@ -244,22 +245,7 @@ export function isWatchedNote(relPath: string, folders: readonly string[], outpu
 }
 
 function scanFolder(root: string, folder: string, outputFolder: string, out: string[]): void {
-	const walk = (rel: string) => {
-		let entries: fs.Dirent[];
-		try {
-			entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
-		} catch {
-			return;
-		}
-		for (const entry of entries) {
-			if (entry.name.startsWith(".")) continue;
-			const child = `${rel}/${entry.name}`;
-			if (isInOutputFolder(child, outputFolder)) continue;
-			if (entry.isDirectory()) walk(child);
-			else if (entry.isFile() && isNoteFile(entry.name)) out.push(child);
-		}
-	};
-	walk(folder);
+	out.push(...scanNoteFiles(root, folder, outputFolder));
 }
 
 /** Content hash over the file's BYTES (equal to the former UTF-8 text hash
@@ -668,6 +654,27 @@ export function moveInboxNote(rel: string, folder: string): InboxActionResult {
 	fs.renameSync(path.join(config.root, rel), path.join(config.root, to));
 	if (s.notes[rel] || s.pending[rel]) rekeyNote(s, rel, to);
 	return { ok: true, path: to };
+}
+
+/** A note an MCP client leaves in the inbox (owner, 2026-11-08): exactly
+ *  «<title>.md» with the text as given — nothing marks its origin; a name
+ *  clash gets " (2)", " (3)"…. The sync then reads it like any note. */
+export function addInboxNote(title: string, content: string): InboxActionResult {
+	const config = currentConfig();
+	if (!config?.inboxFolder) return { ok: false, status: 409, error: "The knowledge folder's inbox is off (Settings → Connections → Knowledge folder → «Sugerir dónde guardar»)." };
+	const dir = path.join(config.root, config.inboxFolder);
+	fs.mkdirSync(dir, { recursive: true });
+	const stem = safeNoteName(title);
+	for (let n = 1; n < 1000; n++) {
+		const rel = `${config.inboxFolder}/${n === 1 ? stem : `${stem} (${n})`}.md`;
+		try {
+			fs.writeFileSync(path.join(config.root, rel), content, { encoding: "utf-8", flag: "wx" });
+			return { ok: true, path: rel };
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+		}
+	}
+	return { ok: false, status: 409, error: "Too many notes with that title in the inbox." };
 }
 
 /** «Descartar»: hide the current suggestion until the note or the winner changes. */

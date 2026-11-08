@@ -234,17 +234,27 @@ describe("parseCompactionSettingsBody (owner round 14)", () => {
 });
 
 describe("SETTINGS_SECTIONS (the route's section map)", () => {
-	it("maps exactly the thirteen record sections", () => {
+	it("maps exactly the fourteen record sections", () => {
 		// compaction joined (owner round 14): its own section PUT — the
 		// threshold is engine behavior, not an agent-section key. obsidian
 		// joined with the vault connection (owner, 2026-11-01); review and
 		// desktop with «Repaso» (owner, 2026-11-04); exams with «Exámenes»
 		// (owner, 2026-11-05); phone with «Enviar desde el móvil» (owner,
-		// 2026-11-06).
+		// 2026-11-06); mcp with «Conexión MCP» (owner, 2026-11-08).
 		assert.deepEqual(
 			Object.keys(SETTINGS_SECTIONS),
-			["general", "chat", "agent", "appearance", "graph", "compaction", "models", "dictation", "obsidian", "review", "exams", "desktop", "phone"],
+			["general", "chat", "agent", "appearance", "graph", "compaction", "models", "dictation", "obsidian", "review", "exams", "desktop", "phone", "mcp"],
 		);
+	});
+
+	it("mcp: a boolean switch and a non-privileged port", () => {
+		const parse = SETTINGS_SECTIONS.mcp;
+		assert.deepEqual(parse({ enabled: true, port: 47801 }), { ok: true, settings: { enabled: true, port: 47801 } });
+		assert.deepEqual(parse({}), { ok: true, settings: {} });
+		assert.equal(parse({ enabled: "yes" }).ok, false);
+		assert.equal(parse({ port: 80 }).ok, false);
+		assert.equal(parse({ port: 47801.5 }).ok, false);
+		assert.equal(parse({ port: 70000 }).ok, false);
 	});
 });
 

@@ -4,6 +4,8 @@
  * from the desktop shell (electron/main.cjs `np:mcp:command`).
  */
 
+import { MCP_TOKEN_ENV } from "./mcp-api.ts";
+
 export const MCP_SERVER_KEY = "naipes";
 
 export interface McpLaunch {
@@ -18,12 +20,16 @@ export function shellQuote(word: string, platform: string): string {
 	return `'${word.replace(/'/g, `'\\''`)}'`;
 }
 
-/** Claude Code: registered for the user (every project), launched over stdio. */
-export function claudeCodeCommand(launch: McpLaunch, platform: string): string {
-	return ["claude", "mcp", "add", "--scope", "user", MCP_SERVER_KEY, "--", launch.command, ...launch.args].map((w) => shellQuote(w, platform)).join(" ");
+/** Claude Code: registered for the user (every project), launched over
+ *  stdio. With a token (Conexión MCP on) the server may also write. The
+ *  name comes BEFORE `-e`: that option is variadic and would swallow it. */
+export function claudeCodeCommand(launch: McpLaunch, platform: string, token: string | null = null): string {
+	const env = token ? ["-e", `${MCP_TOKEN_ENV}=${token}`] : [];
+	return ["claude", "mcp", "add", "--scope", "user", MCP_SERVER_KEY, ...env, "--", launch.command, ...launch.args].map((w) => shellQuote(w, platform)).join(" ");
 }
 
 /** Claude Desktop (and most MCP clients): the `mcpServers` JSON entry. */
-export function mcpServersJson(launch: McpLaunch): string {
-	return JSON.stringify({ mcpServers: { [MCP_SERVER_KEY]: { command: launch.command, args: launch.args } } }, null, 2);
+export function mcpServersJson(launch: McpLaunch, token: string | null = null): string {
+	const entry = { command: launch.command, args: launch.args, ...(token ? { env: { [MCP_TOKEN_ENV]: token } } : {}) };
+	return JSON.stringify({ mcpServers: { [MCP_SERVER_KEY]: entry } }, null, 2);
 }

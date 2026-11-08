@@ -362,6 +362,12 @@ export async function handleChatInput(
 		endTurn(chatId);
 		return new Response("Your input could not be saved. Please try again.", { status: 500 });
 	}
+	// An MCP-created session's stored opening (owner, 2026-11-08) is spent
+	// by its first turn — whatever the learner actually sent.
+	if (record.pendingOpening !== undefined) {
+		try { stores.chatStore.setPendingOpening(chatId, null); }
+		catch (err) { console.error(`[chat ${chatId}] pending opening not cleared:`, err); }
+	}
 	// Visibility bookkeeping is not the canonical save. Its failure must
 	// neither misreport a saved input as lost nor prevent the turn running.
 	try {

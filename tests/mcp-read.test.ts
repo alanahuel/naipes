@@ -100,7 +100,11 @@ const ALL_READS: Array<[string, Record<string, unknown>]> = [
 	["get_review_status", { include_all: true }],
 	["list_exams", {}],
 	["get_exam", { id: "exam_test_1" }],
+	["list_inbox", {}],
 ];
+
+/** Phase 2's writes (tests/mcp-write.test.ts) — always listed. */
+const WRITES = ["add_inbox_note", "create_session", "start_review_session", "create_exam", "update_exam", "add_exam_material", "run_exam_agent", "start_exam_session"];
 
 describe("MCP read tools", () => {
 	let client: Client;
@@ -109,10 +113,11 @@ describe("MCP read tools", () => {
 		client = await connect();
 	});
 
-	it("advertises the read tools, all read-only, with the evidence caveats", async () => {
+	it("advertises the read tools (read-only) and the write tools, with the evidence caveats", async () => {
 		const { tools } = await client.listTools();
-		assert.deepEqual(tools.map((t) => t.name).sort(), ALL_READS.map(([n]) => n).sort());
-		for (const t of tools) assert.equal(t.annotations?.readOnlyHint, true, t.name);
+		assert.deepEqual(tools.map((t) => t.name).sort(), [...ALL_READS.map(([n]) => n), ...WRITES].sort());
+		for (const t of tools) assert.equal(t.annotations?.readOnlyHint, !WRITES.includes(t.name), t.name);
+		for (const t of tools) if (WRITES.includes(t.name)) assert.equal(t.annotations?.destructiveHint, false, t.name);
 		assert.equal(client.getInstructions(), MCP_INSTRUCTIONS);
 		assert.match(MCP_INSTRUCTIONS, /NOT a mastery assessment/);
 	});

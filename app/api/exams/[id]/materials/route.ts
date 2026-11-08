@@ -6,12 +6,11 @@
  *   POST   JSON { text, name } → 201 { material } (pasted text, e.g. «Guía (pegada)»)
  *   DELETE ?material=<id> → 200
  */
+import { EXAM_MATERIAL_MAX_BYTES as MAX_BYTES, isExamMaterialFileName } from "@/src/core";
 import { addExamMaterial, removeExamMaterial } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-const MAX_BYTES = 60 * 1024 * 1024;
-const EXT_RE = /\.(pdf|docx|epub|md|txt|png|jpe?g|webp|heic)$/i;
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
@@ -22,7 +21,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 		const file = form?.get("file");
 		if (!(file instanceof File)) return Response.json({ error: "no file" }, { status: 400 });
 		if (file.size > MAX_BYTES) return Response.json({ error: "file too large" }, { status: 413 });
-		if (!EXT_RE.test(file.name)) return Response.json({ error: "unsupported format" }, { status: 415 });
+		if (!isExamMaterialFileName(file.name)) return Response.json({ error: "unsupported format" }, { status: 415 });
 		result = addExamMaterial(id, { kind: "file", name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
 	} else {
 		const body = (await request.json().catch(() => null)) as { url?: unknown; name?: unknown; text?: unknown } | null;

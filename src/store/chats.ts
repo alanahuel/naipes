@@ -211,6 +211,19 @@ function deleteChat(id: string): boolean {
 	}
 }
 
+/** The MCP-created session's opening (owner, 2026-11-08). Like a rename it
+ *  is not conversation activity (updatedAt stays) and, being no list-shape
+ *  change, it is silent. */
+function setPendingOpening(id: string, text: string | null): void {
+	const record = getChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	if (text === null) {
+		if (record.pendingOpening === undefined) return;
+		delete record.pendingOpening;
+	} else record.pendingOpening = text;
+	writeChat(record);
+}
+
 /** Persist the session plan tree (plan tools call this in execute). */
 function saveTree(id: string, tree: PlanTree): void {
 	const record = getChat(id);
@@ -230,6 +243,7 @@ export const chatStore: ChatStore = {
 	saveSettings,
 	renameChat,
 	setArchived,
+	setPendingOpening,
 	deleteChat,
 	appendTurnUsage,
 	appendExtractionUsage,

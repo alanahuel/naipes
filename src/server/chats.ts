@@ -4,6 +4,7 @@ import { coverageOf } from "../core/coverage.ts";
 import { closePhoneSessionsForChat } from "./phone.ts";
 import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../core/graph-deletion.ts";
 import { titleFromPrompt } from "../core/contracts.ts";
+import { getGraph } from "../core/graph.ts";
 import { chainsForSelection, formatChainLine } from "../core/chains.ts";
 import { newGraphContextMessage, type GraphContextPick } from "../core/native-messages.ts";
 import { graphRevision } from "./graph.ts";
@@ -51,6 +52,32 @@ export function seedGraphContext(chatId: string, picks: readonly GraphContextPic
 	);
 	stores.chatStore.saveMessages(chatId, [newGraphContextMessage(picks, chainLines)]);
 }
+/** A session an MCP client creates (owner, 2026-11-08) — the same birth
+ *  as «Nueva sesión» (title from the goal, strong-slot model, optional map
+ *  picks), but NOT opened: the goal is stored as its pending opening and
+ *  sent the first time the learner opens it. Unknown proposition ids are
+ *  refused, never silently dropped. */
+export function createPendingSession(input: { goal: string; kind?: "practice"; propositionIds?: readonly string[] }): { ok: true; id: string; title: string } | { ok: false; error: string } {
+	const goal = input.goal.trim();
+	if (!goal) return { ok: false, error: "goal must not be empty" };
+	const byId = new Map(getGraph(stores.graphStore).nodes.map((n) => [n.id, n]));
+	const ids = [...new Set(input.propositionIds ?? [])];
+	const unknown = ids.filter((id) => !byId.has(id));
+	if (unknown.length > 0) return { ok: false, error: `unknown proposition ids: ${unknown.join(", ")}` };
+	if (ids.length > 64) return { ok: false, error: "at most 64 propositions" };
+	const chat = stores.chatStore.createChat(titleFromPrompt(goal), input.kind);
+	stampStrongModel(chat.id);
+	seedGraphContext(chat.id, ids.map((id) => ({ id, name: byId.get(id)!.name, statement: byId.get(id)!.statement })));
+	stores.chatStore.setPendingOpening(chat.id, goal);
+	return { ok: true, id: chat.id, title: chat.title };
+}
+
+/** Store an already-created session's opening (review / exam sessions an
+ *  MCP client starts — their services return the opening text). */
+export function setPendingOpening(chatId: string, opening: string): void {
+	stores.chatStore.setPendingOpening(chatId, opening);
+}
+
 export type { ChatDeleteMode, ChatDeletionStats } from "../core/graph-deletion.ts";
 
 /** How long the wind-down wait may take before the caller gets a retryable

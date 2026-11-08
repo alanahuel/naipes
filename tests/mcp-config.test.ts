@@ -11,6 +11,13 @@ describe("MCP client setup", () => {
 		);
 	});
 
+	it("with a token: the env rides after the name (-e is variadic) and in the JSON", () => {
+		const launch = { command: "/opt/Naipes/naipes", args: ["--mcp"] };
+		assert.equal(claudeCodeCommand(launch, "linux", "tok_123"), "claude mcp add --scope user naipes -e NAIPES_MCP_TOKEN=tok_123 -- /opt/Naipes/naipes --mcp");
+		assert.deepEqual(JSON.parse(mcpServersJson(launch, "tok_123")).mcpServers.naipes.env, { NAIPES_MCP_TOKEN: "tok_123" });
+		assert.equal("env" in JSON.parse(mcpServersJson(launch)).mcpServers.naipes, false);
+	});
+
 	it("quotes paths with spaces and quotes per platform", () => {
 		assert.equal(shellQuote("/Applications/My Apps/Naipes", "darwin"), "'/Applications/My Apps/Naipes'");
 		assert.equal(shellQuote("/tmp/it's", "linux"), `'/tmp/it'\\''s'`);

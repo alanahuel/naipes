@@ -289,6 +289,13 @@ export interface PhoneSettings {
 	enabled?: boolean;
 }
 
+/** «Conexión MCP» (owner, 2026-11-08): the local write API MCP clients
+ *  reach on 127.0.0.1:port — off by default (core/mcp-api.ts). */
+export interface McpSettings {
+	enabled?: boolean;
+	port?: number;
+}
+
 export interface DesktopSettings {
 	/** Closing the window keeps Naipes in the system tray (factory on). */
 	tray?: boolean;
@@ -496,6 +503,7 @@ export interface UserSettings {
 	exams?: ExamSettings;
 	desktop?: DesktopSettings;
 	phone?: PhoneSettings;
+	mcp?: McpSettings;
 	[key: string]: unknown;
 }
 

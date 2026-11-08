@@ -33,7 +33,9 @@ export default async function ChatPage({
 				initialMessages={chat.messages}
 			initialError={turnFailure(chat.id)}
 			initialConfigured={slotsConfigured(record?.models)}
-			initialPrompt={prompt}
+			// An MCP-created session (owner, 2026-11-08) opens with its stored
+			// opening — sent once, exactly like a freshly created session's.
+			initialPrompt={prompt ?? chat.pendingOpening}
 			// A teacher turn that outlived its client: the remounted view must
 			// attach (busy shimmer + poll), never resurrect the stale record.
 			initiallyInFlight={isTurnRunning(chat.id)}

@@ -40,6 +40,7 @@ import {
 	promptOverrides,
 	readSettingsRecord,
 	reconfigureVault,
+	reconfigureMcpApi,
 	validateChatSettings,
 	validateModelsSettings,
 	writeSettingsRecord,
@@ -138,5 +139,7 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	// The Obsidian connection re-reads its settings (watcher, folders,
 	// exports) after its section changes.
 	if (section === "obsidian") reconfigureVault();
+	// «Conexión MCP»: the local write API follows its switch and port.
+	if (section === "mcp") await reconfigureMcpApi();
 	return Response.json({ settings: next });
 }

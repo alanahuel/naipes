@@ -56,6 +56,26 @@ export function isInOutputFolder(relPath: string, outputFolder: string): boolean
 	return relPath === outputFolder || relPath.startsWith(`${outputFolder}/`);
 }
 
+/** Extensions the knowledge folder and the manual import read. */
+export const NOTE_EXTENSIONS = [".md", ".txt", ".pdf", ".docx", ".epub"] as const;
+/** Formats that go through conversion (everything but Markdown). */
+export const DOCUMENT_EXTENSIONS = [".txt", ".pdf", ".docx", ".epub"] as const;
+
+const extOf = (name: string) => {
+	const base = name.slice(Math.max(name.lastIndexOf("/"), name.lastIndexOf("\\")) + 1);
+	const dot = base.lastIndexOf(".");
+	return dot > 0 ? base.slice(dot).toLowerCase() : "";
+};
+export const isNoteFile = (name: string): boolean => (NOTE_EXTENSIONS as readonly string[]).includes(extOf(name));
+export const isDocumentFile = (name: string): boolean => (DOCUMENT_EXTENSIONS as readonly string[]).includes(extOf(name));
+
+/** The inbox folder (folder-relative) while «Sugerir dónde guardar» is on
+ *  and it does not overlap the app's output folder; null otherwise. */
+export function inboxFolderOf(obsidian: { suggestFolders?: boolean; inboxFolder?: string; outputFolder: string }): string | null {
+	const inbox = obsidian.suggestFolders ? (obsidian.inboxFolder ?? null) : null;
+	return inbox && !isInOutputFolder(inbox, obsidian.outputFolder) && !isInOutputFolder(obsidian.outputFolder, inbox) ? inbox : null;
+}
+
 /** A title as an Obsidian-safe file name (no extension): strips the
  *  characters file systems or wikilinks choke on, collapses whitespace,
  *  caps the length. Never empty. */

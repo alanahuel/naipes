@@ -579,6 +579,11 @@ export function sanitizeContext(raw: unknown): ExamContext {
 }
 
 export const MAX_EXAM_MATERIALS = 40;
+/** An uploaded material's size cap and accepted formats (the materials
+ *  route and the MCP API share them). */
+export const EXAM_MATERIAL_MAX_BYTES = 60 * 1024 * 1024;
+const EXAM_MATERIAL_EXT_RE = /\.(pdf|docx|epub|md|txt|png|jpe?g|webp|heic)$/i;
+export const isExamMaterialFileName = (name: string): boolean => EXAM_MATERIAL_EXT_RE.test(name);
 
 /** Depth line for the research prompt (owner-approved 2026-11-06): by
  *  preset; «Personalizar» follows its mode. */

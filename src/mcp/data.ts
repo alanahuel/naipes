@@ -23,6 +23,9 @@ import { listExams, readExam } from "../store/exams.ts";
 import { graphStore } from "../store/graph.ts";
 import { readIntake, readReviewSources } from "../store/review.ts";
 import { readSettings } from "../store/settings.ts";
+import { scanNoteFiles } from "../store/vault-scan.ts";
+import { inboxFolderOf } from "../core/vault-notes.ts";
+import * as path from "node:path";
 
 const settings = (): EffectiveSettings => resolveSettings(readSettings());
 
@@ -114,5 +117,19 @@ export function exam(id: string): ExamRecord | null {
 }
 
 export { allPoints };
+
+// ─── inbox (app closed: the file list only) ─────────────────────────────────
+
+/** The knowledge folder's inbox notes straight from disk; null when the
+ *  folder or its inbox is off. Suggestions need the running app. */
+export function inboxFiles(): { inbox: string; files: string[] } | null {
+	const { obsidian } = settings();
+	if (!obsidian.enabled || !obsidian.vaultPath) return null;
+	const inbox = inboxFolderOf(obsidian);
+	if (!inbox) return null;
+	const root = path.resolve(obsidian.vaultPath);
+	if (!fs.existsSync(root)) return null;
+	return { inbox, files: scanNoteFiles(root, inbox, obsidian.outputFolder).sort((a, b) => a.localeCompare(b)) };
+}
 
 export const fuzzyMatches = (query: string, ...fields: string[]): boolean => fuzzyScore(query, ...fields) !== null;

@@ -33,14 +33,11 @@ import { getHeadless } from "../agent/subagents/headless.ts";
 
 const execFileAsync = promisify(execFile);
 
-/** Extensions the knowledge folder and the manual import read. */
-export const NOTE_EXTENSIONS = [".md", ".txt", ".pdf", ".docx", ".epub"] as const;
-/** Formats that go through conversion (everything but Markdown). */
-export const DOCUMENT_EXTENSIONS = [".txt", ".pdf", ".docx", ".epub"] as const;
+// The note-format facts are pure (core/vault-notes.ts — the MCP read side
+// lists the inbox without this module's converters); re-exported here.
+export { NOTE_EXTENSIONS, DOCUMENT_EXTENSIONS, isNoteFile, isDocumentFile } from "../core/vault-notes.ts";
 
 const extOf = (name: string) => path.extname(name).toLowerCase();
-export const isNoteFile = (name: string): boolean => (NOTE_EXTENSIONS as readonly string[]).includes(extOf(name));
-export const isDocumentFile = (name: string): boolean => (DOCUMENT_EXTENSIONS as readonly string[]).includes(extOf(name));
 
 export interface ConvertedDocument {
 	segments: DocSegment[];

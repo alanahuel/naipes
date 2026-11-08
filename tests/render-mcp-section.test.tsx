@@ -11,9 +11,16 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { McpSection } from "../components/settings/mcp-section.tsx";
 
 describe("MCP settings section", () => {
-	it("renders server-side without the desktop bridge", () => {
-		const html = renderToStaticMarkup(<McpSection />);
+	it("renders server-side without the desktop bridge; writing off by default", () => {
+		const html = renderToStaticMarkup(<McpSection mcp={undefined} onChange={() => {}} />);
 		assert.match(html, /MCP/);
-		assert.doesNotMatch(html, /mcp-claude-code|mcp-unavailable/);
+		assert.match(html, /data-testid="mcp-enabled"/);
+		assert.doesNotMatch(html, /mcp-claude-code|mcp-unavailable|mcp-port|mcp-regenerate/);
+	});
+
+	it("writing on: the port and «Regenerar token» rows appear", () => {
+		const html = renderToStaticMarkup(<McpSection mcp={{ enabled: true, port: 47900 }} onChange={() => {}} />);
+		assert.match(html, /value="47900"/);
+		assert.match(html, /data-testid="mcp-regenerate"/);
 	});
 });

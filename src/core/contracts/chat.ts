@@ -48,6 +48,10 @@ export interface ChatRecord {
 	 *  Archiving hides a session from «Activas» and «Seguir con» — nothing
 	 *  is deleted, and it never reorders the list (updatedAt stays). */
 	archivedAt?: string;
+	/** The learner's opening message of a session an MCP client created
+	 *  (owner, 2026-11-08): sent automatically the first time the learner
+	 *  opens it in the app, then cleared when that turn starts. */
+	pendingOpening?: string;
 	/** The session's plan tree (vision §2) — written by plan tools via saveTree. */
 	tree?: PlanTree;
 	/** Append-only usage log (observability, 2026-09): one entry per model

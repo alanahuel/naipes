@@ -53,7 +53,7 @@ import type { SettingsPageId } from "./pages.ts";
 
 export { SETTINGS_PAGE_IDS, isSettingsPage, pageForSection, type SettingsPageId } from "./pages.ts";
 
-type WritableSection = "general" | "agent" | "models" | "appearance" | "graph" | "compaction" | "obsidian" | "review" | "exams" | "desktop" | "phone";
+type WritableSection = "general" | "agent" | "models" | "appearance" | "graph" | "compaction" | "obsidian" | "review" | "exams" | "desktop" | "phone" | "mcp";
 
 /** The settings record + its one writer. */
 export function useSettingsRecord() {
@@ -187,7 +187,7 @@ export function SettingsPage({ page, initialRow }: { page: SettingsPageId; initi
 							<KeysSection initialRow={initialRow} groups={["dictation", "search"]} />
 						</Block>
 						<Block title={t("settings.mcp.title")} testid="section-mcp">
-							<McpSection />
+							<McpSection mcp={record.mcp} onChange={(next) => write("mcp", next)} />
 						</Block>
 					</>
 				) : page === "review" ? (
