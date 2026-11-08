@@ -112,7 +112,36 @@ function serverEntry() {
 // MUST run before the single-instance lock — a helper is a second
 // instance of this very binary, and before the NP_DEV_URL redirect — the
 // helper owns no user data at all.
-if (process.argv.includes("--browser-service")) {
+// ─── MCP mode (owner, 2026-11-08) ─────────────────────────────────────
+// `naipes --mcp` is what an MCP client (Claude Code, Claude Desktop…)
+// launches: the stdio MCP server, run as plain Node from this very binary
+// (ELECTRON_RUN_AS_NODE) against the profile's data folder. The protocol
+// rides the INHERITED stdio — this process prints nothing to stdout. Like
+// the browser-service helper it must run before the single-instance lock
+// (the app may be open) and owns no window, tray or lock.
+if (process.argv.includes("--mcp")) {
+	// stdout belongs to the protocol: log() and anything else go to stderr.
+	console.log = (...args) => console.error(...args);
+	// No window ever opens in this mode: skip the GPU process entirely.
+	app.disableHardwareAcceleration();
+	app.dock?.hide();
+	const entry = path.join(process.resourcesPath, "server", "standalone", "mcp", "naipes-mcp.mjs");
+	if (!app.isPackaged || !fs.existsSync(entry)) {
+		process.stderr.write(`naipes --mcp: MCP server not found at ${entry} (from a checkout, run \`pnpm mcp\`).\n`);
+		app.exit(1);
+	} else {
+		const child = spawn(process.execPath, [entry], {
+			stdio: "inherit",
+			env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NP_DATA_DIR: DATA_DIR(), NP_APP_VERSION: app.getVersion() },
+		});
+		for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, () => child.kill(signal));
+		child.on("error", (err) => {
+			process.stderr.write(`naipes --mcp: ${err.message}\n`);
+			app.exit(1);
+		});
+		child.on("exit", (code) => app.exit(code ?? 0));
+	}
+} else if (process.argv.includes("--browser-service")) {
 	const { waitForBrowserService } = require("./browser-service-readiness.cjs");
 	// Own the helper's entire startup lifetime, including the readiness wait.
 	const lifetime = new AbortController();
@@ -1107,6 +1136,14 @@ async function main() {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win || !trustedAppWindows.has(win)) return;
 		void shell.openPath(app.getPath("userData"));
+	});
+	// Settings → «Conexión MCP» (owner, 2026-11-08): the command an MCP
+	// client launches. AppImage: the .AppImage file itself (process.execPath
+	// is its per-launch mount). null from a checkout — `pnpm mcp` there.
+	ipcMain.handle("np:mcp:command", (event) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win || !trustedAppWindows.has(win) || !app.isPackaged) return null;
+		return { command: process.env.APPIMAGE || process.execPath, args: ["--mcp"] };
 	});
 	ipcMain.on("np:expand-window", (event) => {
 		const win = BrowserWindow.fromWebContents(event.sender);

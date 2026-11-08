@@ -54,6 +54,9 @@ declare global {
 			openSource?: (relPath: string) => Promise<boolean>;
 			/** Opens the app's data folder in the system file manager. */
 			openDataFolder?: () => void;
+			/** The command an MCP client launches (Settings → «Conexión MCP»);
+			 *  null when not packaged. */
+			mcpCommand?: () => Promise<{ command: string; args: string[] } | null>;
 			/** Repaints the native window chrome for the effective theme. */
 			setTheme?: (theme: "light" | "dark") => void;
 			/** Observational update events and a snapshot for late subscribers. */

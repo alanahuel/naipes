@@ -12,6 +12,8 @@ import importPlugin from "eslint-plugin-import";
  *   app/**         →  "@/src/core" + "@/src/server" (the server barrel) — ONLY
  *   src/core/**    →  never imports src/agent, src/server, src/store (pure
  *                    core: adapters implement core/ports.ts, never the reverse)
+ *   src/mcp/**     →  never imports src/server, src/agent (read-only MCP
+ *                    server: stores' readers + core; writes via the app's API)
  *   src/agent/**   →  never imports src/server, src/store (dependencies —
  *                    the storage ports, the composition — arrive via
  *                    factories/closures from the chat-handler)
@@ -59,6 +61,12 @@ export default defineConfig([
 							from: ["./src/agent", "./src/server", "./src/store"],
 							message:
 								"Pure core never imports IO layers (agent/server/store): adapters implement core/ports.ts, and the composition root (src/server/stores.ts) passes them in (architecture: docs/architecture.md).",
+						},
+						{
+							target: "./src/mcp",
+							from: ["./src/server", "./src/agent"],
+							message:
+								"The MCP server reads through the stores' pure readers + the core only (no server services: they persist as they compute); writes go through the running app's local API (owner, 2026-11-08).",
 						},
 						{
 							target: "./src/agent",

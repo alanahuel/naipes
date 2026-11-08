@@ -31,6 +31,9 @@
  *   review notification or the tray's «Repasar ahora» → "/review"); same
  *   buffering. Main allow-lists the paths (electron/review-desktop.cjs).
  *
+ *   window.np.mcpCommand() — the command an MCP client launches to reach
+ *   this app's data ({ command, args }; null when not packaged).
+ *
  * Channel names are mirrored in electron/main.cjs — keep them in sync.
  */
 const { contextBridge, ipcRenderer } = require("electron");
@@ -93,6 +96,7 @@ contextBridge.exposeInMainWorld("np", {
 	getZoom: () => ipcRenderer.invoke("np:zoom:get"),
 	setTheme: (theme) => ipcRenderer.send("np:set-theme", theme),
 	openDataFolder: () => ipcRenderer.send("np:open-data-folder"),
+	mcpCommand: () => ipcRenderer.invoke("np:mcp:command"),
 	pickFolder: (defaultPath) => ipcRenderer.invoke("np:pick-folder", defaultPath),
 	openSource: (relPath) => ipcRenderer.invoke("np:open-source", relPath),
 	onUpdateStatus: (cb) => {

@@ -27,6 +27,9 @@ if [[ "${1:-}" != "--no-build" ]]; then
 	pnpm run build
 	echo "==> Preparando el servidor empaquetado"
 	node scripts/build-server.mjs
+	echo "==> Empaquetando el servidor MCP"
+	node scripts/build-mcp.mjs
+	node scripts/smoke-mcp.mjs --electron
 	echo "==> Prueba de arranque del servidor"
 	node scripts/smoke-server.mjs --electron
 	echo "==> Empaquetando AppImage (sin auto-update)"

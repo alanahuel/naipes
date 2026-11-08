@@ -43,6 +43,7 @@ import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
 import { KeyboardSection } from "./keyboard-section.tsx";
 import { KeysSection } from "./keys-section.tsx";
 import { LanguageSetting } from "./language-setting.tsx";
+import { McpSection } from "./mcp-section";
 import { ObsidianSection } from "./obsidian-section.tsx";
 import { ReviewSettingsSection } from "./review-section.tsx";
 import { ExamSettingsSection } from "./exams-section.tsx";
@@ -184,6 +185,9 @@ export function SettingsPage({ page, initialRow }: { page: SettingsPageId; initi
 						</Block>
 						<Block testid="section-keys">
 							<KeysSection initialRow={initialRow} groups={["dictation", "search"]} />
+						</Block>
+						<Block title={t("settings.mcp.title")} testid="section-mcp">
+							<McpSection />
 						</Block>
 					</>
 				) : page === "review" ? (

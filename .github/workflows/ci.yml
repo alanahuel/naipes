@@ -68,4 +68,6 @@ jobs:
       # Check the fresh trace before any static copying/curation.
       - run: node scripts/smoke-provider-runtime.mjs
       - run: node scripts/build-server.mjs
+      - run: node scripts/build-mcp.mjs
+      - run: node scripts/smoke-mcp.mjs --electron
       - run: node scripts/smoke-server.mjs --electron

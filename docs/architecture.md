@@ -67,7 +67,7 @@ Dependency arrows point **down only**. Each layer may import the core barrel; no
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**The import law** (`eslint.config.mjs` — the config's sole job; four `import/no-restricted-paths` zones, all `"error"`; each verified to fire; `lint` is a gate on every change):
+**The import law** (`eslint.config.mjs` — the config's sole job; five `import/no-restricted-paths` zones, all `"error"`; each verified to fire; `lint` is a gate on every change):
 
 | Zone | May import | Rationale |
 |---|---|---|
@@ -75,6 +75,7 @@ Dependency arrows point **down only**. Each layer may import the core barrel; no
 | `app/**` | `@/src/core` + `@/src/server` (the barrels) | Route handlers are transport; they delegate to server entry points |
 | `src/core/**` | nothing below itself (never `agent`/`server`/`store`) | The core is pure; adapters implement its ports, never the reverse |
 | `src/agent/**` | never `server`/`store` | The agent layer receives its dependencies (ports, engines, seams) via factories/closures |
+| `src/mcp/**` | never `server`/`agent` | The MCP server (2026-11-08) reads through the stores' pure readers + the core only — server services persist as they compute; writes go through the running app's API |
 
 ```mermaid
 flowchart TB

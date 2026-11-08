@@ -29,11 +29,13 @@
 		"typecheck": "tsc --noEmit",
 		"desktop:dev": "concurrently -k \"next dev\" \"NP_DEV_URL=http://localhost:3000 electron .\"",
 		"dev:fresh": "bash scripts/dev-fresh.sh",
-		"desktop:dist": "rm -rf dist .next/standalone && next build && node scripts/smoke-provider-runtime.mjs && node scripts/build-server.mjs && node scripts/smoke-server.mjs && electron-builder --mac --arm64"
+		"mcp": "tsx src/mcp/main.ts",
+		"desktop:dist": "rm -rf dist .next/standalone && next build && node scripts/smoke-provider-runtime.mjs && node scripts/build-server.mjs && node scripts/build-mcp.mjs && node scripts/smoke-mcp.mjs --electron && node scripts/smoke-server.mjs && electron-builder --mac --arm64"
 	},
 	"dependencies": {
 		"@earendil-works/pi-agent-core": "1.4.0",
 		"@earendil-works/pi-ai": "1.4.0",
+		"@modelcontextprotocol/sdk": "^1.32.2",
 		"@mozilla/readability": "^0.6.0",
 		"@radix-ui/react-use-controllable-state": "^1.2.6",
 		"@resvg/resvg-js": "^2.6.2",

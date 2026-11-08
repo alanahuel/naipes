@@ -95,3 +95,5 @@ export * from "./coverage.ts";
 export * from "./session-markdown.ts";
 export * from "./review.ts";
 export * from "./exams.ts";
+// mcp-config.ts (owner, 2026-11-08): the MCP client snippets for Settings.
+export * from "./mcp-config.ts";
