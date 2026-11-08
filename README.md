@@ -32,6 +32,7 @@ En lugar de limitarse a explicarte algo, usa tus respuestas y tu forma de pensar
 
 - **Suscripción de Claude Code como proveedor.** Usa los modelos de tu suscripción de Claude Code a través del CLI `claude` instalado en tu equipo, sin API key.
 - **Conexión bidireccional con tu carpeta de conocimiento.** Elige cualquier carpeta de notas (un vault de Obsidian o una carpeta normal): las subcarpetas que marques alimentan el grafo de conocimiento. Lee Markdown, texto, PDF (con OCR local si tienes Tesseract), Word (.docx) y epub, y cada idea recuerda la página de la que salió. Si quieres, deja lo nuevo en una bandeja y Naipes te sugiere a qué carpeta moverlo según tu grafo; mover notas, también a mano, no cuesta extracciones. Las transcripciones, las prácticas, los conceptos y los resúmenes de sesión se escriben de vuelta en una carpeta de salida configurable, con enlaces Markdown estándar o, con el formato Obsidian activado, con `[[wikilinks]]`. Más detalles en [docs/obsidian.md](docs/obsidian.md).
+- **Conexión con Claude y otros asistentes (MCP).** Claude Code, Claude Desktop o cualquier cliente MCP pueden leer tus sesiones, tu grafo, tu repaso y tus exámenes, incluso con Naipes cerrado. Si lo activas, también pueden dejar notas en tu bandeja, preparar sesiones y repasos, y crear o editar exámenes; para borrar algo, Naipes siempre te pide confirmación. La configuración lista para copiar está en Ajustes → Conexiones. Más detalles en [docs/mcp.md](docs/mcp.md).
 - **Instalación local en Linux.** `scripts/install-linux.sh` compila tu copia del repositorio como AppImage y la instala con lanzador e icono.
 - **Una interfaz rediseñada:**
   - pestañas Inicio · Mis sesiones · Conocimiento sobre una sola hoja;
@@ -83,6 +84,7 @@ Añade la API key de tu proveedor (o conecta una suscripción) y elige tus model
 - **Tus claves y tus modelos.** Sin suscripción a Naipes ni comisiones. Pagas a tus proveedores por lo que uses, y un contador en vivo muestra el coste de los modelos.
 - **Almacenamiento local.** Tus chats, el grafo, los ajustes y las API keys viven en tu equipo. Los registros de aprendizaje son archivos de texto plano que puedes inspeccionar.
 - **Servicios externos.** Los modelos se ejecutan a través de los proveedores que configures. Cada petición envía el contexto necesario para la tarea, y la investigación web y el dictado también contactan con servicios externos. Que los datos se guarden en local no significa que el procesamiento sea offline.
+- **Asistentes conectados por MCP.** Lo que un asistente lee de Naipes se envía a su proveedor de modelos. La escritura solo escucha en tu equipo (127.0.0.1), está desactivada por defecto y necesita un token.
 - **Comportamiento inspeccionable.** Los prompts del sistema son visibles y editables.
 
 ## Desarrollo

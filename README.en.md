@@ -32,6 +32,7 @@ Instead of just giving you an explanation, it uses your answers and thinking to 
 
 - **Claude Code subscription as a provider.** Use the models in your Claude Code subscription through the local `claude` CLI, with no API key.
 - **Two-way knowledge-folder connection.** Pick any folder of notes (an Obsidian vault or a plain folder): the subfolders you check feed the knowledge graph. It reads Markdown, text, PDF (with local OCR when Tesseract is installed), Word (.docx) and epub, and every idea remembers the page it came from. Optionally, drop new things in an inbox and Naipes suggests which folder they belong in, from your graph; moving notes, by hand too, costs no extraction runs. Transcripts, practice results, concepts and session summaries are written back to a configurable output folder, with standard Markdown links or, with the Obsidian format on, `[[wikilinks]]`. Details in [docs/obsidian.md](docs/obsidian.md).
+- **Connect Claude and other assistants (MCP).** Claude Code, Claude Desktop, or any MCP client can read your sessions, graph, review, and exams — even with Naipes closed. Turn it on and they can also leave notes in your inbox, prepare sessions and reviews, and create or edit exams; deleting anything always asks you to confirm in Naipes. The ready-to-paste setup is in Settings → Connections. Details in [docs/mcp.md](docs/mcp.md).
 - **Local Linux install.** `scripts/install-linux.sh` builds your checkout into an AppImage and installs it with a launcher and icon.
 - **A redesigned interface:**
   - Home · My sessions · Knowledge tabs on a single sheet;
@@ -83,6 +84,7 @@ Add your provider API key (or connect a subscription) and choose your models, th
 - **Your keys and models.** No Naipes subscription or markup. You pay your providers for usage; a live cost meter shows model costs.
 - **Local storage.** Your chats, graph, settings, and API keys live on your machine. Learning records are plain files you can inspect.
 - **External services.** Models run through your configured providers. Model requests send the context needed for the task; web research and dictation also contact external services. Local storage does not mean offline processing.
+- **Assistants connected over MCP.** What an assistant reads from Naipes is sent to its model provider. Writing only listens on your machine (127.0.0.1), is off by default, and needs a token.
 - **Inspectable behavior.** System prompts are visible and editable.
 
 ## Development
