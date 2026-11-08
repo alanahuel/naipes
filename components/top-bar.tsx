@@ -36,6 +36,11 @@
  * LAST child of its container, or later no-drag elements punch dead
  * zones through the bar (the chains-overlay bug: the graph chrome's
  * no-drag column killed drag over the counts/search/close area).
+ *
+ * THE PROGRESS BORDER (owner, 2026-11-08): `progress` turns the bottom
+ * border itself into a bar — batch sessions fill it as their ideas are
+ * done (primary, ok-green when complete). Same 1px line, same 60px, so
+ * the sidebar alignment holds.
  */
 
 import type { ReactNode } from "react";
@@ -44,17 +49,32 @@ export function TopBar({
 	drag = false,
 	onMouseDown,
 	children,
+	progress,
 }: {
 	drag?: boolean;
 	onMouseDown?: React.MouseEventHandler<HTMLElement>;
 	children?: ReactNode;
+	/** 0–1: fills the bottom border (batch sessions). */
+	progress?: number;
 }) {
+	const fill = progress === undefined ? undefined : Math.min(1, Math.max(0, progress));
 	return (
 		<header
 			onMouseDown={onMouseDown}
-			className={`${drag ? "np-drag " : ""}flex h-15 select-none items-center gap-3 border-b border-border px-4`}
+			className={`${drag ? "np-drag " : ""}relative flex h-15 select-none items-center gap-3 border-b border-border px-4`}
 		>
 			{children}
+			{fill !== undefined && (
+				<div
+					data-testid="top-bar-progress"
+					role="progressbar"
+					aria-valuemin={0}
+					aria-valuemax={100}
+					aria-valuenow={Math.round(fill * 100)}
+					className={`pointer-events-none absolute -bottom-px left-0 h-px transition-[width,background-color] duration-500 ease-out ${fill >= 1 ? "bg-ok" : "bg-primary"}`}
+					style={{ width: `${fill * 100}%` }}
+				/>
+			)}
 		</header>
 	);
 }

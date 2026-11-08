@@ -136,6 +136,23 @@ describe("the review batch end", () => {
 		assert.deepEqual(reviewBatchProgress(msgs([["a"], ["b", "x"]])), { picks: ["a", "b"], covered: ["a", "b"], done: true });
 		assert.equal(reviewBatchProgress([]).done, false);
 	});
+	it("placement points join the batch: covered by a problem posed with syllabusPoint (owner 2026-11-08)", () => {
+		const posePoint = (i: number, point: string, ok = true): unknown[] => [
+			{ id: `q${i}`, role: "assistant", content: [{ type: "toolCall", id: `qc${i}`, name: "problem", arguments: { syllabusPoint: point } }], timestamp: 3 },
+			{ id: `qr${i}`, role: "toolResult", toolCallId: `qc${i}`, toolName: "problem", content: [], isError: false, timestamp: 3 },
+			{ id: `k${i}`, role: "assistant", content: [{ type: "toolCall", id: `kc${i}`, name: "conclude", arguments: { outcome: "solved" } }], timestamp: 4 },
+			{ id: `kr${i}`, role: "toolResult", toolCallId: `kc${i}`, toolName: "conclude", content: [], isError: !ok, timestamp: 4 },
+		];
+		// mixed: both ideas done, one of two points → not done yet (was: done)
+		const mixed = [...msgs([["a"], ["b"]]), ...posePoint(0, "pt1")] as NpMessage[];
+		assert.deepEqual(reviewBatchProgress(mixed, ["pt1", "pt2"]), { picks: ["a", "b", "pt1", "pt2"], covered: ["a", "b", "pt1"], done: false });
+		assert.equal(reviewBatchProgress([...mixed, ...posePoint(1, "pt2")] as NpMessage[], ["pt1", "pt2"]).done, true);
+		// points only (no idea picks): the batch can end
+		const only = posePoint(0, "pt1") as NpMessage[];
+		assert.deepEqual(reviewBatchProgress(only, ["pt1"]), { picks: ["pt1"], covered: ["pt1"], done: true });
+		// a failed conclude covers nothing
+		assert.deepEqual(reviewBatchProgress(posePoint(0, "pt1", false) as NpMessage[], ["pt1"]).covered, []);
+	});
 	it("the composer shows the end actions instead of the next-problem button", () => {
 		const html = renderToStaticMarkup(
 			<Composer busy={false} value="" onChange={() => {}} onSend={() => {}} onStop={() => {}} canSend={false} nextProblem={false} endActions={<span data-testid="ends" />} />,

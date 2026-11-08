@@ -245,8 +245,9 @@ export function Chat({
 	 *  «Parar» instead of the next problem. */
 	review?: boolean;
 	/** An exam session («Exámenes», 2026-11-06): its batch end returns to
-	 *  the exam and opens the next session of the same block. */
-	exam?: { id: string; kind: ExamSessionKind };
+	 *  the exam and opens the next session of the same block. A placement
+	 *  session's frozen `pointIds` join its batch progress. */
+	exam?: { id: string; kind: ExamSessionKind; pointIds?: string[] };
 	initialPrompt?: string;
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
@@ -826,7 +827,17 @@ export function Chat({
 	 * stops offering the next problem (the batch is the whole job — no new
 	 * material) and offers the next batch / stop instead. */
 	const examBatch = exam !== undefined && exam.kind !== "teach";
-	const batchDone = (review || examBatch) && nextReady && reviewBatchProgress(nativeMessages).done;
+	/* THE SESSION PROGRESS (owner 2026-11-08): every batch session (review,
+	 * exam placement / practice / review) shows «N de M · P %» beside the
+	 * title and fills the header's bottom border. The SAME count decides
+	 * the batch end, so the bar and the end buttons always agree. */
+	const examPoints = exam?.pointIds;
+	const batch = useMemo(
+		() => (review || examBatch ? reviewBatchProgress(nativeMessages, examPoints) : null),
+		[review, examBatch, nativeMessages, examPoints],
+	);
+	const batchProgress = batch && batch.picks.length > 0 ? { done: batch.covered.length, total: batch.picks.length } : null;
+	const batchDone = nextReady && batch !== null && batch.done;
 	const sendNext = useCallback(() => {
 		if (!nextReady || batchDone) return;
 		void send({ type: "next" });
@@ -1361,6 +1372,7 @@ export function Chat({
 					// never fire. Rename mode is interactive mode (owner ask) —
 					// TopBar's one escape hatch.
 					drag={!renaming}
+					progress={batchProgress ? batchProgress.done / batchProgress.total : undefined}
 					onMouseDown={(e) => {
 						// Escape hitbox: any mousedown outside the input itself blurs
 						// it, running the existing onBlur commit path. The input is
@@ -1424,6 +1436,11 @@ export function Chat({
 							<div className="flex shrink-0 items-center gap-2" data-testid="session-status">
 								{progress && (
 									<span className="hidden whitespace-nowrap text-sm tabular-nums text-muted-foreground sm:inline">{t("session.header.step", { step: progress.step, total: progress.total })}</span>
+								)}
+								{batchProgress && (
+									<span data-testid="session-batch-progress" className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">
+										{t("session.header.batch", { done: batchProgress.done, total: batchProgress.total, pct: Math.round((batchProgress.done / batchProgress.total) * 100) })}
+									</span>
 								)}
 								{busy ? (
 									<StateLabel label={t("sessions.state.working")} tone="neutral" />

@@ -122,6 +122,7 @@ export default {
 	"sessions.state.yourTurn": "Your turn",
 	"sessions.state.problemWaiting": "Problem waiting",
 	"session.header.step": "Step {step} of {total}",
+	"session.header.batch": "{done} of {total} · {pct}%",
 	"session.header.breadcrumb": "Breadcrumb",
 	"notices.title": "Notifications",
 	"notices.open": { one: "Notifications, {n} unread", other: "Notifications, {n} unread" },

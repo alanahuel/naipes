@@ -43,7 +43,7 @@ import { createEmptyCard, fsrs, generatorParameters, Rating, State, type Card, t
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { GraphNode } from "./contracts/graph.ts";
 import type { NpMessage } from "./native-messages.ts";
-import { PRACTICE_CONCLUDE_TOOL, problemCallForConclude, problemInputForConclude } from "./native-messages.ts";
+import { PRACTICE_CONCLUDE_TOOL, problemCallForConclude } from "./native-messages.ts";
 import type { QuestionAnswerData } from "./question-core.ts";
 import { areaOfPath } from "./areas.ts";
 
@@ -747,19 +747,29 @@ export function shouldSendNotice(input: {
 
 /** A review session's batch: the picked ideas (the graph-context marker)
  *  and which of them already had a cleanly concluded problem (dismissals
- *  count — the learner moved on). `done` = every pick covered. Pure. */
-export function reviewBatchProgress(messages: readonly NpMessage[]): { picks: string[]; covered: string[]; done: boolean } {
+ *  count — the learner moved on). `points` (a placement session's frozen
+ *  `pointIds`, owner 2026-11-08) join the batch: a point or target is
+ *  covered by a clean conclude of a problem posed with it in
+ *  `syllabusPoint`. `done` = every pick covered — the same count the
+ *  session header's progress bar shows. Pure. */
+export function reviewBatchProgress(
+	messages: readonly NpMessage[],
+	points: readonly string[] = [],
+): { picks: string[]; covered: string[]; done: boolean } {
 	const marker = messages.find(
 		(m) => roleOf(m) === "custom" && (m as { customType?: string }).customType === "graph-context",
 	) as { details?: { propositions?: Array<{ id?: unknown }> } } | undefined;
-	const picks = (marker?.details?.propositions ?? []).map((p) => p.id).filter((id): id is string => typeof id === "string");
+	const ideas = (marker?.details?.propositions ?? []).map((p) => p.id).filter((id): id is string => typeof id === "string");
+	const picks = [...new Set([...ideas, ...points])];
 	const clean = cleanCallIds(messages);
 	const covered = new Set<string>();
 	for (const m of messages) {
 		for (const call of toolCallsOf(m)) {
 			if (call.name !== PRACTICE_CONCLUDE_TOOL || !clean.has(call.id)) continue;
-			const target = problemInputForConclude(messages, call.id)?.target;
+			const input = problemCallForConclude(messages, call.id)?.input;
+			const target = input?.target;
 			if (Array.isArray(target)) for (const t of target) if (typeof t === "string") covered.add(t);
+			if (typeof input?.syllabusPoint === "string") covered.add(input.syllabusPoint);
 		}
 	}
 	const coveredPicks = picks.filter((p) => covered.has(p));

@@ -120,6 +120,7 @@ export default {
 	"sessions.state.yourTurn": "Te toca responder",
 	"sessions.state.problemWaiting": "Problema esperando",
 	"session.header.step": "Paso {step} de {total}",
+	"session.header.batch": "{done} de {total} · {pct} %",
 	"session.header.breadcrumb": "Migas de pan",
 	"notices.title": "Avisos",
 	"notices.open": { one: "Avisos, {n} sin leer", other: "Avisos, {n} sin leer" },
