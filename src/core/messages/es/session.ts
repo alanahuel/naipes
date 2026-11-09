@@ -110,6 +110,8 @@ export default {
 	"session.question.checkUnderstanding": "Comprueba lo que has entendido",
 	"session.question.answer": "Responder",
 	"session.question.selectAll": " · elige todas las que valgan",
+	"session.question.reviewTag": "Repaso",
+	"session.question.reviewTagNamed": "Repaso: {names}",
 	"session.question.dontKnow": "No lo sé",
 	"session.question.otherPlaceholder": "Escribe tu propia respuesta…",
 	"session.question.confidence": "Seguridad",

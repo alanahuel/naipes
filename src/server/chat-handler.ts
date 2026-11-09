@@ -8,6 +8,8 @@ import {
 } from "../agent/teacher-agent.ts";
 import { reviewSessionAppendix } from "../agent/prompt-segments.ts";
 import { examSessionAppendix } from "./exams.ts";
+import { getReviewState } from "./review.ts";
+import { ideaMemories } from "../core/idea-memory.ts";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
 import { connectionBackgroundAllowed, connectionScopeCurrent, isSubscriptionProvider } from "../agent/subscription-connections.ts";
 import { nativeSubscriptionError } from "../agent/subscription-stream.ts";
@@ -516,7 +518,10 @@ export async function handleChatInput(
 						// The map reader (wave 7): the prober reads the learner's
 						// knowledge graph through tools when the gate opens —
 						// graph master switch AND the agent.graphTools toggle.
-						...(graphToolsEnabled(effective) ? { graphStore: stores.graphStore } : {}),
+						// The learner's memory per idea (owner, 2026-11-09): the
+						// same gate — the map readers carry recall + reached mode
+						// and find_ideas joins them. Read lazily, per tool call.
+						...(graphToolsEnabled(effective) ? { graphStore: stores.graphStore, memory: () => ideaMemories(getReviewState()) } : {}),
 					},
 					agentOpts,
 				);

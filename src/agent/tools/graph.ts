@@ -2,6 +2,8 @@ import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { serverExecute } from "../tool-execute.ts";
 import { getGraph, graphSessionIndex, graphSessionPropositions } from "../../core/graph.ts";
+import { fuzzyScore } from "../../core/fuzzy.ts";
+import { memoryLine, type IdeaMemory } from "../../core/idea-memory.ts";
 import type { ChatStore, GraphStore } from "../../core/ports.ts";
 
 /**
@@ -27,9 +29,25 @@ import type { ChatStore, GraphStore } from "../../core/ports.ts";
 export interface GraphToolContext {
 	chatStore: ChatStore;
 	graphStore: GraphStore;
+	/** THE PROBE'S MEMORY (owner, 2026-11-09 — «memoria en el sondeo»):
+	 *  present = the teach probe's variant — list_propositions carries each
+	 *  idea's id and memory (recall, reached mode, last seen, lapses) and
+	 *  find_ideas searches the whole graph. Still names only, never
+	 *  statement text (the 2026-09-23 ruling stands). Absent = the plain
+	 *  map readers (practice keeps them unchanged). */
+	memory?: () => ReadonlyMap<string, IdeaMemory>;
 }
 
+const FIND_IDEAS_LIMIT = 25;
+
 const listSessionsInput = Type.Object({});
+
+const findIdeasInput = Type.Object({
+	query: Type.String({
+		minLength: 1,
+		description: "Space-separated words; every word must match an idea's name, statement or aliases (case-insensitive). Try synonyms and both languages.",
+	}),
+});
 
 const listPropositionsInput = Type.Object({
 	session: Type.String({
@@ -64,17 +82,49 @@ export function proberGraphTools(ctx: GraphToolContext): Record<string, AgentToo
 			label: "list_propositions",
 			description:
 				"List the propositions BORN in one knowledge-graph session — what was covered there. " +
-				"Names only — no statement text, no session contents (owner ruling 2026-09-23: the map's ORGANIZATION is your business, its prose is not).",
+				"Names only — no statement text, no session contents (owner ruling 2026-09-23: the map's ORGANIZATION is your business, its prose is not)." +
+				(ctx.memory ? " Each line also carries the idea's id and its memory: recall today, reached mode, last seen, lapses." : ""),
 			parameters: listPropositionsInput,
 			execute: serverExecute("list_propositions", listPropositionsInput, async ({ session }): Promise<string> => {
 				const propositions = graphSessionPropositions(deps, session);
 				if (propositions.length === 0) {
 					return `No propositions born in session "${session}". Call list_sessions for the current ids.`;
 				}
-				const lines = propositions.map((p) => `- ${p.name}`);
+				const memory = ctx.memory?.();
+				const lines = propositions.map((p) => (memory ? `- ${p.name} — ${p.nodeId} · ${memoryLine(memory.get(p.nodeId))}` : `- ${p.name}`));
 				return `${propositions.length} proposition(s) covered in this session:\n${lines.join("\n")}`;
 			}),
 		},
+		...(ctx.memory ? { find_ideas: findIdeasTool(ctx.graphStore, ctx.memory) } : {}),
+	};
+}
+
+/** The probe's cross-session search (owner, 2026-11-09): fuzzy words over
+ *  names, statements and aliases (the MCP search_graph scoring) — answers
+ *  with name, id and memory only, never the statement. */
+function findIdeasTool(graphStore: GraphStore, memoryOf: () => ReadonlyMap<string, IdeaMemory>): AgentTool<typeof findIdeasInput> {
+	return {
+		name: "find_ideas",
+		label: "find_ideas",
+		description:
+			"Search EVERY session of the learner's knowledge graph for ideas related to a topic — words matched against names, statements and aliases. " +
+			`Best matches first (at most ${FIND_IDEAS_LIMIT}). Each line: the idea's name, its id, and its memory (recall today, reached mode, last seen, lapses). ` +
+			"Names only — no statement text.",
+		parameters: findIdeasInput,
+		execute: serverExecute("find_ideas", findIdeasInput, async ({ query }): Promise<string> => {
+			const hits: Array<{ id: string; name: string; score: number }> = [];
+			for (const node of getGraph(graphStore).nodes) {
+				const score = fuzzyScore(query, node.name, node.statement, ...node.aliases);
+				if (score !== null) hits.push({ id: node.id, name: node.name, score });
+			}
+			if (hits.length === 0) return `No idea matches "${query}". Try other words or synonyms.`;
+			hits.sort((a, b) => b.score - a.score);
+			const memory = memoryOf();
+			const shown = hits.slice(0, FIND_IDEAS_LIMIT);
+			const lines = shown.map((h) => `- ${h.name} — ${h.id} · ${memoryLine(memory.get(h.id))}`);
+			const more = hits.length > shown.length ? ` (showing the best ${shown.length} of ${hits.length})` : "";
+			return `${hits.length} idea(s) match${more}:\n${lines.join("\n")}`;
+		}),
 	};
 }
 

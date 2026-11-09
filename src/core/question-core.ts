@@ -277,6 +277,49 @@ export const quizInputObject = Type.Object({
  *  the call boundary, where quizInputProblems runs now). */
 export const probeQuizInputSchema = quizInputBase;
 
+/** The demand modes a tagged probe question declares (the exam ladder). */
+export const PROBE_MODES = ["recall", "discrimination", "composition"] as const;
+
+/** THE TAGGED PROBE (owner, 2026-11-09 — «memoria en el sondeo»): with the
+ *  graph tools on, a probe question that confirms an idea the learner
+ *  already holds carries `target` (graph idea ids) and `mode` — its answer
+ *  then grades that idea in Repaso and moves its reached mode, like a
+ *  practice problem. Both optional: an untagged probe is the plain one.
+ *  The pair leads the property order (the 2026-10-09 drop-order ruling:
+ *  fields generated first get dropped least). Cross-field rules (mode
+ *  required with target, ids known) run in the tool's execute. */
+export const probeTaggedQuizInputSchema = Type.Object({
+	target: Type.Optional(
+		Type.Array(Type.String(), {
+			description:
+				"Only when this question confirms an idea he already holds: the idea id(s) it tests, exactly as list_propositions / find_ideas " +
+				"reported them. His answer then counts for those ideas' memory. Omit for every other question. An unknown id is rejected.",
+		}),
+	),
+	mode: Type.Optional(
+		Type.Union([Type.Literal("recall"), Type.Literal("discrimination"), Type.Literal("composition")], {
+			description: "REQUIRED with target, omitted without it — the demand mode the question poses: recall, discrimination, or composition (bare words, no quotes).",
+		}),
+	),
+	...quizInputBase.properties,
+});
+
+/** The idea ids a persisted PROBE call is tagged with (raw call
+ *  arguments — the display parse strips unknown keys). Only the choice
+ *  probe counts (owner: free recall carries no verdict, so no tag). */
+export function probeTargetsOf(toolName: string | undefined, rawInput: unknown): string[] {
+	if (toolName !== "probe" || !rawInput || typeof rawInput !== "object") return [];
+	const target = (rawInput as { target?: unknown }).target;
+	if (!Array.isArray(target)) return [];
+	return [...new Set(target.filter((t): t is string => typeof t === "string" && t.length > 0))];
+}
+
+/** The declared mode of a persisted probe call, or undefined. */
+export function probeModeOf(rawInput: unknown): (typeof PROBE_MODES)[number] | undefined {
+	const mode = rawInput && typeof rawInput === "object" ? (rawInput as { mode?: unknown }).mode : undefined;
+	return (PROBE_MODES as readonly unknown[]).includes(mode) ? (mode as (typeof PROBE_MODES)[number]) : undefined;
+}
+
 /** The DISPLAY parse for persisted quiz calls (tool-parts.ts): the base
  *  + `type` as an OPTIONAL plain string (old records carry none, and
  *  Value.Clean keeps a key only when the schema knows it — the dock would

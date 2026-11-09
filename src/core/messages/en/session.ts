@@ -112,6 +112,8 @@ export default {
 	"session.question.checkUnderstanding": "Check your understanding",
 	"session.question.answer": "Answer",
 	"session.question.selectAll": " · select all that apply",
+	"session.question.reviewTag": "Review",
+	"session.question.reviewTagNamed": "Review: {names}",
 	"session.question.dontKnow": "I don't know",
 	"session.question.otherPlaceholder": "Type your own answer…",
 	"session.question.confidence": "Confidence",

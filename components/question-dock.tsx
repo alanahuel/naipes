@@ -23,6 +23,7 @@ import {
 	parseAskInput,
 	parseQuizInput,
 	parseExplainInput,
+	probeTargetsOf,
 	toggleOption,
 	toggleOther,
 	type AnswerRequest,
@@ -39,6 +40,7 @@ import {
 } from "@/src/core";
 import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-rail";
 import { AttachButton, AttachmentTrayView, useAttachmentTray } from "@/components/attachments";
+import { ReviewTag } from "@/components/review-tag";
 import type { AttachmentRef } from "@/src/core";
 
 /**
@@ -164,6 +166,7 @@ export function QuestionDock({
 					toolName={toolName}
 					toolCallId={toolCallId}
 					input={parsed}
+					reviewIds={probeTargetsOf(toolName, input)}
 					phase={phase}
 					active={expanded}
 					onSubmit={onSubmit}
@@ -270,7 +273,12 @@ function QuestionDockForm({
 	onEscape,
 	dictationClaim = true,
 	compactionRunning = false,
-}: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal">) {
+	reviewIds = [],
+}: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal"> & {
+	/** A tagged probe's ideas (owner, 2026-11-09): the plain «Repaso»
+	 *  line — names only after the verdict, on the answered card. */
+	reviewIds?: readonly string[];
+}) {
 	const t = useT();
 	const kind = toolQuestionKind(toolName);
 
@@ -591,6 +599,7 @@ function QuestionDockForm({
 				<div className="mb-3 font-medium">
 					<ToolContentResponse>{qd.question}</ToolContentResponse>
 				</div>
+				<ReviewTag ids={reviewIds} named={false} />
 				{qd.context && (
 					<div className="mb-3 text-sm text-muted-foreground">
 						<ToolContentResponse>{qd.context}</ToolContentResponse>

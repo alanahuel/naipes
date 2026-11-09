@@ -9,9 +9,12 @@ import {
 	explainInputProblems,
 	parseOptionsIfString,
 	probeQuizInputSchema,
+	probeTaggedQuizInputSchema,
 	quizInputObject,
 	quizInputProblems,
 } from "../core/question-core.ts";
+import { resolveTargetId } from "../core/chains.ts";
+import type { GraphNode } from "../core/contracts.ts";
 import { filterEnabledTools, type EnabledTools } from "../core/pending.ts";
 import type { JobRecord } from "../core/contracts.ts";
 import type { JobStore } from "../core/ports.ts";
@@ -25,6 +28,7 @@ import { findTool } from "./tools/find.ts";
 import { grepTool } from "./tools/grep.ts";
 import { healToolRecord } from "./tools/heal.ts";
 import type { GraphStore } from "../core/ports.ts";
+import type { IdeaMemory } from "../core/idea-memory.ts";
 
 export { jobTools };
 export type { ProbeDoneContext } from "./tools/probe.ts";
@@ -216,6 +220,57 @@ export const probeQuizTool: AgentTool<typeof probeQuizInputSchema> = {
 	},
 };
 
+/** The TAGGED probe (owner, 2026-11-09 — «memoria en el sondeo»): same
+ *  name and mechanics, plus the optional `target` + `mode` pair that makes
+ *  the answer count for the learner's memory. Mounted only with the graph
+ *  tools gate (the ids come from list_propositions / find_ideas); ids are
+ *  normalized (names → ids, empty → absent) and validated against the
+ *  WHOLE graph, read fresh per call. */
+export function probeTaggedQuizTool(
+	graphNodes: () => ReadonlyArray<Pick<GraphNode, "id" | "name">>,
+): AgentTool<typeof probeTaggedQuizInputSchema> {
+	return {
+		name: "probe",
+		label: "probe",
+		description:
+			quizDescription({ name: "probe", nodeId: false, types: false }) +
+			" Optional `target` + `mode`: tag a question that confirms an idea he already holds — his answer then counts for that idea's memory.",
+		parameters: probeTaggedQuizInputSchema,
+		prepareArguments: (args: unknown) => {
+			const prepared = prepareQuestionArguments<Record<string, unknown>>(args);
+			if (!prepared || typeof prepared !== "object") return prepared as never;
+			const target = prepared.target;
+			if (target === undefined) return prepared as never;
+			if (!Array.isArray(target) || target.length === 0) {
+				const { target: _drop, ...rest } = prepared;
+				return rest as never;
+			}
+			const list = graphNodes();
+			const normalized = target.map((t) => (typeof t === "string" ? (resolveTargetId(t, list) ?? t) : t));
+			return (normalized.every((t, i) => t === target[i]) ? prepared : { ...prepared, target: normalized }) as never;
+		},
+		executionMode: "sequential",
+		execute: async (_toolCallId, input) => {
+			const problems = quizInputProblems(input);
+			const tagged = input.target !== undefined && input.target.length > 0;
+			if (tagged) {
+				const list = graphNodes();
+				const unknown = input.target!.filter((t) => resolveTargetId(t, list) === null);
+				if (unknown.length > 0) {
+					problems.push(
+						`target ${JSON.stringify(unknown)} is not a known idea — use ids exactly as list_propositions / find_ideas reported them, or omit target.`,
+					);
+				}
+				if (input.mode === undefined) problems.push("mode is required with target — recall, discrimination, or composition.");
+			} else if (input.mode !== undefined) {
+				problems.push("mode goes only with target — omit it on an untagged question.");
+			}
+			if (problems.length > 0) return invalidInputResult("probe", problems);
+			return questionResult();
+		},
+	};
+}
+
 /** The teacher's free-recall variant (nodeId-validated, same seam as the
  *  teach quiz — phases/plan recognize BOTH tool names). */
 export function teachExplainToolFor(
@@ -276,6 +331,10 @@ export interface ProberToolContext extends ProbeDoneContext {
 	 *  master switch AND the agent.graphTools toggle (settings-resolution).
 	 *  Absent = the gate is closed, no map tools (tests drive this seam). */
 	graphStore?: GraphStore;
+	/** The learner's memory per idea (owner, 2026-11-09): passed with
+	 *  graphStore — the map readers then carry ids + memory and find_ideas
+	 *  joins them. */
+	memory?: () => ReadonlyMap<string, IdeaMemory>;
 }
 
 /** The prober's tool set: probe quiz (no nodeId) + ask + the learner-fs
@@ -310,7 +369,10 @@ export function createProberTools(
 	// differently-typed literals makes the whole object's type a union —
 	// unusable as Record<string, AgentTool<any>> downstream).
 	const quizzing: Record<string, AgentTool<any>> =
-		mechanics === "free" ? { recall: probeExplainTool } : { probe: probeQuizTool };
+		mechanics === "free"
+			? { recall: probeExplainTool }
+			: // The tagged probe rides the graph gate (owner, 2026-11-09).
+				{ probe: ctx.graphStore && ctx.memory ? probeTaggedQuizTool(() => ctx.graphStore!.readNodes()) : probeQuizTool };
 	// healToolRecord (owner, 2026-10-09 — the whitehead generalization):
 	// the standard argument heal over the WHOLE registry — every tool,
 	// not just the one the latest wobble incident landed on.
@@ -337,7 +399,7 @@ export function createProberTools(
 				// The map reader (wave 7): present only when the settings gate
 				// opened.
 				...(ctx.graphStore
-					? proberGraphTools({ chatStore: ctx.chatStore, graphStore: ctx.graphStore })
+					? proberGraphTools({ chatStore: ctx.chatStore, graphStore: ctx.graphStore, ...(ctx.memory ? { memory: ctx.memory } : {}) })
 					: {}),
 				...done,
 			},

@@ -17,12 +17,16 @@ Grades are never stored: `src/core/review.ts` derives them from the chat records
 | | solvedWithHints R1–R2 (or none/R0) | Hard |
 | | solvedWithHints R3–R5, surrendered | Again |
 | | movedOn, dismissed, untagged problems | — |
+| Teach probe `probe` tagged `target` + `mode` (owner 2026-11-09) | correct, confidence ≥ threshold (or absent) | Good at recall, Easy at discrimination / composition — step up at `mode` |
+| | correct, confidence below threshold | Hard — stay |
+| | wrong / «I don't know» | Again — miss |
+| | untagged, dismissed, free recall (`recall`) | — |
 
 Predictions (`questionType: "predict"`) and dismissed answers never count. Only the teach phase maps to steps: each message belongs to the step of the **next** nodeId-tagged quiz call (messages after the last one → the last step). An idea takes the check of every step its provenance points into.
 
 ## What is enrolled
 
-Ideas with provenance in a teach session, ideas of activated knowledge-folder areas (`area:<two folder levels>`), and anything practiced — minus pauses (origin session, origin area, single idea). An idea's group is its first teach session, else its area.
+Ideas with provenance in a teach session, ideas of activated knowledge-folder areas (`area:<two folder levels>`), and anything practiced or graded by a tagged probe (grouped, failing a teach birth or an area, under its practice session, else the probing session) — minus pauses (origin session, origin area, single idea). An idea's group is its first teach session, else its area.
 
 **Shared daily intake** (`review.newPerDay`, 15): history already overdue when review was first computed (`activatedAt`) is released most-forgotten-first, then new area ideas, oldest first. Released lines persist in `review/intake.jsonl`, so the order never reshuffles. Days roll over at 04:00 local; Again schedules another day (no short-term steps); FSRS fuzz is on.
 

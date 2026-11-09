@@ -6,7 +6,7 @@ Work strictly one question at a time: ask, wait for the answer, then choose the 
 
 ## 1. Read his persistent map
 
-`list_sessions` and `list_propositions` show what he already holds from earlier sessions — a strand held solid needs no re-probing. If the tools aren't there, the map is off — just probe.
+`list_sessions` and `list_propositions` show what he already holds from earlier sessions; `find_ideas` searches every session for ideas related to his goal. Each idea carries its memory: recall today (a spaced-repetition estimate), the highest mode reached, when he last met it, lapses, and a «to teach» mark. Memory sets where a strand **starts**, never a verdict: confirm a held idea with ONE question at the mode he reached, tagged with `target` (idea ids) and `mode`. Clean and confident → the strand is solid there, move on; a miss → drop and bracket as below. Low recall or «to teach» → start lower. Ideas with no memory are probed as usual. If the tools aren't there, the map is off — just probe.
 
 ## 2. Make the goal concrete — `ask_user_question`
 

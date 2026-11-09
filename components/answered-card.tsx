@@ -8,8 +8,9 @@ import { cn } from "@/lib/utils";
 import { useT } from "@/components/i18n";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import type { QuestionAnswerData } from "@/src/core";
-import { answerForPresentation, parseAskInput, parseQuizInput } from "@/src/core";
+import { answerForPresentation, parseAskInput, parseQuizInput, probeTargetsOf } from "@/src/core";
 import { AttachmentThumbs } from "@/components/attachments";
+import { ReviewTag } from "@/components/review-tag";
 
 /**
  * Static rendering of an answered question (tool part in `output-available`).
@@ -89,9 +90,13 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 						<span className="rounded bg-warn/15 px-1.5 py-0.5 text-warn">{t("session.answered.incorrect")}</span>
 					))}
 			</div>
+			{/* «Repaso: <ideas>» after the verdict (owner, 2026-11-09): a
+			    tagged probe counted for these ideas' memory. A dismissed
+			    answer never reaches here (it returned above). */}
 			<div className="mb-3 font-medium">
 				<ToolContentResponse>{answer.questionText}</ToolContentResponse>
 			</div>
+			<ReviewTag ids={probeTargetsOf(answer.tool, input)} named />
 			{parsedDetails && (
 				// The details line, same paint as the pending dock (owner,
 				// 2026-10-12): full markdown, LaTeX included.

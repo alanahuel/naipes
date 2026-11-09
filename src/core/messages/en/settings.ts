@@ -142,7 +142,7 @@ export default {
 	// Agent: tools
 	"settings.agent.groupTools": "Tools",
 	"settings.agent.graphTools": "Graph tools",
-	"settings.agent.graphToolsHint": "Lets the tutor consult your knowledge map between sessions",
+	"settings.agent.graphToolsHint": "Lets the tutor consult your knowledge map and memory when assessing you, and count those answers toward Review",
 	"settings.agent.graphToolsOff": "Graph is disabled",
 	"settings.agent.graphToolsToggle": "graph tools",
 	"settings.agent.quizzing": "Quizzing",

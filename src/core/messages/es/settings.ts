@@ -140,7 +140,7 @@ export default {
 	// Agente: herramientas
 	"settings.agent.groupTools": "Herramientas",
 	"settings.agent.graphTools": "Herramientas del grafo",
-	"settings.agent.graphToolsHint": "Deja que tu tutor consulte tu grafo entre sesiones",
+	"settings.agent.graphToolsHint": "Deja que tu tutor consulte tu grafo y tu memoria al evaluarte, y que esas respuestas cuenten para Repaso",
 	"settings.agent.graphToolsOff": "El grafo está apagado",
 	"settings.agent.graphToolsToggle": "herramientas del grafo",
 	"settings.agent.quizzing": "Preguntas de repaso",

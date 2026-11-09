@@ -29,26 +29,8 @@ import { createPortal } from "react-dom";
 import { ThinkingBlock } from "@/components/thinking-block";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 
-/* TARGET NAMES (owner round 17, 2026-10-06): targets are normalized to
- * opaque node ids at the record seam (owner round 9 — the mastery trace
- * groups on them), so the drawer resolves names at render time. One
- * lazy module-cached fetch of the graph view (the id → name map is a
- * few KB); failures degrade to raw ids — observability never breaks the
- * card. */
-let nodeNameMapPromise: Promise<Record<string, string>> | null = null;
-function nodeNameMap(): Promise<Record<string, string>> {
-	nodeNameMapPromise ??= fetch("/api/graph")
-		.then((r) => (r.ok ? r.json() : { nodes: [] }))
-		.then((g: { nodes?: Array<{ id?: unknown; name?: unknown }> }) =>
-			Object.fromEntries(
-				(g.nodes ?? [])
-					.filter((n) => typeof n.id === "string")
-					.map((n) => [n.id as string, typeof n.name === "string" ? (n.name as string) : (n.id as string)]),
-			),
-		)
-		.catch(() => ({}));
-	return nodeNameMapPromise;
-}
+// TARGET NAMES: resolved at render time (components/node-names.ts).
+import { nodeNameMap } from "@/components/node-names";
 
 /** The practice-thinking marker's details (native-messages.ts). */
 export interface PracticeThinkingData {

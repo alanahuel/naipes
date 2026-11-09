@@ -44,7 +44,7 @@ import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai"
 import type { GraphNode } from "./contracts/graph.ts";
 import type { NpMessage } from "./native-messages.ts";
 import { PRACTICE_CONCLUDE_TOOL, problemCallForConclude } from "./native-messages.ts";
-import type { QuestionAnswerData } from "./question-core.ts";
+import { probeModeOf, probeTargetsOf, type QuestionAnswerData } from "./question-core.ts";
 import { areaOfPath } from "./areas.ts";
 
 // ─── grades ─────────────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ const RATING: Record<ReviewGrade, Grade> = {
 };
 
 /** Where one grade came from — for the review screen and for tests. */
-export type ReviewEventKind = "teach-check" | "teach-seen" | "practice";
+export type ReviewEventKind = "teach-check" | "teach-seen" | "practice" | "probe";
 
 /** The demand modes of a practice problem — the exam ladder (owner,
  *  2026-11-05: Recordar → Discriminar → Componer). */
@@ -260,6 +260,46 @@ export function teachEvents(
 		}
 		if (!graded && Number.isFinite(seenAt)) {
 			events.push({ nodeId, at: seenAt, grade: "good", kind: "teach-seen", chatId: chat.id });
+		}
+	}
+	return events;
+}
+
+/**
+ * A teach session's TAGGED probe answers (owner, 2026-11-09 — «memoria en
+ * el sondeo»): a `probe` call carrying `target` + `mode` grades its ideas
+ * like a practice problem at that mode — clean and confident → Good
+ * (Easy at discrimination / composition), step up; right with low
+ * confidence → Hard, stay; wrong or «I don't know» → Again, miss.
+ * Dismissed answers, refused calls and unknown ids never count.
+ */
+export function probeEvents(chat: ReviewChat, knownNodes: ReadonlySet<string>, confidenceThreshold = 70): ReviewEvent[] {
+	const clean = cleanCallIds(chat.messages);
+	const tagged = new Map<string, { targets: string[]; mode: DemandMode }>();
+	for (const m of chat.messages) {
+		for (const call of toolCallsOf(m)) {
+			if (call.name !== "probe" || !clean.has(call.id)) continue;
+			const targets = probeTargetsOf(call.name, call.arguments).filter((id) => knownNodes.has(id));
+			const mode = probeModeOf(call.arguments);
+			if (targets.length > 0 && mode) tagged.set(call.id, { targets, mode });
+		}
+	}
+	if (tagged.size === 0) return [];
+	const events: ReviewEvent[] = [];
+	for (const m of chat.messages) {
+		if (roleOf(m) !== "toolResult") continue;
+		const result = m as ToolResultMessage;
+		const tag = tagged.get(result.toolCallId);
+		if (!tag || result.isError) continue;
+		const answer = result.details as Partial<QuestionAnswerData> | undefined;
+		if (!answer || answer.kind !== "quiz") continue;
+		const check = gradeFromCheck(answer as QuestionAnswerData, confidenceThreshold);
+		if (!check) continue;
+		const grade: ReviewGrade = check === "good" && tag.mode !== "recall" ? "easy" : check;
+		const parsed = typeof answer.answeredAt === "string" ? Date.parse(answer.answeredAt) : NaN;
+		const at = Number.isFinite(parsed) ? parsed : result.timestamp;
+		for (const nodeId of tag.targets) {
+			events.push({ nodeId, at, grade, kind: "probe", chatId: chat.id, mode: tag.mode, step: stepFromCheckGrade(check) });
 		}
 	}
 	return events;
@@ -505,6 +545,7 @@ export function computeReview(input: ReviewInput): ReviewModel {
 		else {
 			const byMessage = nodesOfMessageByChat.get(chat.id);
 			if (byMessage) teachEvents(chat, byMessage, settings.confidenceThreshold).forEach(add);
+			probeEvents(chat, known, settings.confidenceThreshold).forEach(add);
 		}
 	}
 
@@ -526,7 +567,12 @@ export function computeReview(input: ReviewInput): ReviewModel {
 		const inArea = areaId !== null && activeAreas.has(areaId);
 		const inExam = input.exams?.nodeIds.has(node.id) ?? false;
 		if (!teachChat && !inArea && !inExam && events.length === 0) continue;
-		const practiceChat = events.find((e) => e.kind === "practice")?.chatId ?? null;
+		// No teach birth and no area: its practice session, else the teach
+		// session whose probe graded it (owner, 2026-11-09) — never "".
+		const practiceChat =
+			events.find((e) => e.kind === "practice")?.chatId ??
+			events.filter((e) => e.kind === "probe").sort((a, b) => a.at - b.at)[0]?.chatId ??
+			null;
 		const group: ReviewGroup = teachChat
 			? { kind: "session", id: teachChat }
 			: areaId
