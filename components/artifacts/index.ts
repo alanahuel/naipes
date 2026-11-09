@@ -50,4 +50,6 @@ export const artifactRenderers: Record<string, ComponentType<ArtifactPartProps>>
 	// discipline (their results are pre-formatted strings too).
 	list_sessions: ToolCallCard,
 	list_propositions: ToolCallCard,
+	// Exam placement diagnosis (owner 2026-11-09): the registered base.
+	note_prerequisite: ToolCallCard,
 };

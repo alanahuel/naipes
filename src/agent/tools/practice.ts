@@ -25,7 +25,7 @@ import { jobTools, type JobToolContext } from "./jobs.ts";
 import { proberGraphTools, type GraphToolContext } from "./graph.ts";
 import { activeProblemOf } from "../../core/native-messages.ts";
 import type { NpMessage } from "../../core/native-messages.ts";
-import { concludeResult, invalidInputResult, problemResult } from "../tool-execute.ts";
+import { concludeResult, invalidInputResult, problemResult, serverExecute } from "../tool-execute.ts";
 import { healEncodedArguments, healToolRecord } from "./heal.ts";
 
 
@@ -44,6 +44,30 @@ export interface PracticeToolContext {
 	 *  Each absent context (tests) = absent from the registry. */
 	graph?: GraphToolContext;
 	jobs?: JobToolContext;
+	/** Exam placement tests only («conocimientos previos», owner
+	 *  2026-11-09): register a base found while diagnosing a miss. Absent
+	 *  = no note_prerequisite tool. */
+	notePrerequisite?: (input: { statement: string; under: string }) => { ok: true; id: string } | { ok: false; error: string };
+}
+
+const notePrerequisiteInput = Type.Object({
+	statement: Type.String({ description: "The base the learner seems to lack, as a self-contained sentence in the session's language." }),
+	under: Type.String({ description: "The missed item's id: a proposition, syllabus point, target or prerequisite id." }),
+});
+
+function notePrerequisiteTool(note: NonNullable<PracticeToolContext["notePrerequisite"]>): AgentTool<typeof notePrerequisiteInput> {
+	return {
+		name: "note_prerequisite",
+		label: "note_prerequisite",
+		description:
+			"Register a base the learner seems to lack, found while diagnosing a miss: knowledge the missed item rests on, as a self-contained sentence. " +
+			"`under` is the missed item's id (a proposition, syllabus point, target or prerequisite). Returns the new id — pose the next problem with it in `syllabusPoint`.",
+		parameters: notePrerequisiteInput,
+		execute: serverExecute("note_prerequisite", notePrerequisiteInput, async ({ statement, under }): Promise<string> => {
+			const r = note({ statement: statement.trim(), under: under.trim() });
+			return r.ok ? `Registered as ${r.id}. Pose its problem with syllabusPoint: "${r.id}".` : `note_prerequisite: ${r.error}`;
+		}),
+	};
 }
 
 /** TURN-SCOPED GATE STATE (the BKT incident, 2026-10-05): the gates used
@@ -252,5 +276,6 @@ export function practiceTools(ctx: PracticeToolContext): Record<string, AgentToo
 		...(jobs?.research ? { research: jobs.research } : {}),
 		...(jobs ? { pdf: jobs.pdf! } : {}),
 		...(ctx.graph ? proberGraphTools(ctx.graph) : {}),
+		...(ctx.notePrerequisite ? { note_prerequisite: notePrerequisiteTool(ctx.notePrerequisite) } : {}),
 	});
 }

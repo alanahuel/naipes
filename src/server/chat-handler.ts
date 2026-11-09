@@ -7,7 +7,7 @@ import {
 	type TeachingAgent,
 } from "../agent/teacher-agent.ts";
 import { reviewSessionAppendix } from "../agent/prompt-segments.ts";
-import { examSessionAppendix } from "./exams.ts";
+import { examSessionAppendix, noteDiagnosedPrerequisite } from "./exams.ts";
 import { getReviewState } from "./review.ts";
 import { ideaMemories } from "../core/idea-memory.ts";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
@@ -488,6 +488,9 @@ export async function handleChatInput(
 							searchAvailable,
 						},
 						...(graphToolsEnabled(effective) ? { graph: { chatStore: stores.chatStore, graphStore: stores.graphStore } } : {}),
+						// The placement test's diagnosis («conocimientos previos»,
+						// owner 2026-11-09): register a base under a miss.
+						...(record.exam?.kind === "placement" ? { notePrerequisite: (x: { statement: string; under: string }) => noteDiagnosedPrerequisite(record.exam!.id, x) } : {}),
 					},
 					agentOpts,
 				)

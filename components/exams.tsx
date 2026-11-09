@@ -29,6 +29,7 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { BarChart } from "@/components/ui/bar-chart";
 import { Select } from "@/components/ui/select";
 import { useServerEvent } from "@/components/server-events";
+import { cleanPrerequisites, PrerequisitesEditor, PrerequisitesSection } from "@/components/exam-prerequisites";
 import { stashOpeningPrompt } from "@/components/opening-prompt";
 import { useLocale, useT, type Translate } from "@/components/i18n";
 import {
@@ -70,6 +71,8 @@ import {
 	type PointOrigin,
 	type ExamMaterial,
 	type ExamRecord,
+	type ExamPrerequisite,
+	type PrerequisiteStatus,
 } from "@/src/core";
 
 // ─── data ───────────────────────────────────────────────────────────────────
@@ -203,7 +206,7 @@ export function raiseWeekly(weekly: readonly number[], extra: number): number[] 
 	return weekly.map((m) => (!studied || m > 0 ? Math.min(720, m + extra) : m));
 }
 
-export function blockLabel(block: ExamBlock, points: readonly PointStatus[], t: Translate): string {
+export function blockLabel(block: ExamBlock, points: readonly PointStatus[], t: Translate, prerequisites: readonly Pick<PrerequisiteStatus, "id" | "statement">[] = []): string {
 	switch (block.kind) {
 		case "review":
 			return t("exams.block.review", { n: block.nodeIds.length });
@@ -212,6 +215,10 @@ export function blockLabel(block: ExamBlock, points: readonly PointStatus[], t: 
 		case "practice":
 			return t("exams.block.practice", { n: block.nodeIds.length });
 		case "teach": {
+			if (block.prerequisiteId) {
+				const q = prerequisites.find((x) => x.id === block.prerequisiteId);
+				return t(block.short ? "exams.block.consolidatePrereq" : "exams.block.teachPrereq", { x: q?.statement ?? "" });
+			}
 			const point = points.find((p) => p.id === block.pointId);
 			return t(block.short ? "exams.block.consolidate" : "exams.block.teach", { point: point?.text ?? "" });
 		}
@@ -763,7 +770,10 @@ function ResearchProgress({ exam }: { exam: ExamDetailView }) {
 	else if (mapping.state === "guide") line = t("exams.guide.searching");
 	else if (mapping.state === "running") line = t("exams.wizard.outlining");
 	else if (mapping.state === "researching") line = t("exams.wizard.researching", { i: Math.min((research?.done ?? 0) + 1, research?.total ?? 1), n: research?.total ?? 1, title: research?.current ?? "" });
-	else line = "";
+	else if (mapping.state === "prerequisites") {
+		const search = exam.record.prerequisiteSearch;
+		line = t("exams.wizard.prerequisites", { i: Math.min((search?.done ?? 0) + 1, Math.max(1, search?.total ?? 1)), n: Math.max(1, search?.total ?? 1) });
+	} else line = "";
 	const failure =
 		mapping.state === "error"
 			? mapping.error === "research"
@@ -987,10 +997,23 @@ function ReviewExtension({ ids, names, onPromote }: { ids: readonly string[]; na
 function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => void }) {
 	const t = useT();
 	const [blocks, setBlocks] = useState<SyllabusBlock[]>(exam.record.blocks);
+	const [prereqs, setPrereqs] = useState<ExamPrerequisite[]>(exam.record.prerequisites ?? []);
 	const [open, setOpen] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	useEffect(() => setBlocks(exam.record.blocks), [exam.record.blocks]);
+	useEffect(() => setPrereqs(exam.record.prerequisites ?? []), [exam.record.prerequisites]);
+	const studied = useMemo(
+		() => blocks.filter((b) => !b.excluded).flatMap((b) => b.points.filter((p) => pointKind(b, p) === "syllabus" && p.text.trim()).map((p) => ({ id: p.id, text: p.text }))),
+		[blocks],
+	);
+	const prereqSearch = exam.record.prerequisiteSearch;
+	const retryPrereqs = async () => {
+		setError(null);
+		if (!(await persist())) return;
+		const res = await sendJson(`/api/exams/${exam.id}/prerequisites`, "POST", {});
+		if (!res.ok) setError(res.body.code === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.prereq.failed", { error: String(res.body.error ?? "") }));
+	};
 	const names = useMemo(() => new Map((exam.model?.ideas ?? []).map((i) => [i.nodeId, i.name])), [exam.model]);
 	const materials = exam.record.materials;
 
@@ -1010,7 +1033,7 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 			}))
 			.filter((b) => b.title && b.points.length > 0);
 	const persist = async () => {
-		const res = await sendJson(`/api/exams/${exam.id}`, "PUT", { blocks: cleaned() });
+		const res = await sendJson(`/api/exams/${exam.id}`, "PUT", { blocks: cleaned(), prerequisites: cleanPrerequisites(prereqs) });
 		if (!res.ok) setError(typeof res.body.error === "string" ? res.body.error : t("exams.wizard.saveFailed"));
 		return res.ok;
 	};
@@ -1208,6 +1231,17 @@ function MappingStep({ exam, onDone }: { exam: ExamDetailView; onDone: () => voi
 					{t("exams.targets.rerunAll")}
 				</button>
 			</div>
+			{prereqSearch?.state === "running" ? (
+				<p className="px-1 text-sm text-muted-foreground" aria-live="polite">{t("exams.prereq.running")}</p>
+			) : prereqSearch?.state === "error" ? (
+				<div className="flex flex-wrap items-center gap-3 px-1">
+					<p role="alert" className="text-sm text-warn">{t("exams.prereq.failed", { error: prereqSearch.error ?? "" })}</p>
+					<button type="button" className={quietBtn} onClick={() => void retryPrereqs()} data-testid="exam-prereq-retry">
+						{t("exams.prereq.retry")}
+					</button>
+				</div>
+			) : null}
+			<PrerequisitesEditor value={prereqs} points={studied} onChange={setPrereqs} />
 			{error && <p role="alert" className="px-1 text-sm text-warn">{error}</p>}
 			<div className="flex justify-end px-1">
 				<button type="button" className={primaryBtn} disabled={saving} onClick={() => void confirm()} data-testid="exam-confirm-mapping">
@@ -1476,6 +1510,7 @@ function TodaySection({ exam }: { exam: ExamDetailView }) {
 	const t = useT();
 	const { state, start } = useStartExamSession(exam.id);
 	const points = exam.model?.points ?? [];
+	const prereqs = exam.model?.prerequisites ?? [];
 	const total = Math.round(exam.blocks.reduce((s, b) => s + b.minutes, 0));
 	const first = exam.blocks[0];
 	return (
@@ -1483,7 +1518,7 @@ function TodaySection({ exam }: { exam: ExamDetailView }) {
 			<SectionTitle
 				right={
 					first ? (
-						<button type="button" className={primaryBtn} disabled={state === "starting"} onClick={() => void start(first.kind, first.pointId)} data-testid="exam-start">
+						<button type="button" className={primaryBtn} disabled={state === "starting"} onClick={() => void start(first.kind, first.prerequisiteId ?? first.pointId)} data-testid="exam-start">
 							{state === "starting" ? t("exams.today.starting") : t("exams.today.start")}
 						</button>
 					) : undefined
@@ -1494,14 +1529,14 @@ function TodaySection({ exam }: { exam: ExamDetailView }) {
 			{exam.blocks.length > 0 && (
 				<ol className="overflow-hidden rounded-xl border">
 					{exam.blocks.map((b, i) => (
-						<li key={`${b.kind}:${b.pointId ?? i}`} className="flex items-center justify-between gap-3 border-b px-4 py-2.5 text-sm last:border-b-0">
+						<li key={`${b.kind}:${b.prerequisiteId ?? b.pointId ?? i}`} className="flex items-center justify-between gap-3 border-b px-4 py-2.5 text-sm last:border-b-0">
 							<span className="flex min-w-0 items-center gap-3">
 								<span className="tabular-nums text-muted-foreground">{i + 1}</span>
-								<span className="min-w-0 truncate">{blockLabel(b, points, t)}</span>
+								<span className="min-w-0 truncate">{blockLabel(b, points, t, prereqs)}</span>
 							</span>
 							<span className="flex shrink-0 items-center gap-3">
 								<span className="tabular-nums text-muted-foreground">~{Math.round(b.minutes)} min</span>
-								<button type="button" className="text-muted-foreground hover:text-foreground" disabled={state === "starting"} aria-label={t("exams.today.startBlock", { block: blockLabel(b, points, t) })} onClick={() => void start(b.kind, b.pointId)}>
+								<button type="button" className="text-muted-foreground hover:text-foreground" disabled={state === "starting"} aria-label={t("exams.today.startBlock", { block: blockLabel(b, points, t, prereqs) })} onClick={() => void start(b.kind, b.prerequisiteId ?? b.pointId)}>
 									<ChevronRightIcon className="size-4" />
 								</button>
 							</span>
@@ -1612,6 +1647,19 @@ export function targetStateLabel(target: Pick<TargetStatus, "state" | "nodeIds">
 	}
 }
 
+/** «Bloqueado por: …» under a point a prerequisite holds back (owner
+ *  2026-11-09). */
+function BlockedBy({ exam, point }: { exam: ExamDetailView; point: Pick<PointStatus, "blockedBy"> }) {
+	const t = useT();
+	if (!point.blockedBy?.length) return null;
+	const text = new Map((exam.model?.prerequisites ?? []).map((q) => [q.id, q.statement]));
+	return (
+		<p className="mt-0.5 text-xs text-warn" data-testid="exam-point-blocked">
+			{t("exams.point.blockedBy", { list: point.blockedBy.map((id) => text.get(id) ?? id).join("; ") })}
+		</p>
+	);
+}
+
 function IdeaRow({ idea, action }: { idea: IdeaStatus; action?: React.ReactNode }) {
 	const t = useT();
 	const recall = pct(idea.recallAtExam);
@@ -1658,6 +1706,7 @@ function ResearchedPoint({ exam, point, ideas, onDeepen, kindSelect }: { exam: E
 					)}
 				</span>
 			</div>
+			<BlockedBy exam={exam} point={point} />
 			<ul className="mt-1 flex flex-col gap-1 pl-4" data-testid="exam-point-targets">
 				{targets.map((x) => (
 					<li key={x.id}>
@@ -1988,6 +2037,7 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 													{pendingIds.has(p.id) ? <span className="text-warn">{t("exams.kind.pending")}</span> : pointNeedLabel(p, t)}
 												</span>
 											</div>
+											<BlockedBy exam={exam} point={p} />
 											{p.nodeIds.length > 0 && (
 												<ul className="mt-0.5 flex flex-col">
 													{p.nodeIds.map((n) => {
@@ -2327,6 +2377,7 @@ export function ExamPage({ id }: { id: string }) {
 							}}
 						/>
 						<PlanSection exam={data} />
+						<PrerequisitesSection exam={data} />
 						<SyllabusSection exam={data} highlight={highlight} />
 						<InstructionsSection exam={data} kind="rules" />
 						<InstructionsSection exam={data} kind="tutor" />
@@ -2354,7 +2405,7 @@ function HomeExamRow({ exam }: { exam: ExamSummaryView }) {
 		const res = await fetch(`/api/exams/${exam.id}`).catch(() => null);
 		const detail = res?.ok ? ((await res.json()) as ExamDetailView) : null;
 		const first = detail?.blocks[0];
-		if (first) void start(first.kind, first.pointId);
+		if (first) void start(first.kind, first.prerequisiteId ?? first.pointId);
 		else router.push(`/exams/${exam.id}`);
 	};
 	// Two lines (owner 2026-11-06): the title may truncate, the numbers

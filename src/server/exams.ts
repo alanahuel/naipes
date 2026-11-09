@@ -63,6 +63,15 @@ import {
 	type WorkBreakdown,
 	type ExamSummaryView,
 	type ExamDetailView,
+	mergePrerequisites,
+	MAX_PREREQUISITE_DEPTH,
+	nextPrerequisite,
+	placementMisses,
+	sharePrerequisiteIdeas,
+	sanitizePrerequisites,
+	type ExamPrerequisite,
+	type PrerequisiteProposalItem,
+	type PrerequisiteSearch,
 } from "../core/exams.ts";
 import { formatMessage, type Locale, type MessageVars } from "../core/i18n.ts";
 import { MESSAGES, type MessageKey } from "../core/messages/index.ts";
@@ -79,6 +88,7 @@ import { guideFinderInstructions, runGuideFinder } from "../agent/subagents/exam
 import { runExamContrast } from "../agent/subagents/exam-contrast.ts";
 import { examResearchInstructions, runExamResearcher } from "../agent/subagents/exam-researcher.ts";
 import { runExamSorter } from "../agent/subagents/exam-sorter.ts";
+import { runPrerequisiteFinder, type PrerequisiteMiss } from "../agent/subagents/exam-prerequisites.ts";
 import { examSearchProvider, readMaterialPart } from "./exam-research-io.ts";
 import fs from "node:fs";
 import os from "node:os";
@@ -188,8 +198,13 @@ export function getExamsState(now = Date.now(), whatIf?: ExamsWhatIf): ExamsStat
 	}
 	// Interrupted mappings (the process restarted mid-call) say so.
 	for (const record of records) {
-		if ((record.mapping.state === "guide" || record.mapping.state === "running" || record.mapping.state === "researching") && !running().has(record.id)) {
+		if ((record.mapping.state === "guide" || record.mapping.state === "running" || record.mapping.state === "researching" || record.mapping.state === "prerequisites") && !running().has(record.id)) {
 			writeExam({ ...touch(record, now), mapping: { state: "error", error: "interrupted", at: new Date(now).toISOString() } });
+			archived = true;
+		}
+		if (record.prerequisiteSearch?.state === "running" && !running().has(record.id)) {
+			const latest = readExam(record.id) ?? record;
+			writeExam({ ...touch(latest, now), prerequisiteSearch: { ...record.prerequisiteSearch, state: "error", error: "interrupted" } });
 			archived = true;
 		}
 		if (record.contrast?.state === "running" && !running().has(record.id)) {
@@ -202,6 +217,9 @@ export function getExamsState(now = Date.now(), whatIf?: ExamsWhatIf): ExamsStat
 		review = getReviewState(now);
 		records = listExams();
 	}
+	// «Conocimientos previos» are shared through the graph (owner
+	// 2026-11-09): same-key ones across exams carry each other's ideas.
+	records = sharePrerequisiteIdeas(records, review.chats, review.nodesBornIn);
 
 	const settings = effectiveSettings().exams;
 	const durations = effectiveDurations(
@@ -381,6 +399,8 @@ export interface ExamPatch {
 	examDate?: string;
 	standard?: ExamStandard;
 	blocks?: ExamRecord["blocks"];
+	/** «Conocimientos previos» edited by hand (Revisar / the exam page). */
+	prerequisites?: NonNullable<ExamRecord["prerequisites"]>;
 	priorityBlocks?: string[];
 	/** draft → active once the mapping is confirmed; active ↔ archived. */
 	status?: ExamRecord["status"];
@@ -411,6 +431,12 @@ export function parseExamPatch(body: unknown): ParseResult<ExamPatch> {
 		if (blocks.length !== raw.blocks.length) return { ok: false, error: "every block needs a unique id, a title and valid points" };
 		patch.blocks = blocks;
 	}
+	if (raw.prerequisites !== undefined) {
+		if (!Array.isArray(raw.prerequisites)) return { ok: false, error: "prerequisites must be a list" };
+		const prerequisites = sanitizePrerequisites(raw.prerequisites) ?? [];
+		if (prerequisites.length !== raw.prerequisites.length) return { ok: false, error: "every prerequisite needs a unique id and a statement" };
+		patch.prerequisites = prerequisites;
+	}
 	if (raw.priorityBlocks !== undefined) {
 		if (!Array.isArray(raw.priorityBlocks) || !raw.priorityBlocks.every((b) => typeof b === "string")) return { ok: false, error: "priorityBlocks must be a list of block ids" };
 		patch.priorityBlocks = [...new Set(raw.priorityBlocks as string[])];
@@ -434,6 +460,12 @@ export function updateExam(id: string, patch: ExamPatch, now = Date.now()): Pars
 	if (patch.examDate !== undefined) next.examDate = patch.examDate;
 	if (patch.standard !== undefined) next.standard = patch.standard;
 	if (patch.blocks !== undefined) next.blocks = syncPointLinks(patch.blocks);
+	if (patch.prerequisites !== undefined || patch.blocks !== undefined) {
+		// What rests on a prerequisite must still exist.
+		const list = patch.prerequisites ?? next.prerequisites ?? [];
+		const known = new Set([...allPoints(next).map((p) => p.id), ...list.map((q) => q.id)]);
+		next.prerequisites = list.map((q) => ({ ...q, blocks: q.blocks.filter((b) => known.has(b) && b !== q.id) }));
+	}
 	if (patch.priorityBlocks !== undefined) {
 		const ids = new Set(next.blocks.map((b) => b.id));
 		next.priorityBlocks = patch.priorityBlocks.filter((b) => ids.has(b));
@@ -944,7 +976,18 @@ async function runResearch(id: string, engine: ReturnType<typeof piEngineForSpec
 			save({ ...touch(current), blocks, research: { done, total: scope.mode === "missing" ? total : todo.length, web: search !== null } });
 		}
 		const current = readExam(id);
-		if (current) save({ ...touch(current), mapping: { state: "done", at: new Date().toISOString() }, research: { done, total: scope.mode === "missing" ? total : todo.length, web: search !== null } });
+		if (!current) return;
+		const research = { done, total: scope.mode === "missing" ? total : todo.length, web: search !== null };
+		// A draft's whole research is followed by its «conocimientos
+		// previos» (owner 2026-11-09), reviewed in Revisar.
+		if (current.status === "draft" && (scope.mode === "missing" || scope.mode === "all")) {
+			save({ ...touch(current), mapping: { state: "prerequisites", at: new Date().toISOString() }, research });
+			await runPrerequisiteSearch(id, engine, "draft");
+			const after = readExam(id);
+			if (after) save({ ...touch(after), mapping: { state: "done", at: new Date().toISOString() } });
+			return;
+		}
+		save({ ...touch(current), mapping: { state: "done", at: new Date().toISOString() }, research });
 	} catch (err) {
 		const current = readExam(id);
 		if (!current) return;
@@ -974,6 +1017,219 @@ export function startExamResearch(id: string, scope: ResearchScope, now = Date.n
 	save({ ...touch(exam, now), mapping: { state: "researching", at: new Date(now).toISOString() } });
 	void withEngine(id, spec, (engine) => runResearch(id, engine, scope));
 	return { ok: true };
+}
+
+// ─── «Conocimientos previos» (owner 2026-11-09) ──────────────────────────────
+
+/** Other exams' prerequisites, by id, with the exam they belong to. */
+function otherPrerequisites(id: string): Map<string, { prereq: ExamPrerequisite; exam: string }> {
+	const out = new Map<string, { prereq: ExamPrerequisite; exam: string }>();
+	for (const e of listExams()) {
+		if (e.id === id || e.status === "archived") continue;
+		for (const q of e.prerequisites ?? []) out.set(q.id, { prereq: q, exam: e.title });
+	}
+	return out;
+}
+
+/** The placement test's misses, described for the finder. */
+function describedMisses(exam: ExamRecord, review: ReviewState): Array<PrerequisiteMiss & { blockIds: Set<string> }> {
+	const points = studyPoints(exam);
+	const pointText = new Map(points.map((p) => [p.id, p.text]));
+	const targetText = new Map(points.flatMap((p) => (p.targets ?? []).map((x) => [x.id, x.statement] as const)));
+	const prereqText = new Map((exam.prerequisites ?? []).map((q) => [q.id, q.statement]));
+	const blockOf = new Map<string, string>();
+	for (const p of points) {
+		blockOf.set(p.id, p.blockId);
+		for (const x of p.targets ?? []) blockOf.set(x.id, p.blockId);
+		for (const n of p.nodeIds) blockOf.set(n, p.blockId);
+	}
+	return placementMisses(review.chats, exam.id, effectiveSettings().review.confidenceThreshold).map((m) => {
+		const about = m.syllabusPoint
+			? (pointText.get(m.syllabusPoint) ?? targetText.get(m.syllabusPoint) ?? prereqText.get(m.syllabusPoint) ?? m.syllabusPoint)
+			: m.target.map((n) => review.names.get(n) ?? n).join("; ");
+		const keys = m.syllabusPoint ? [m.syllabusPoint] : m.target;
+		return { ...m, about, blockIds: new Set(keys.map((k) => blockOf.get(k)).filter((b): b is string => !!b)) };
+	});
+}
+
+/** Run the finder block by block. draft: results go straight into the
+ *  exam; review: they wait as a proposal (with the misses as evidence). */
+async function runPrerequisiteSearch(id: string, engine: ReturnType<typeof piEngineForSpec>, mode: "draft" | "review"): Promise<void> {
+	const first = readExam(id);
+	if (!first) return;
+	const blocks = first.blocks.filter((b) => !b.excluded).map((b) => ({ ...b, points: studyPoints({ blocks: [b] }) })).filter((b) => b.points.length > 0);
+	const startedAt = new Date().toISOString();
+	const progress = (patch: Partial<PrerequisiteSearch>) => {
+		const current = readExam(id);
+		if (!current) return null;
+		const base: PrerequisiteSearch = current.prerequisiteSearch ?? { state: "running", mode, at: startedAt, done: 0, total: blocks.length };
+		const next = { ...touch(current), prerequisiteSearch: { ...base, ...patch } };
+		save(next);
+		return next;
+	};
+	if (!progress({ state: "running", mode, at: startedAt, done: 0, total: blocks.length, items: [] })) return;
+	const review = mode === "review" ? getReviewState(Date.now()) : null;
+	const misses = review ? describedMisses(first, review) : [];
+	const missText = new Map(misses.map((m) => [m.id, m.problem.slice(0, 1000)]));
+	const ideas = () => stores.graphStore.readNodes().map((n) => ({ id: n.id, name: n.name, statement: n.statement, aliases: n.aliases ?? [] }));
+	const others = otherPrerequisites(id);
+	const proposal: PrerequisiteProposalItem[] = [];
+	try {
+		for (const [i, block] of blocks.entries()) {
+			const exam = readExam(id);
+			if (!exam) return;
+			const own = exam.prerequisites ?? [];
+			const existing = [
+				...own.map((q) => ({ id: q.id, statement: q.statement, from: "this exam" })),
+				...proposal.filter((x) => !x.reuse).map((x) => ({ id: x.id, statement: x.statement, from: "this exam" })),
+				...[...others.values()].filter((o) => !own.some((q) => q.key === o.prereq.key)).map((o) => ({ id: o.prereq.id, statement: o.prereq.statement, from: o.exam })),
+			];
+			const found = await runPrerequisiteFinder({
+				engine,
+				ideas,
+				task: {
+					exam: { title: exam.title, examDate: exam.examDate },
+					context: contextLines(exam.context),
+					block: { index: i + 1, total: blocks.length, title: block.title, points: block.points.map((p) => ({ id: p.id, text: p.text, targets: (p.targets ?? []).map((x) => x.statement) })) },
+					existing,
+					...(mode === "review" ? { misses: misses.filter((m) => m.blockIds.has(block.id) || m.blockIds.size === 0).map(({ blockIds: _b, ...m }) => m) } : {}),
+				},
+			});
+			const current = readExam(id);
+			if (!current) return;
+			if (mode === "draft") {
+				const prerequisites = mergePrerequisites(current.prerequisites ?? [], found, new Map([...others].map(([k, v]) => [k, v.prereq])), { origin: "research", newId: () => freshId("q") });
+				save({ ...touch(current), prerequisites, prerequisiteSearch: { ...(current.prerequisiteSearch ?? { state: "running", mode, at: startedAt, total: blocks.length, done: 0 }), done: i + 1 } });
+			} else {
+				for (const f of found) {
+					// A reuse of a proposal item from an earlier block widens it.
+					const earlier = f.reuse ? proposal.find((x) => x.id === f.reuse) : undefined;
+					if (earlier) {
+						earlier.points = [...new Set([...earlier.points, ...f.points])];
+						earlier.nodeIds = [...new Set([...earlier.nodeIds, ...f.nodeIds])];
+						earlier.evidence = [...new Set([...earlier.evidence, ...f.evidence.map((m) => missText.get(m) ?? "").filter(Boolean)])];
+						continue;
+					}
+					proposal.push({
+						id: freshId("q"),
+						...(f.reuse ? { reuse: f.reuse } : {}),
+						statement: f.statement,
+						points: f.points,
+						nodeIds: f.nodeIds,
+						evidence: [...new Set(f.evidence.map((m) => missText.get(m) ?? "").filter(Boolean))],
+					});
+				}
+				progress({ done: i + 1, items: [...proposal] });
+			}
+		}
+		progress(mode === "draft" ? { state: "ready", done: blocks.length, items: [] } : { state: "ready", done: blocks.length, items: [...proposal] });
+		if (mode === "draft") {
+			// Applied already: nothing waits.
+			const current = readExam(id);
+			if (current) {
+				const { prerequisiteSearch: _s, ...rest } = current;
+				save(touch(rest as ExamRecord));
+			}
+		}
+	} catch (err) {
+		progress({ state: "error", error: err instanceof Error ? err.message : String(err) });
+	}
+}
+
+/** «Detectar conocimientos previos» (an active exam's button). */
+export function startPrerequisiteDetection(id: string, now = Date.now()): MappingStart {
+	const exam = readExam(id);
+	if (!exam) return { ok: false, status: 404, error: "not_found" };
+	if (running().has(id) || exam.mapping.state === "reading") return { ok: false, status: 409, error: "mapping already running" };
+	if (studyPoints(exam).length === 0) return { ok: false, status: 409, error: "the syllabus has no points yet" };
+	const spec = resolveRoleSpec("syllabusMapper", stores.settingsStore.readSettings());
+	if (!spec) return { ok: false, status: 503, error: "models_not_configured" };
+	running().add(id);
+	const mode = exam.status === "draft" ? "draft" : "review";
+	save({ ...touch(exam, now), prerequisiteSearch: { state: "running", mode, at: new Date(now).toISOString(), done: 0, total: 0 } });
+	void (async () => {
+		try {
+			if (spec.provider === CLAUDE_CODE_PROVIDER) await refreshClaudeCodeStatus().catch(() => null);
+			await runPrerequisiteSearch(id, piEngineForSpec(spec), mode);
+		} catch (err) {
+			const current = readExam(id);
+			if (current) save({ ...touch(current), prerequisiteSearch: { ...(current.prerequisiteSearch ?? { mode, at: new Date().toISOString(), done: 0, total: 0 }), state: "error", error: err instanceof Error ? err.message : String(err) } });
+		} finally {
+			running().delete(id);
+		}
+	})();
+	return { ok: true };
+}
+
+/** «Aplicar» (the checked items) or «Descartar». The new prerequisites
+ *  not in the graph wait as placement questions. */
+export function applyPrerequisiteProposal(id: string, input: { discard: true } | { accept: string[] }, now = Date.now()): ParseResult<{ added: number }> {
+	const exam = readExam(id);
+	if (!exam) return { ok: false, error: "not_found" };
+	if (running().has(id)) return { ok: false, error: "mapping already running" };
+	const search = exam.prerequisiteSearch;
+	const { prerequisiteSearch: _s, ...rest } = exam;
+	if (!search) return { ok: false, error: "no proposal to apply" };
+	if ("discard" in input) {
+		save(touch(rest as ExamRecord, now));
+		return { ok: true, value: { added: 0 } };
+	}
+	if (search.state !== "ready") return { ok: false, error: "no proposal to apply" };
+	const accepted = (search.items ?? []).filter((x) => input.accept.includes(x.id));
+	const others = new Map([...otherPrerequisites(id)].map(([k, v]) => [k, v.prereq]));
+	const before = new Set((exam.prerequisites ?? []).map((q) => q.id));
+	// Brand-new ones keep the proposal's id.
+	let prerequisites = exam.prerequisites ?? [];
+	for (const item of accepted) prerequisites = mergePrerequisites(prerequisites, [item], others, { origin: "research", newId: () => item.id });
+	const added = prerequisites.filter((q) => !before.has(q.id) && q.nodeIds.length === 0).length;
+	save({ ...touch(rest as ExamRecord, now), prerequisites });
+	return { ok: true, value: { added } };
+}
+
+const normalizedStatement = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+/**
+ * The placement test's diagnosis (owner 2026-11-09): register a base the
+ * learner seems to lack under the missed item (a graph idea, a syllabus
+ * point, a target or a prerequisite). One level deeper than what it lies
+ * under, at most MAX_PREREQUISITE_DEPTH; the same statement again reuses
+ * the existing one.
+ */
+export function noteDiagnosedPrerequisite(examId: string, input: { statement: string; under: string }, now = Date.now()): { ok: true; id: string } | { ok: false; error: string } {
+	const exam = readExam(examId);
+	if (!exam) return { ok: false, error: "the exam is gone" };
+	const statement = input.statement.trim().slice(0, 2000);
+	if (!statement) return { ok: false, error: "statement is empty" };
+	const prereqs = exam.prerequisites ?? [];
+	const points = studyPoints(exam);
+	const parent = prereqs.find((q) => q.id === input.under);
+	let blocks: string[];
+	let depth: number;
+	if (parent) {
+		blocks = [parent.id];
+		depth = parent.depth + 1;
+	} else {
+		const point = points.find((p) => p.id === input.under || (p.targets ?? []).some((x) => x.id === input.under));
+		if (point) {
+			blocks = [point.id];
+			depth = 1;
+		} else {
+			const underPrereq = prereqs.filter((q) => q.nodeIds.includes(input.under));
+			const underPoints = points.filter((p) => p.nodeIds.includes(input.under) || (p.extension ?? []).includes(input.under));
+			if (underPrereq.length === 0 && underPoints.length === 0) return { ok: false, error: `unknown id ${input.under} — pass the missed item's id exactly as given` };
+			blocks = [...underPrereq.map((q) => q.id), ...underPoints.map((p) => p.id)];
+			depth = underPrereq.length ? Math.max(...underPrereq.map((q) => q.depth)) + 1 : 1;
+		}
+	}
+	if (depth > MAX_PREREQUISITE_DEPTH) return { ok: false, error: `at most ${MAX_PREREQUISITE_DEPTH} levels under the syllabus — do not drill further; move on` };
+	const same = prereqs.find((q) => normalizedStatement(q.statement) === normalizedStatement(statement));
+	if (same) {
+		save({ ...touch(exam, now), prerequisites: prereqs.map((q) => (q.id === same.id ? { ...q, blocks: [...new Set([...q.blocks, ...blocks])].filter((b) => b !== q.id) } : q)) });
+		return { ok: true, id: same.id };
+	}
+	const id = freshId("q");
+	save({ ...touch(exam, now), prerequisites: [...prereqs, { id, statement, source: { kind: "model", title: "" }, nodeIds: [], blocks, origin: "diagnosis", depth, key: id }] });
+	return { ok: true, id };
 }
 
 // ─── «Contrastar con la guía» and «Ascender a punto extra» (owner 2026-11-06)
@@ -1192,7 +1448,12 @@ export function startExamSession(id: string, kind: ExamSessionKind, pointId: str
 			const ideas = spread(status.placement.pendingIdeas, status, size);
 			const points = status.placement.pendingPoints.slice(0, Math.max(0, size - ideas.length));
 			if (ideas.length === 0 && points.length === 0) return { ok: false, status: 409, error: "the placement test is complete" };
-			const chat = practiceChat(t(locale, "exams.session.placementTitle", { exam }), { id, kind: "placement", ...(points.length ? { pointIds: points } : {}) }, ideas);
+			const prereqIdeas = ideas.filter((n) => status.ideas.find((i) => i.nodeId === n)?.prerequisiteIds.length);
+			const chat = practiceChat(
+				t(locale, "exams.session.placementTitle", { exam }),
+				{ id, kind: "placement", ...(points.length ? { pointIds: points } : {}), ...(prereqIdeas.length ? { prerequisiteNodes: prereqIdeas } : {}) },
+				ideas,
+			);
 			return { ok: true, session: { id: chat.id, title: chat.title, opening: t(locale, "exams.session.placementOpening"), kind } };
 		}
 		case "practice": {
@@ -1204,7 +1465,8 @@ export function startExamSession(id: string, kind: ExamSessionKind, pointId: str
 			const ids = spread(climbing.map((i) => i.nodeId), status, effectiveSettings().review.batchSize);
 			if (ids.length === 0) return { ok: false, status: 409, error: "nothing to practice" };
 			const levels = Object.fromEntries(ids.map((n) => [n, status.ideas.find((i) => i.nodeId === n)!.level]));
-			const chat = practiceChat(t(locale, "exams.session.practiceTitle", { exam }), { id, kind: "practice", levels }, ids);
+			const goals = Object.fromEntries(ids.map((n) => [n, status.ideas.find((i) => i.nodeId === n)!.goal]));
+			const chat = practiceChat(t(locale, "exams.session.practiceTitle", { exam }), { id, kind: "practice", levels, goals }, ids);
 			return { ok: true, session: { id: chat.id, title: chat.title, opening: t(locale, "exams.session.practiceOpening"), kind } };
 		}
 		case "review": {
@@ -1215,11 +1477,32 @@ export function startExamSession(id: string, kind: ExamSessionKind, pointId: str
 			return { ok: true, session: { id: started.id, title: started.title, opening: t(locale, "exams.session.reviewOpening"), kind } };
 		}
 		case "teach": {
+			// «Conocimientos previos» first (owner 2026-11-09): asked by id,
+			// today's teach block, or the next one when nothing is asked.
+			const planned = c.blocks.find((b) => b.kind === "teach");
+			const prereq = pointId
+				? status.prerequisites.find((q) => q.id === pointId)
+				: planned?.prerequisiteId
+					? status.prerequisites.find((q) => q.id === planned.prerequisiteId)
+					: planned?.pointId
+						? undefined
+						: nextPrerequisite(status.prerequisites);
+			if (prereq) {
+				const short = prereq.state === "consolidate";
+				const text = prereq.statement;
+				const title = t(locale, "exams.session.teachTitle", { point: text.length > 60 ? `${text.slice(0, 57)}…` : text, exam });
+				const chat = createChat(title, undefined, { exam: { id, kind: "teach", prerequisiteId: prereq.id, ...(short ? { short: true } : {}) } });
+				stampStrongModel(chat.id);
+				const toTeach = prereq.nodeIds.filter((n) => status.ideas.find((i) => i.nodeId === n)?.toTeach);
+				if (toTeach.length) seedGraphContext(chat.id, picksOf(toTeach));
+				const opening = t(locale, short ? "exams.session.consolidateOpening" : "exams.session.teachOpening", { exam, point: text });
+				return { ok: true, session: { id: chat.id, title: chat.title, opening, kind } };
+			}
 			const point = pointId
 				? status.points.find((p) => p.id === pointId)
 				: c.blocks.find((b) => b.kind === "teach")?.pointId
 					? status.points.find((p) => p.id === c.blocks.find((b) => b.kind === "teach")!.pointId)
-					: status.points.find((p) => p.need === "teach" || p.need === "consolidate");
+					: status.points.find((p) => (p.need === "teach" || p.need === "consolidate") && p.blockedBy.length === 0);
 			if (!point) return { ok: false, status: 409, error: "no point to teach" };
 			const short = point.need === "consolidate";
 			const title = t(locale, "exams.session.teachTitle", { point: point.text.length > 60 ? `${point.text.slice(0, 57)}…` : point.text, exam });
@@ -1300,20 +1583,54 @@ function kindAppendix(record: Pick<ChatRecord, "exam">): string | undefined {
 	const pointText = new Map(allPoints(exam).map((p) => [p.id, p.text]));
 	const targetText = new Map(allPoints(exam).flatMap((p) => (p.targets ?? []).map((x) => [x.id, x.statement] as const)));
 	const targetList = (ids: readonly string[]) => ids.filter((x) => targetText.has(x)).map((x) => `- ${targetText.get(x)}`).join("\n");
+	const prereqText = new Map((exam.prerequisites ?? []).map((q) => [q.id, q.statement]));
 	switch (link.kind) {
 		case "placement": {
 			const ids = (link.pointIds ?? []).filter((p) => pointText.has(p));
 			const tids = (link.pointIds ?? []).filter((p) => targetText.has(p));
+			const qids = (link.pointIds ?? []).filter((p) => prereqText.has(p));
+			const qnodes = link.prerequisiteNodes ?? [];
+			const names = new Map(qnodes.map((n) => [n, stores.graphStore.readNodes().find((x) => x.id === n)?.name ?? n]));
+			// The prerequisites block (owner-approved text B) always rides a
+			// placement session: the diagnosis applies to every miss.
+			const prereqs = `${examAppendix("placement-prerequisites", {
+				linkedPart: qnodes.length ? `${examAppendix("placement-prerequisites-linked", { linked: qnodes.map((n) => `  - [${n}] ${names.get(n)}`).join("\n") })}\n` : "",
+				unlinkedPart: qids.length ? `${examAppendix("placement-prerequisites-unlinked", { unlinked: qids.map((q) => `  - [${q}] ${prereqText.get(q)}`).join("\n") })}\n` : "",
+				maxDepth: MAX_PREREQUISITE_DEPTH,
+			})}\n`;
 			const points =
+				prereqs +
 				(ids.length ? `${examAppendix("placement-points", { points: ids.map((p) => `  - [${p}] ${pointText.get(p)}`).join("\n") })}\n` : "") +
 				(tids.length ? `${examAppendix("placement-targets", { targets: tids.map((p) => `  - [${p}] ${targetText.get(p)}`).join("\n") })}\n` : "");
-			return examAppendix("placement", { ...base, threshold: effectiveSettings().review.confidenceThreshold, points, andPoints: ids.length || tids.length ? " and point" : "" });
+			return examAppendix("placement", { ...base, threshold: effectiveSettings().review.confidenceThreshold, points, andPoints: ids.length || tids.length || qids.length ? " and point" : "" });
 		}
 		case "practice": {
-			const ideas = Object.entries(link.levels ?? {}).map(([id, level]) => `- [${id}] reached: ${MODE_WORD[level] ?? "none yet"}`).join("\n");
+			const standardGoal = MODE_LEVEL[exam.standard.mode];
+			const ideas = Object.entries(link.levels ?? {})
+				.map(([id, level]) => `- [${id}] reached: ${MODE_WORD[level] ?? "none yet"} · goal: ${MODE_WORD[link.goals?.[id] ?? standardGoal]}`)
+				.join("\n");
 			return examAppendix("practice", { ...base, ideas });
 		}
 		case "teach": {
+			if (link.prerequisiteId) {
+				const q = (exam.prerequisites ?? []).find((x) => x.id === link.prerequisiteId);
+				const prerequisite = q?.statement ?? "";
+				// Needed for: the points resting on it (through shallower ones too).
+				const under = new Set<string>();
+				const walk = (id: string, seen: Set<string>) => {
+					if (seen.has(id)) return;
+					seen.add(id);
+					for (const b of (exam.prerequisites ?? []).find((x) => x.id === id)?.blocks ?? []) {
+						if (pointText.has(b)) under.add(pointText.get(b)!);
+						else walk(b, seen);
+					}
+				};
+				walk(link.prerequisiteId, new Set());
+				const dependents = [...under].join("; ") || exam.title;
+				return link.short
+					? examAppendix("consolidate-prerequisite", { ...base, prerequisite, minutes: effectiveSettings().exams.consolidateMinutes })
+					: examAppendix("teach-prerequisite", { ...base, prerequisite, dependents });
+			}
 			const point = (link.pointId && pointText.get(link.pointId)) || "";
 			const list = targetList(link.targetIds ?? []);
 			const targets = list ? `\nThe target ideas to establish:\n${list}\n` : "";

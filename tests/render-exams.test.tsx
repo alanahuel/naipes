@@ -24,6 +24,7 @@ import {
 	WeeklyMinutes,
 } from "../components/exams.tsx";
 import { ExamSettingsSection } from "../components/settings/exams-section.tsx";
+import { cleanPrerequisites, PrerequisitesEditor, prerequisiteStateLabel } from "../components/exam-prerequisites.tsx";
 import { ConfidenceSlider } from "../components/confidence-rail.tsx";
 import { PracticeDock } from "../components/practice-dock.tsx";
 import { examNotice } from "../components/notices.tsx";
@@ -162,5 +163,30 @@ describe("exams: static renders", () => {
 		assert.ok(ctx.includes("Context (optional)") && ctx.includes("Sitting / year") && ctx.includes('value="2027"'));
 		const mats = renderToStaticMarkup(<MaterialsZone value={[{ key: "k", kind: "link", url: "https://example.org/guia" }]} onChange={() => {}} />);
 		assert.ok(mats.includes("https://example.org/guia") && mats.includes("Add files"));
+	});
+});
+
+describe("«conocimientos previos» UI (owner 2026-11-09)", () => {
+	it("labels: a prerequisite's state and its teach block", () => {
+		const ideas = new Map([["n1", { level: 2 as const, recallAtExam: 0.82 }]]);
+		assert.equal(prerequisiteStateLabel({ state: "linked", nodeIds: ["n1"] }, ideas, es), "Subiendo · Discriminar · 82 %");
+		assert.equal(prerequisiteStateLabel({ state: "placement", nodeIds: [] }, ideas, es), "Por evaluar");
+		assert.equal(prerequisiteStateLabel({ state: "mastered", nodeIds: ["n1"] }, ideas, es), "Dominado");
+		const prereqs = [{ id: "q1", statement: "Potencias" }];
+		assert.equal(blockLabel({ kind: "teach", minutes: 25, nodeIds: [], prerequisiteId: "q1" }, [], es, prereqs), "Enseñar conocimiento previo: Potencias");
+		assert.equal(blockLabel({ kind: "teach", minutes: 10, nodeIds: [], prerequisiteId: "q1", short: true }, [], es, prereqs), "Enseñar conocimiento previo: Potencias (corto)");
+	});
+	it("the editor lists each one with the topics that need it; empty statements are not saved", () => {
+		const html = renderToStaticMarkup(
+			<PrerequisitesEditor
+				value={[{ id: "q1", statement: "Potencias", source: { kind: "model", title: "" }, nodeIds: [], blocks: ["p1"], origin: "diagnosis", depth: 1, key: "q1" }]}
+				points={[{ id: "p1", text: "Rozamiento" }]}
+				onChange={() => {}}
+			/>,
+		);
+		assert.ok(html.includes("Conocimientos previos") || html.includes("Prior knowledge"));
+		assert.ok(html.includes("Rozamiento"));
+		assert.ok(html.includes('data-testid="exam-prereq-add"'));
+		assert.deepEqual(cleanPrerequisites([{ id: "a", statement: "  ", source: { kind: "user", title: "" }, nodeIds: [], blocks: [], origin: "user", depth: 1, key: "a" }]), []);
 	});
 });

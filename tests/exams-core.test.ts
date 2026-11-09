@@ -49,6 +49,9 @@ import {
 	type ExamPrerequisite,
 	sanitizePrerequisites,
 	nextPrerequisite,
+	mergePrerequisites,
+	sharePrerequisiteIdeas,
+	placementMisses,
 	examNodeIds,
 	type SyllabusBlock,
 } from "../src/core/exams.ts";
@@ -719,5 +722,63 @@ describe("«conocimientos previos» (owner 2026-11-09)", () => {
 		const withQ = examWork({ ...base, status, standard: { mode: "discrimination", recall: 0.9, coverage: 1 } });
 		const without = examWork({ ...base, status: { ...status, prerequisites: [] }, standard: { mode: "discrimination", recall: 0.9, coverage: 1 } });
 		assert.equal(withQ.teach - without.teach, 25, "taught once although two points rest on it");
+	});
+});
+
+describe("«conocimientos previos»: merge, share, misses (owner 2026-11-09)", () => {
+	const q = (id: string, over: Partial<ExamPrerequisite> = {}): ExamPrerequisite => ({
+		id, statement: `stmt ${id}`, source: { kind: "model", title: "" }, nodeIds: [], blocks: ["pt1"], origin: "research", depth: 1, key: id, ...over,
+	});
+	it("mergePrerequisites: reuse own widens, reuse another exam's joins its key, new gets a fresh id", () => {
+		let n = 0;
+		const other = q("qo", { key: "K", statement: "Potencias", nodeIds: ["x1"] });
+		const out = mergePrerequisites(
+			[q("q1")],
+			[
+				{ reuse: "q1", statement: "stmt q1", points: ["pt2"], nodeIds: ["a"] },
+				{ reuse: "qo", statement: "ignored", points: ["pt1"], nodeIds: ["b"] },
+				{ statement: "Fracciones", points: ["pt2"], nodeIds: [] },
+			],
+			new Map([["qo", other]]),
+			{ origin: "research", newId: () => `new${++n}` },
+		);
+		assert.deepEqual(out.find((x) => x.id === "q1")!.blocks, ["pt1", "pt2"]);
+		assert.deepEqual(out.find((x) => x.id === "q1")!.nodeIds, ["a"]);
+		const shared = out.find((x) => x.key === "K")!;
+		assert.equal(shared.statement, "Potencias");
+		assert.deepEqual(shared.nodeIds, ["x1", "b"]);
+		const fresh = out.find((x) => x.statement === "Fracciones")!;
+		assert.equal(fresh.key, fresh.id);
+		// reusing the other exam's again lands on the same entry
+		const again = mergePrerequisites(out, [{ reuse: "qo", statement: "", points: ["pt2"], nodeIds: [] }], new Map([["qo", other]]), { origin: "research", newId: () => "never" });
+		assert.equal(again.length, out.length);
+		assert.deepEqual(again.find((x) => x.key === "K")!.blocks, ["pt1", "pt2"]);
+	});
+	it("sharePrerequisiteIdeas: same key carries the other exam's links and taught ideas", () => {
+		const a = { id: "ea", prerequisites: [q("qa", { key: "K", nodeIds: ["x1"] })] };
+		const b = { id: "eb", prerequisites: [q("qb", { key: "K" })] };
+		const chats = [{ id: "t1", exam: { id: "ea", kind: "teach" as const, prerequisiteId: "qa" } }];
+		const [sa, sb] = sharePrerequisiteIdeas([a, b], chats, new Map([["t1", ["x2"]]]));
+		assert.deepEqual(sb!.prerequisites![0]!.nodeIds.sort(), ["x1", "x2"]);
+		assert.deepEqual(sa!.prerequisites![0]!.nodeIds.sort(), ["x1", "x2"]);
+	});
+	it("placementMisses: misses and surrenders with the learner's answer; clean solves left out", () => {
+		const chats: ExamChat[] = [
+			{
+				id: "place1",
+				kind: "practice",
+				createdAt: new Date(T0).toISOString(),
+				exam: { id: "exam_test_1", kind: "placement" },
+				messages: [
+					...solvedProblem(T0, { target: ["n1"] }, { outcome: "surrendered", verdict: "No aplica la regla" }),
+					...solvedProblem(T0 + H, { syllabusPoint: "pt2" }, {}, 90),
+				],
+			},
+		];
+		const misses = placementMisses(chats, "exam_test_1", 70);
+		assert.equal(misses.length, 1);
+		assert.deepEqual(misses[0]!.target, ["n1"]);
+		assert.equal(misses[0]!.verdict, "No aplica la regla");
+		assert.equal(misses[0]!.answer, "answer");
 	});
 });

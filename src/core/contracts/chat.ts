@@ -89,6 +89,12 @@ export interface ChatExamLink {
 	pointIds?: string[];
 	/** Practice: each picked idea's reached mode level at creation. */
 	levels?: Record<string, number>;
+	/** Practice: each picked idea's goal level (a prerequisite's idea:
+	 *  Componer — owner 2026-11-09); absent = the standard's. */
+	goals?: Record<string, number>;
+	/** Placement: the picked ideas that express «conocimientos previos»
+	 *  (they climb to Componer), frozen at creation. */
+	prerequisiteNodes?: string[];
 	/** Teach of a researched point (owner 2026-11-06): the target ideas it
 	 *  establishes, frozen at creation (consolidate: the known ones). */
 	targetIds?: string[];

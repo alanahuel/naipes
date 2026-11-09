@@ -15,6 +15,7 @@ const exams = await import("../src/server/exams.ts");
 const { getReviewState, resetReviewCache } = await import("../src/server/review.ts");
 const { getChat } = await import("../src/server/chats.ts");
 const { syllabusCandidates, numberBlocks } = await import("../src/core/exams.ts");
+const storeMod = await import("../src/store/exams.ts");
 
 const now = new Date(2026, 10, 4, 10, 0).getTime(); // Wed 4 Nov 2026
 const t0 = now - 20 * 86_400_000;
@@ -158,5 +159,92 @@ describe("syllabus candidates", () => {
 			folderNodeIds: new Set(["n_src"]),
 		});
 		assert.deepEqual(ids, ["n_src", "n_a"]);
+	});
+});
+
+describe("«conocimientos previos» in the service (owner 2026-11-09)", () => {
+	const { readExam, writeExam } = storeMod;
+
+	it("a hand-edited list is saved; what rests on it must exist", () => {
+		const patch = exams.parseExamPatch({
+			prerequisites: [{ id: "q_pow", statement: "Propiedades de las potencias", blocks: ["p1", "nope"], origin: "user", depth: 1 }],
+		});
+		assert.ok(patch.ok);
+		assert.ok(exams.updateExam(examId, patch.ok ? patch.value : {}, now).ok);
+		assert.deepEqual(readExam(examId)!.prerequisites![0]!.blocks, ["p1"]);
+		assert.equal(exams.parseExamPatch({ prerequisites: [{ id: "x" }] }).ok, false);
+		const detail = exams.examDetailView(examId, now)!;
+		assert.equal(detail.model!.prerequisites[0]!.state, "placement");
+		assert.deepEqual(detail.model!.points.find((p) => p.id === "p1")!.blockedBy, ["q_pow"]);
+	});
+
+	it("the placement test asks the prerequisites first, with the diagnosis rule", () => {
+		const started = exams.startExamSession(examId, "placement", undefined, now);
+		assert.ok(started.ok);
+		const record = getChat(started.ok ? started.session.id : "")!;
+		assert.equal(record.exam!.pointIds![0], "q_pow");
+		const appendix = exams.examSessionAppendix(record)!;
+		assert.match(appendix, /Start with the prerequisites/);
+		assert.match(appendix, /\[q_pow\] Propiedades de las potencias/);
+		assert.match(appendix, /at most 3 levels under the syllabus/);
+		assert.ok(!appendix.includes("{"), "every placeholder filled");
+	});
+
+	it("the diagnosis registers bases one level deeper, at most three; the same statement is reused", () => {
+		const one = exams.noteDiagnosedPrerequisite(examId, { statement: "Multiplicar fracciones", under: "q_pow" }, now);
+		assert.ok(one.ok);
+		const two = exams.noteDiagnosedPrerequisite(examId, { statement: "Tablas de multiplicar", under: one.ok ? one.id : "" }, now);
+		assert.ok(two.ok);
+		const deep = exams.noteDiagnosedPrerequisite(examId, { statement: "Contar", under: two.ok ? two.id : "" }, now);
+		assert.equal(deep.ok, false, "a fourth level is refused");
+		const same = exams.noteDiagnosedPrerequisite(examId, { statement: "multiplicar  FRACCIONES", under: "p2" }, now);
+		assert.ok(same.ok && one.ok && same.id === one.id);
+		const list = readExam(examId)!.prerequisites!;
+		const frac = list.find((q) => q.id === (one.ok ? one.id : ""))!;
+		assert.equal(frac.depth, 2);
+		assert.equal(frac.origin, "diagnosis");
+		assert.deepEqual(frac.blocks.sort(), ["p2", "q_pow"].sort());
+		assert.equal(exams.noteDiagnosedPrerequisite(examId, { statement: "x", under: "zzz" }, now).ok, false);
+		assert.ok(exams.noteDiagnosedPrerequisite(examId, { statement: "Vectores", under: "n_v" }, now).ok, "a graph idea's point");
+	});
+
+	it("a prerequisite's teach session carries its id and the prior-knowledge appendix", () => {
+		const started = exams.startExamSession(examId, "teach", "q_pow", now);
+		assert.ok(started.ok);
+		const record = getChat(started.ok ? started.session.id : "")!;
+		assert.deepEqual(record.exam, { id: examId, kind: "teach", prerequisiteId: "q_pow" });
+		const appendix = exams.examSessionAppendix(record)!;
+		assert.match(appendix, /## Prior knowledge for an exam/);
+		assert.match(appendix, /Propiedades de las potencias/);
+		assert.match(appendix, /Needed for: .*Velocidad y aceleración/);
+	});
+
+	it("a proposal is applied (checked items only) or discarded; detection needs a model", () => {
+		assert.deepEqual(exams.startPrerequisiteDetection(examId, now), { ok: false, status: 503, error: "models_not_configured" });
+		const exam = readExam(examId)!;
+		writeExam({
+			...exam,
+			prerequisiteSearch: {
+				state: "ready",
+				mode: "review",
+				at: new Date(now).toISOString(),
+				done: 1,
+				total: 1,
+				items: [
+					{ id: "q_new", statement: "Despejar ecuaciones", points: ["p1"], nodeIds: [], evidence: ["Calcula v"] },
+					{ id: "q_skip", statement: "Leer gráficas", points: ["p1"], nodeIds: [], evidence: [] },
+					{ id: "q_reuse", reuse: "q_pow", statement: "Propiedades de las potencias", points: ["p2"], nodeIds: [], evidence: [] },
+				],
+			},
+		});
+		const applied = exams.applyPrerequisiteProposal(examId, { accept: ["q_new", "q_reuse"] }, now);
+		assert.ok(applied.ok);
+		assert.equal(applied.ok && applied.value.added, 1);
+		const after = readExam(examId)!;
+		assert.equal(after.prerequisiteSearch, undefined);
+		assert.ok(after.prerequisites!.some((q) => q.id === "q_new"));
+		assert.ok(!after.prerequisites!.some((q) => q.statement === "Leer gráficas"));
+		assert.ok(after.prerequisites!.find((q) => q.id === "q_pow")!.blocks.includes("p2"));
+		assert.equal(exams.applyPrerequisiteProposal(examId, { discard: true }, now).ok, false, "nothing left to apply");
 	});
 });

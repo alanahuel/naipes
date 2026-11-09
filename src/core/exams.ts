@@ -168,6 +168,30 @@ export interface ExamPrerequisite {
 	key: string;
 }
 
+/** One proposed prerequisite of «Detectar conocimientos previos». */
+export interface PrerequisiteProposalItem {
+	id: string;
+	/** An EXISTING id it reuses (this exam's or another exam's). */
+	reuse?: string;
+	statement: string;
+	/** Points resting on it. */
+	points: string[];
+	nodeIds: string[];
+	/** The placement problems that suggest it («Lo sugiere: “…”»). */
+	evidence: string[];
+}
+
+export interface PrerequisiteSearch {
+	state: "running" | "ready" | "error";
+	/** draft = results go in directly; review = a proposal. */
+	mode: "draft" | "review";
+	at: string;
+	done: number;
+	total: number;
+	error?: string;
+	items?: PrerequisiteProposalItem[];
+}
+
 /** research = the reconnaissance research; diagnosis = found by the
  *  placement test after a miss; user = added by hand. */
 export type PrerequisiteOrigin = "research" | "diagnosis" | "user";
@@ -293,7 +317,7 @@ export type ExamStatus = "draft" | "active" | "archived";
 
 /** reading = the chosen unread folders are being read into the graph
  *  first (owner 2026-11-06); the mapping starts on its own after. */
-export type MappingState = "none" | "reading" | "guide" | "needs_guide" | "running" | "researching" | "done" | "error";
+export type MappingState = "none" | "reading" | "guide" | "needs_guide" | "running" | "researching" | "prerequisites" | "done" | "error";
 
 /** The official guide behind the syllabus (owner 2026-11-06, «guía oficial
  *  primero»). found = the guide finder found it; missing = it didn't (the
@@ -420,6 +444,10 @@ export interface ExamRecord {
 	blocks: SyllabusBlock[];
 	/** «Conocimientos previos» (owner 2026-11-09); absent = none found yet. */
 	prerequisites?: ExamPrerequisite[];
+	/** The prerequisite finder's run (owner 2026-11-09): a draft's results
+	 *  go straight in (reviewed in Revisar); an active exam's wait here as
+	 *  a proposal until «Aplicar» / «Descartar». */
+	prerequisiteSearch?: PrerequisiteSearch;
 	mapping: { state: MappingState; error?: string; at?: string };
 	reading?: ExamReading;
 	research?: ExamResearch;
@@ -711,6 +739,28 @@ export function sanitizePrerequisites(raw: unknown): ExamPrerequisite[] | undefi
 	return out;
 }
 
+function sanitizePrerequisiteSearch(raw: unknown): PrerequisiteSearch | null {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+	const r = raw as Record<string, unknown>;
+	if ((r.state !== "running" && r.state !== "ready" && r.state !== "error") || typeof r.at !== "string") return null;
+	const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0);
+	const out: PrerequisiteSearch = { state: r.state, mode: r.mode === "draft" ? "draft" : "review", at: r.at, done: n(r.done), total: n(r.total) };
+	if (typeof r.error === "string") out.error = r.error.slice(0, 1000);
+	if (Array.isArray(r.items))
+		out.items = r.items
+			.filter((x): x is Record<string, unknown> => x !== null && typeof x === "object")
+			.map((x) => ({
+				id: shortText(x.id, 64),
+				...(typeof x.reuse === "string" ? { reuse: x.reuse.slice(0, 64) } : {}),
+				statement: shortText(x.statement, 2000),
+				points: strList(x.points),
+				nodeIds: strList(x.nodeIds),
+				evidence: strList(x.evidence).map((e) => e.slice(0, 1500)),
+			}))
+			.filter((x) => x.id && x.statement);
+	return out;
+}
+
 function sanitizeReading(raw: unknown): ExamReading | null {
 	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
 	const r = raw as Record<string, unknown>;
@@ -839,7 +889,7 @@ export function sanitizeExamRecord(raw: unknown): ExamRecord | null {
 	const syllabus = (r.syllabus !== null && typeof r.syllabus === "object" ? r.syllabus : {}) as Record<string, unknown>;
 	const mapping = (r.mapping !== null && typeof r.mapping === "object" ? r.mapping : {}) as Record<string, unknown>;
 	const mappingState: MappingState =
-		mapping.state === "reading" || mapping.state === "guide" || mapping.state === "needs_guide" || mapping.state === "running" || mapping.state === "researching" || mapping.state === "done" || mapping.state === "error"
+		mapping.state === "reading" || mapping.state === "guide" || mapping.state === "needs_guide" || mapping.state === "running" || mapping.state === "researching" || mapping.state === "prerequisites" || mapping.state === "done" || mapping.state === "error"
 			? mapping.state
 			: "none";
 	const final = r.final !== null && typeof r.final === "object" ? (r.final as Record<string, unknown>) : null;
@@ -848,6 +898,7 @@ export function sanitizeExamRecord(raw: unknown): ExamRecord | null {
 	const guide = sanitizeGuide(r.guide);
 	const contrast = sanitizeContrast(r.contrast);
 	const prerequisites = sanitizePrerequisites(r.prerequisites);
+	const prerequisiteSearch = sanitizePrerequisiteSearch(r.prerequisiteSearch);
 	return {
 		version: CURRENT_EXAM_VERSION,
 		id,
@@ -862,6 +913,7 @@ export function sanitizeExamRecord(raw: unknown): ExamRecord | null {
 		materials: sanitizeMaterials(r.materials),
 		blocks: sanitizeBlocks(r.blocks),
 		...(prerequisites ? { prerequisites } : {}),
+		...(prerequisiteSearch ? { prerequisiteSearch } : {}),
 		mapping: {
 			state: mappingState,
 			...(typeof mapping.error === "string" ? { error: mapping.error } : {}),
@@ -1109,6 +1161,136 @@ export function pointProbes(chats: readonly ExamChat[], examId: string, confiden
 		}
 	}
 	return new Map([...out].map(([k, v]) => [k, v.probe]));
+}
+
+// ─── «conocimientos previos»: found, proposed, merged (owner 2026-11-09) ────
+
+/** A prerequisite the finder returned, before it enters an exam. */
+export interface FoundPrerequisiteInput {
+	/** An EXISTING id: this exam's prerequisite or another exam's. */
+	reuse?: string;
+	statement: string;
+	/** Points (or prerequisites, for a diagnosis) resting on it. */
+	points: string[];
+	nodeIds: string[];
+}
+
+/**
+ * Merge found prerequisites into an exam's (pure). Reusing this exam's
+ * adds the points to what rests on it; reusing another exam's brings it
+ * in with the same key (shared through the graph); a new one gets a
+ * fresh id, its key = its id.
+ */
+export function mergePrerequisites(
+	current: readonly ExamPrerequisite[],
+	found: readonly FoundPrerequisiteInput[],
+	others: ReadonlyMap<string, ExamPrerequisite>,
+	opts: { origin: PrerequisiteOrigin; depth?: number; newId: () => string },
+): ExamPrerequisite[] {
+	const out = current.map((p) => ({ ...p, blocks: [...p.blocks], nodeIds: [...p.nodeIds] }));
+	const union = (a: string[], b: readonly string[]) => [...new Set([...a, ...b])];
+	for (const f of found) {
+		const own = f.reuse ? out.find((p) => p.id === f.reuse) : undefined;
+		const other = f.reuse && !own ? others.get(f.reuse) : undefined;
+		const sameKey = other ? out.find((p) => p.key === other.key) : undefined;
+		const target = own ?? sameKey;
+		if (target) {
+			target.blocks = union(target.blocks, f.points).filter((b) => b !== target.id);
+			target.nodeIds = union(target.nodeIds, f.nodeIds);
+			continue;
+		}
+		const id = opts.newId();
+		out.push({
+			id,
+			statement: other?.statement ?? f.statement,
+			source: other?.source ?? { kind: "model", title: "" },
+			nodeIds: union([...(other?.nodeIds ?? [])], f.nodeIds),
+			blocks: f.points.filter((b) => b !== id),
+			origin: opts.origin,
+			depth: clamp(opts.depth ?? 1, 1, MAX_PREREQUISITE_DEPTH),
+			key: other?.key ?? id,
+		});
+	}
+	return out;
+}
+
+/**
+ * Share prerequisites across exams through the graph (owner 2026-11-09:
+ * taught once, reviewed once): each prerequisite also carries the ideas of
+ * every same-key prerequisite in the other exams, and the ideas born in
+ * their teach sessions. Pure; returns the exams with widened nodeIds.
+ */
+export function sharePrerequisiteIdeas<E extends Pick<ExamRecord, "id" | "prerequisites">>(
+	exams: readonly E[],
+	chats: ReadonlyArray<Pick<ExamChat, "id" | "exam">>,
+	nodesBornIn: ReadonlyMap<string, readonly string[]>,
+): E[] {
+	const byKey = new Map<string, Set<string>>();
+	const keyOf = new Map<string, string>();
+	for (const e of exams) for (const p of e.prerequisites ?? []) {
+		keyOf.set(`${e.id}\u0000${p.id}`, p.key);
+		const set = byKey.get(p.key) ?? new Set<string>();
+		for (const n of p.nodeIds) set.add(n);
+		byKey.set(p.key, set);
+	}
+	for (const c of chats) {
+		if (c.exam?.kind !== "teach" || !c.exam.prerequisiteId) continue;
+		const key = keyOf.get(`${c.exam.id}\u0000${c.exam.prerequisiteId}`);
+		if (!key) continue;
+		for (const n of nodesBornIn.get(c.id) ?? []) byKey.get(key)!.add(n);
+	}
+	return exams.map((e) =>
+		e.prerequisites?.length ? { ...e, prerequisites: e.prerequisites.map((p) => ({ ...p, nodeIds: [...new Set([...p.nodeIds, ...(byKey.get(p.key) ?? [])])] })) } : e,
+	);
+}
+
+/** One wrong or «no lo sé» answer of a placement test (the retroactive
+ *  «Detectar conocimientos previos» reads them). */
+export interface PlacementMiss {
+	id: string;
+	/** What it was about: targets' ids or the syllabusPoint id. */
+	target: string[];
+	syllabusPoint?: string;
+	problem: string;
+	answer: string;
+	verdict: string;
+}
+
+/** The placement test's misses (step stay/miss, or a surrender), oldest
+ *  first, at most `limit`. */
+export function placementMisses(chats: readonly ExamChat[], examId: string, confidenceThreshold: number, limit = 40): PlacementMiss[] {
+	const out: PlacementMiss[] = [];
+	for (const chat of chats) {
+		if (chat.exam?.id !== examId || chat.exam.kind !== "placement") continue;
+		const clean = new Set<string>();
+		for (const m of chat.messages) if (roleOf(m) === "toolResult" && !(m as unknown as { isError?: boolean }).isError) clean.add((m as unknown as { toolCallId: string }).toolCallId);
+		for (const m of chat.messages) {
+			if (roleOf(m) !== "assistant") continue;
+			for (const block of (m as unknown as { content: Array<{ type: string; id: string; name: string; arguments?: Record<string, unknown> }> }).content) {
+				if (block.type !== "toolCall" || block.name !== PRACTICE_CONCLUDE_TOOL || !clean.has(block.id)) continue;
+				const posed = problemCallForConclude(chat.messages, block.id);
+				if (!posed) continue;
+				const step = stepFromConclude(block.arguments?.outcome, block.arguments?.rung, problemConfidence(chat.messages, posed.id), confidenceThreshold);
+				if (step === "up") continue;
+				const input = posed.input as { statement?: unknown; target?: unknown; syllabusPoint?: unknown } | undefined;
+				let answer = "";
+				for (const t of chat.messages) {
+					if (roleOf(t) !== "custom" || (t as { customType?: string }).customType !== "practice-thinking") continue;
+					const d = (t as { details?: { problemCallId?: unknown; text?: unknown } }).details;
+					if (d?.problemCallId === posed.id && typeof d.text === "string") answer = d.text;
+				}
+				out.push({
+					id: `m${out.length + 1}`,
+					target: Array.isArray(input?.target) ? input.target.filter((x): x is string => typeof x === "string") : [],
+					...(typeof input?.syllabusPoint === "string" ? { syllabusPoint: input.syllabusPoint } : {}),
+					problem: typeof input?.statement === "string" ? input.statement.slice(0, 1500) : "",
+					answer: answer.slice(0, 1500),
+					verdict: typeof block.arguments?.verdict === "string" ? block.arguments.verdict.slice(0, 600) : "",
+				});
+			}
+		}
+	}
+	return out.slice(0, limit);
 }
 
 // ─── status ─────────────────────────────────────────────────────────────────

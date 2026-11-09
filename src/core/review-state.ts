@@ -11,7 +11,7 @@
 
 import { areaOfPath, SESSIONS_AREA_ID } from "./areas.ts";
 import type { ChatExamLink, GraphNode } from "./contracts.ts";
-import { deadlineDue, examNodeIds, isLiveExam, type ExamDeadline, type ExamRecord } from "./exams.ts";
+import { deadlineDue, examNodeIds, isLiveExam, sharePrerequisiteIdeas, type ExamDeadline, type ExamRecord } from "./exams.ts";
 import { formatMessage, type Locale, type MessageVars } from "./i18n.ts";
 import { MESSAGES, type MessageKey } from "./messages/index.ts";
 import {
@@ -88,7 +88,8 @@ export function assembleReviewState(input: ReviewStateInput): ReviewState {
 	// Live exams («Exámenes», owner 2026-11-05): their ideas join Repaso
 	// with a deadline-aware due (src/core/exams.ts deadlineDue).
 	const today = reviewDay(now);
-	const exams = input.exams.filter((e) => isLiveExam(e, today));
+	// Same-key «conocimientos previos» share their ideas (owner 2026-11-09).
+	const exams = sharePrerequisiteIdeas(input.exams.filter((e) => isLiveExam(e, today)), chats, nodesBornIn);
 	const deadlinesOf = new Map<string, ExamDeadline[]>();
 	for (const exam of exams) {
 		const deadline: ExamDeadline = { examId: exam.id, nodeIds: examNodeIds(exam, chats, nodesBornIn), examDate: exam.examDate, recall: exam.standard.recall, finalWindowDays };
