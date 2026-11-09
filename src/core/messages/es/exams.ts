@@ -328,4 +328,18 @@ export default {
 	"exams.contrast.discard": "Descartar",
 	"exams.contrast.same": "Tu temario coincide con la guía oficial.",
 	"exams.contrast.failed": "No se pudo contrastar: {error}",
+	// The exam page's tabs (owner 2026-11-09)
+	"exams.tabs.label": "Secciones del examen",
+	"exams.tabs.summary": "Resumen",
+	"exams.tabs.syllabus": "Temario",
+	"exams.tabs.prior": "Conocimientos previos",
+	"exams.tabs.rules": "Asignatura",
+	"exams.tabs.tutor": "Tutor",
+	"exams.tabs.alert": "hay algo pendiente",
+	"exams.instructions.empty": "Todavía no hay instrucciones.",
+	"exams.instructions.add": "Añadir apartado",
+	"exams.instructions.addTitle": "Título del apartado",
+	"exams.instructions.fromSyllabus": "Traer del temario",
+	"exams.instructions.fromSyllabusNone": "No quedan puntos en el temario.",
+	"exams.instructions.move": "Traer «{text}» aquí",
 };

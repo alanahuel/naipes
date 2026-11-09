@@ -6,10 +6,12 @@
  *   /exams        the list (countdown, level vs target, today's minutes)
  *   /exams/new    the wizard: 1 Temario → 2 Revisar el mapeo → 3 Estándar
  *                 → 4 Tiempo (a draft resumes at its step on /exams/[id])
- *   /exams/[id]   one exam: Hoy (ordered blocks, each its own session),
- *                 Tu nivel (coverage vs target, «no llega» options), Plan
- *                 (minutes for the next 14 days), Temario (per block, with
- *                 priorities), Simulacro (the last days)
+ *   /exams/[id]   one exam: Hoy (ordered blocks, each its own session —
+ *                 «Resultado» once archived) above TABS (owner 2026-11-09,
+ *                 ?tab= in the URL, see src/core/exam-tabs.ts): Resumen
+ *                 (Tu nivel, «no llega» options, Plan for the next 14 days,
+ *                 Simulacro in the last days) · Temario (per block, with
+ *                 priorities) · Conocimientos previos · Asignatura · Tutor
  *
  * Plus the Inicio card «Hoy para tu examen» and the exam sessions' batch
  * end. Data: GET /api/exams[/id], refetched on the server events that can
@@ -18,7 +20,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangleIcon, CheckIcon, ChevronRightIcon, MoreHorizontalIcon, PlusIcon, SettingsIcon, StarIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MenuShell } from "@/components/menu-shell";
@@ -28,6 +30,7 @@ import { ListCard, ListRow } from "@/components/ui/list";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { BarChart } from "@/components/ui/bar-chart";
 import { Select } from "@/components/ui/select";
+import { Tabs, TabPanel } from "@/components/ui/tabs";
 import { useServerEvent } from "@/components/server-events";
 import { cleanPrerequisites, PrerequisitesEditor, PrerequisitesSection } from "@/components/exam-prerequisites";
 import { stashOpeningPrompt } from "@/components/opening-prompt";
@@ -66,6 +69,12 @@ import {
 	pendingKindPoints,
 	setPointKind,
 	instructionPoints,
+	addInstructionPoint,
+	examTabAlerts,
+	EXAM_TABS as EXAM_TAB_ORDER,
+	examTabFromParam,
+	examTabHref,
+	type ExamTab,
 	POINT_KINDS,
 	type PointKind,
 	type PointOrigin,
@@ -1577,7 +1586,7 @@ function LevelSection({ exam, onPrioritize }: { exam: ExamDetailView; onPrioriti
 				<CoverageBar labelled value={coverage} target={target} label={t("exams.level.bar", { n: coverage, target })} />
 			</div>
 			<p className="px-1 text-sm text-muted-foreground">{t("exams.level.now", { level: exam.reachedPreset ? presetLabel(exam.reachedPreset, t) : t("exams.level.none") })}</p>
-			{exam.infeasible && (
+			{exam.infeasible && exam.status === "active" && (
 				<div className="flex flex-col gap-3 rounded-xl border border-warn/40 px-4 py-3" role="status" data-testid="exam-behind">
 					<p className="flex items-start gap-2 text-sm">
 						<AlertTriangleIcon className="mt-0.5 size-4 shrink-0 text-warn" />
@@ -2081,7 +2090,14 @@ function InstructionsSection({ exam, kind }: { exam: ExamDetailView; kind: "rule
 	const editable = exam.record.status === "active";
 	const researching = exam.record.mapping.state === "researching" || exam.record.mapping.state === "running";
 	const points = instructionPoints({ blocks }, kind);
-	if (points.length === 0) return null;
+	const pendingTotal = pendingKindPoints(exam.record).length;
+	const pendingHere = points.some((p) => p.pendingFrom);
+	const [adding, setAdding] = useState<string | null>(null);
+	const [picking, setPicking] = useState(false);
+	const syllabusPoints = blocks
+		.filter((b) => !b.excluded)
+		.map((b) => ({ block: b, points: b.points.filter((p) => pointKind(b, p) === "syllabus") }))
+		.filter((g) => g.points.length > 0);
 	const editRules = (pointId: string, f: (rules: TargetIdea[]) => TargetIdea[]) =>
 		setBlocks((list) => list.map((b) => ({ ...b, points: b.points.map((p) => (p.id === pointId ? { ...p, targets: f(p.targets ?? []) } : p)) })));
 	const save = async (next = blocks) => {
@@ -2094,11 +2110,46 @@ function InstructionsSection({ exam, kind }: { exam: ExamDetailView; kind: "rule
 		const failed = await changeKind(exam.id, blockId, pointId, next);
 		if (failed) setError(failed === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.wizard.mapFailed", { error: failed }));
 	};
+	const researchPending = async () => {
+		setError(null);
+		const res = await sendJson(`/api/exams/${exam.id}/research`, "POST", { mode: "pending" });
+		if (!res.ok) setError(res.body.code === "models_not_configured" ? t("exams.wizard.noModel") : t("exams.wizard.mapFailed", { error: String(res.body.error ?? "") }));
+	};
+	const addSection = async () => {
+		const text = adding?.trim();
+		if (!text) return;
+		const next = addInstructionPoint(blocks, kind, text, { block: localId("b_"), point: localId("p_") }, t(`exams.kind.${kind}` as MessageKey));
+		setBlocks(next);
+		setAdding(null);
+		await save(next);
+	};
 	const input = "min-w-0 flex-1 resize-y rounded-md border border-transparent bg-transparent px-2 py-1 outline-none hover:border-border focus:border-primary/50";
 	return (
 		<section className="flex flex-col gap-3" data-testid={`exam-instructions-${kind}`}>
-			<SectionTitle>{t(`exams.kind.${kind}` as MessageKey)}</SectionTitle>
+			<SectionTitle
+				right={
+					editable && pendingHere ? (
+						researching ? (
+							<span className="px-1 text-sm text-muted-foreground" aria-live="polite">
+								{t("exams.kind.researching")}
+							</span>
+						) : (
+							<button type="button" className={cn(quietBtn, "px-3 py-1 text-sm")} onClick={() => void researchPending()} data-testid="exam-instructions-research">
+								{t("exams.kind.researchPending", { n: pendingTotal })}
+							</button>
+						)
+					) : undefined
+				}
+			>
+				{t(`exams.kind.${kind}` as MessageKey)}
+			</SectionTitle>
 			{error && <p role="alert" className="px-1 text-sm text-warn">{error}</p>}
+			{points.length === 0 && (
+				<p className="px-1 text-sm text-muted-foreground" data-testid="exam-instructions-empty">
+					{t("exams.instructions.empty")}
+				</p>
+			)}
+			{points.length > 0 && (
 			<ul className="overflow-hidden rounded-xl border">
 				{points.map((p) => {
 					const block = blocks.find((b) => b.id === p.blockId)!;
@@ -2161,6 +2212,77 @@ function InstructionsSection({ exam, kind }: { exam: ExamDetailView; kind: "rule
 					);
 				})}
 			</ul>
+			)}
+			{editable && adding !== null && (
+				<form
+					className="flex items-center gap-2"
+					onSubmit={(e) => {
+						e.preventDefault();
+						void addSection();
+					}}
+					data-testid="exam-instructions-add-form"
+				>
+					<input
+						autoFocus
+						value={adding}
+						maxLength={2000}
+						aria-label={t("exams.instructions.addTitle")}
+						placeholder={t("exams.instructions.addTitle")}
+						onChange={(e) => setAdding(e.target.value)}
+						onKeyDown={(e) => e.key === "Escape" && setAdding(null)}
+						className={cn(fieldInput, "min-w-0 flex-1")}
+						data-testid="exam-instructions-add-title"
+					/>
+					<button type="button" className={quietBtn} onClick={() => setAdding(null)}>
+						{t("common.cancel")}
+					</button>
+					<button type="submit" className={buttonVariants({ size: "sm" })} disabled={!adding.trim()}>
+						{t("common.save")}
+					</button>
+				</form>
+			)}
+			{editable && adding === null && (
+				<div className="flex flex-wrap gap-2">
+					<button type="button" className={quietBtn} onClick={() => setAdding("")} data-testid="exam-instructions-add">
+						<PlusIcon />
+						{t("exams.instructions.add")}
+					</button>
+					<button type="button" className={quietBtn} aria-expanded={picking} disabled={researching} onClick={() => setPicking((v) => !v)} data-testid="exam-instructions-pick">
+						{t("exams.instructions.fromSyllabus")}
+						<ChevronRightIcon className={cn("transition-transform", picking && "rotate-90")} />
+					</button>
+				</div>
+			)}
+			{editable && picking && adding === null && (
+				<div className="max-h-80 overflow-y-auto rounded-xl border py-1 text-sm" data-testid="exam-instructions-pick-list">
+					{syllabusPoints.length === 0 ? (
+						<p className="px-4 py-2 text-muted-foreground">{t("exams.instructions.fromSyllabusNone")}</p>
+					) : (
+						syllabusPoints.map(({ block, points: list }) => (
+							<div key={block.id} className="py-1">
+								<p className="truncate px-4 py-1 text-xs font-medium text-muted-foreground">{block.title}</p>
+								<ul>
+									{list.map((p) => (
+										<li key={p.id}>
+											<button
+												type="button"
+												aria-label={t("exams.instructions.move", { text: p.text })}
+												onClick={() => {
+													setPicking(false);
+													void setKind(block.id, p.id, kind);
+												}}
+												className="flex w-full items-center gap-2 px-4 py-1.5 pl-6 text-left hover:bg-accent/50"
+											>
+												<span className="min-w-0 truncate">{p.text}</span>
+											</button>
+										</li>
+									))}
+								</ul>
+							</div>
+						))
+					)}
+				</div>
+			)}
 		</section>
 	);
 }
@@ -2337,10 +2459,16 @@ export function ExamPage({ id }: { id: string }) {
 	const router = useRouter();
 	const { data, reload } = useExam(id);
 	const [highlight, setHighlight] = useState(false);
+	const searchParams = useSearchParams();
+	const tab = examTabFromParam(searchParams.get("tab"));
+	// The native history API (Next docs, «Linking and navigating»): the URL
+	// and useSearchParams update at once, no server round-trip per tab.
+	const setTab = (next: ExamTab) => window.history.replaceState(null, "", examTabHref(id, next));
 	if (data === undefined) return <p className="p-10 text-sm text-muted-foreground">{t("exams.loading")}</p>;
 	if (data === null) return <p role="alert" className="p-10 text-sm text-warn">{t("exams.loadFailed")}</p>;
 	if (data.status === "draft") return <DraftWizard exam={data} reload={reload} />;
 	const live = data.status === "active";
+	const alerts = examTabAlerts(data);
 	return (
 		<Page testid="exam-page">
 				<PageHeader
@@ -2366,31 +2494,38 @@ export function ExamPage({ id }: { id: string }) {
 						</>
 					}
 				/>
-				{live ? (
-					<>
-						<TodaySection exam={data} />
+				{live ? <TodaySection exam={data} /> : <ArchivedSection exam={data} />}
+				<Tabs
+					value={tab}
+					onChange={setTab}
+					label={t("exams.tabs.label")}
+					alertLabel={t("exams.tabs.alert")}
+					items={EXAM_TAB_ORDER.map((value) => ({ value, label: t(`exams.tabs.${value}` as MessageKey), alert: alerts[value] && value !== tab, testid: `exam-tab-${value}` }))}
+				>
+					<TabPanel value="summary" testid="exam-panel-summary">
 						<LevelSection
 							exam={data}
 							onPrioritize={() => {
 								setHighlight(true);
-								document.getElementById("exam-syllabus")?.scrollIntoView({ behavior: "smooth", block: "start" });
+								setTab("syllabus");
 							}}
 						/>
-						<PlanSection exam={data} />
+						{live && <PlanSection exam={data} />}
+						{live && data.daysLeft <= MOCK_SHOW_DAYS && data.daysLeft > 0 && <MockSection exam={data} />}
+					</TabPanel>
+					<TabPanel value="syllabus" testid="exam-panel-syllabus">
+						<SyllabusSection exam={data} highlight={live && highlight} />
+					</TabPanel>
+					<TabPanel value="prior" testid="exam-panel-prior">
 						<PrerequisitesSection exam={data} />
-						<SyllabusSection exam={data} highlight={highlight} />
+					</TabPanel>
+					<TabPanel value="rules" testid="exam-panel-rules">
 						<InstructionsSection exam={data} kind="rules" />
+					</TabPanel>
+					<TabPanel value="tutor" testid="exam-panel-tutor">
 						<InstructionsSection exam={data} kind="tutor" />
-						{data.daysLeft <= MOCK_SHOW_DAYS && data.daysLeft > 0 && <MockSection exam={data} />}
-					</>
-				) : (
-					<>
-						<ArchivedSection exam={data} />
-						<SyllabusSection exam={data} highlight={false} />
-						<InstructionsSection exam={data} kind="rules" />
-						<InstructionsSection exam={data} kind="tutor" />
-					</>
-				)}
+					</TabPanel>
+				</Tabs>
 		</Page>
 	);
 }

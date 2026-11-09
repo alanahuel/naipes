@@ -126,4 +126,14 @@ Folded into the desktop clock (`POST /api/review/notify` → `deskNotice`): the 
 
 ## Interface
 
-The 5th tab **Exámenes** (`components/exams.tsx`): the list, the 5-step wizard (Temario · Estándar · Investigación · Revisar · Tiempo), the exam page (Hoy, Tu nivel, Plan · próximos 14 días, Temario, Simulacro in the last 7 days); Inicio «Hoy para tu examen»; Settings → Exámenes; exam notices in the bell; an exam session's batch end returns to the exam or opens the next batch.
+The 5th tab **Exámenes** (`components/exams.tsx`): the list, the 5-step wizard (Temario · Estándar · Investigación · Revisar · Tiempo), the exam page; Inicio «Hoy para tu examen»; Settings → Exámenes; exam notices in the bell; an exam session's batch end returns to the exam or opens the next batch.
+
+### The exam page's tabs (owner 2026-11-09)
+
+No more one long scroll. **Hoy** (the ordered blocks + «Empezar») stays above the tabs — «Resultado» instead once archived — and below them the same five tabs for active and archived exams (`components/ui/tabs.tsx`, Radix Tabs: ←/→, Home/End):
+
+- **Resumen** — Tu nivel (with the «no llega» options), Plan · próximos 14 días, Simulacro in the last 7 days. Archived: the level only.
+- **Temario** · **Conocimientos previos** — the sections as before.
+- **Asignatura** · **Tutor** — always shown, titled in full inside. Empty: «Todavía no hay instrucciones.» Both fill from the tab: «Añadir apartado» (a hand-written point, `targets: []`, no research — appended to the first live block of that type, or a new block named after it) and «Traer del temario» (a syllabus point changes type and waits for «Investigar cambios», which the tab also shows).
+
+The open tab is in the URL: `?tab=temario|previos|asignatura|tutor`, none = Resumen, switched with `history.replaceState` (no server round-trip). «Priorizar» opens Temario with the blocks highlighted. A tab you are not on carries a dot (sr-only «hay algo pendiente») when it wants you or has work running — `examTabAlerts` in `src/core/exam-tabs.ts`: Resumen = «no llega»; Temario = research/outline running, a contrast, unresearched points or a pending syllabus point; Conocimientos previos = a search running or a proposal to review; Asignatura/Tutor = one of their points pending (or being researched). Archived exams carry none.

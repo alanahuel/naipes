@@ -329,4 +329,18 @@ export default {
 	"exams.contrast.discard": "Discard",
 	"exams.contrast.same": "Your syllabus matches the official guide.",
 	"exams.contrast.failed": "Couldn't compare: {error}",
+	// The exam page's tabs (owner 2026-11-09)
+	"exams.tabs.label": "Exam sections",
+	"exams.tabs.summary": "Summary",
+	"exams.tabs.syllabus": "Syllabus",
+	"exams.tabs.prior": "Prior knowledge",
+	"exams.tabs.rules": "Subject",
+	"exams.tabs.tutor": "Tutor",
+	"exams.tabs.alert": "something pending",
+	"exams.instructions.empty": "No instructions yet.",
+	"exams.instructions.add": "Add section",
+	"exams.instructions.addTitle": "Section title",
+	"exams.instructions.fromSyllabus": "Bring from the syllabus",
+	"exams.instructions.fromSyllabusNone": "No syllabus points left.",
+	"exams.instructions.move": "Bring «{text}» here",
 } satisfies Record<keyof typeof es, Message>;
