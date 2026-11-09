@@ -57,6 +57,12 @@ For a personal Linux install of this checkout (AppImage, launcher, icon; auto-up
 
 The three jobs upload distinct updater feeds: `latest-mac.yml`, `latest.yml`, `latest-linux.yml`, with the matching ZIP/NSIS/AppImage/deb assets and blockmaps. **A partially populated draft is never fit to publish — and the final job enforces it mechanically.** The app uses the baked GitHub feed without a token: **the repository must be public before end users can download updates.** Making the repository public and publishing the release remain the owner's actions.
 
+### The onboarding entry
+
+Every release teaches its own novelties. The «Primeros pasos» / «Novedades» card on Inicio reads one registry, `ONBOARDING_ENTRIES` in `src/core/onboarding.ts`. Before bumping, add the version's entries: a step (with `phase`, `target` and a local-state detector in `src/server/onboarding.ts`) when the learner has to do something, a text-only entry for an improvement that needs no action, or `{ id, version, silent: true }` when there is nothing to announce. Their copy goes in `src/core/messages/{es,en}/onboarding.ts` (`onboarding.entry.<id>.title` / `.body`).
+
+`pnpm check:onboarding` fails when the commits since the previous `v*` tag include a `feat:` and the registry has no entry for `package.json`'s version. It runs first in the release workflow's quality job (full-history checkout for the tags); run it locally before tagging.
+
 ### The verification job
 
 `verify` runs only on tag pushes (`needs: package`, so after **all three** packaging legs; manual rehearsals upload nothing and skip it). It checks out the tagged revision without persisting credentials and runs `scripts/verify-release.ts`. GitHub requires push access to list **draft** releases, so this job needs `contents: write` even though every API operation is GET-only. The token is exposed only to the release-list and feed-download steps, not dependency installation or the offline validator. The validator:
@@ -93,7 +99,7 @@ Local test: `bash packaging/aur/update.sh <version> && cd packaging/aur && makep
 
 1. Push the implementation; run the manual Desktop release workflow.
 2. Human smoke on Windows/Linux: install/open, window buttons and dragging, sidebar at narrow widths, zoom, setup/keys, session/resume, native PDF/SVG verification and demo helper.
-3. Bump `package.json` and the lockfile to the agreed release version; run local gates and push a matching `v...` tag.
+3. Bump `package.json` and the lockfile to the agreed release version; check the onboarding entry (`pnpm check:onboarding`), run local gates and push a matching `v...` tag.
 4. Wait for **all three** packaging jobs **and the final Verify draft release job** — the gate mechanically checks the draft's 15 assets and the three update feeds (single draft, right names/version/sizes/upload state, feeds referencing only what the release actually holds). If it fails, fix the cause and re-run the workflow before publishing; electron-builder replaces same-named assets on re-upload, and the gate rejects leftovers.
 5. Owner publishes the complete draft, then checks the real GitHub update path using a prior installed version. Publishing triggers the AUR workflow; check that `naipes-bin` moved to the new version.
 
