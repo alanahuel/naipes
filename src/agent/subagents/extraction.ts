@@ -499,7 +499,7 @@ function runExtractor(
 		engine,
 		signal,
 		onStep,
-		neverSubmitted: "the extractor never submitted findings",
+		neverSubmitted: EXTRACTOR_NEVER_SUBMITTED,
 		prepareArguments: healStringifiedArrays,
 	}).then(asSessionFindings);
 }
@@ -530,7 +530,7 @@ function runNotesExtractor(
 		engine,
 		signal,
 		onStep,
-		neverSubmitted: "the extractor never submitted findings",
+		neverSubmitted: EXTRACTOR_NEVER_SUBMITTED,
 		prepareArguments: healStringifiedArrays,
 	}).then(asSessionFindings);
 }
@@ -763,18 +763,45 @@ export interface NotesImportInput {
 	segments?: DocSegment[];
 }
 
+/** What the extractor's submit agent throws when the model ended without a
+ *  valid submit_findings (no call, or every attempt refused by validation).
+ *  Provider/network/quota errors throw with their OWN message (pi-run). */
+export const EXTRACTOR_NEVER_SUBMITTED = "the extractor never submitted findings";
+
 /** A notes import did not finish. Earlier graph writes and billed usage are
- * retained; partialStats describe known merges, not an all-or-nothing result. */
+ * retained; partialStats describe known merges, not an all-or-nothing result.
+ * `modelOnly` (owner, 2026-11-09): every failed chunk failed because the
+ * MODEL never submitted findings — a property of this content, not of the
+ * network, the quota or the configuration; the vault parks such a note
+ * until it changes. */
 export class NotesImportError extends Error {
+	public readonly modelOnly: boolean;
 	constructor(
 		public readonly outcome: "failed" | "partial" | "aborted" | "busy",
 		public readonly partialStats: EmissionStats,
 		message: string,
-		options?: ErrorOptions,
+		options?: ErrorOptions & { modelOnly?: boolean },
 	) {
 		super(message, options);
 		this.name = "NotesImportError";
+		this.modelOnly = options?.modelOnly ?? false;
 	}
+}
+
+/** How a fanned-out run over one source ended, for the bell (owner,
+ *  2026-11-09): null = nothing ran or the user cancelled (no notice);
+ *  any isolated failure — partial included — is "failed". */
+export function runEndOutcome(settled: ReadonlyArray<PromiseSettledResult<unknown>>): "ok" | "failed" | null {
+	if (settled.length === 0) return null;
+	const rejected = settled.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+	if (rejected.some((r) => r.reason instanceof Error && r.reason.name === "AbortError")) return null;
+	return rejected.length > 0 ? "failed" : "ok";
+}
+
+/** True when every failure is the model never submitting (see modelOnly). */
+export function onlyModelFailures(settled: ReadonlyArray<PromiseSettledResult<unknown>>): boolean {
+	const rejected = settled.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+	return rejected.length > 0 && rejected.every((r) => r.reason instanceof Error && r.reason.message === EXTRACTOR_NEVER_SUBMITTED);
 }
 
 export interface ExtractionPipeline {
@@ -1118,6 +1145,8 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		if (inFlight.has(chatId)) return { nodes: 0, chains: 0 };
 		inFlight.add(chatId);
 		const t0 = performance.now();
+		// Hoisted so the finally can tell the bell how the run ended.
+		let settled: PromiseSettledResult<EmissionStats>[] = [];
 		// COVERAGE (vision-extraction-coverage.md, 2026-09-15): extract ONLY
 		// what the per-chat coverage ledger doesn't already hold — never the
 		// whole session. Batches are token-budgeted runs of the oldest
@@ -1157,7 +1186,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			// process-wide gate ("waiting"). A batch that fails is ISOLATED
 			// (its messages stay uncovered — honestly re-runnable); its
 			// siblings keep merging.
-			const settled: PromiseSettledResult<EmissionStats>[] = [];
+			settled = [];
 			for (const [batchIndex, batch] of batches.entries()) {
 				const part = batches.length > 1 ? { i: batchIndex + 1, n: batches.length } : undefined;
 				try {
@@ -1247,6 +1276,10 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			throw err;
 		} finally {
 			inFlight.delete(chatId);
+			const outcome = runEndOutcome(settled);
+			if (outcome) {
+				emit("extraction-ended", { source: chatId, title: chatStore.getChat(chatId)?.title ?? chatId, kind: "chat", outcome });
+			}
 			finishExtraction(chatId); // done or failed — no longer running
 		}
 	}
@@ -1325,6 +1358,8 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		// importNotes owns the source exclusion, including metadata and cleanup.
 		const t0 = performance.now();
 		const mergedStats: EmissionStats = { nodes: 0, chains: 0 };
+		// How the run ended, for the bell (null = nothing ran / cancelled).
+		let ended: "ok" | "failed" | null = null;
 		try {
 			// BYOK per-need gate (owner, 2026-09-22) + key presence
 			// (2026-09-25): same refusal as the chat front door — no
@@ -1409,6 +1444,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 					if (failure instanceof Error && failure.name === "AbortError") break;
 				}
 			}
+			ended = runEndOutcome(settled);
 			const stats = aggregateJobs(id, settled);
 			// Completion is a chunk-status contract, never a node-count test.
 			// Zero findings (and an empty file after the readiness gate) are valid.
@@ -1417,7 +1453,9 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 				const aborted = rejected.some((r) => r.reason instanceof Error && r.reason.name === "AbortError");
 				const outcome = aborted ? "aborted" : settled.some((r) => r.status === "fulfilled") ? "partial" : "failed";
 				const details = rejected.map((r) => r.reason instanceof Error ? r.reason.message : String(r.reason)).join("; ");
-				throw new NotesImportError(outcome, mergedStats, details || "Notes import did not complete");
+				throw new NotesImportError(outcome, mergedStats, details || "Notes import did not complete", {
+					modelOnly: outcome !== "aborted" && onlyModelFailures(settled),
+				});
 			}
 			console.info(
 				`[extraction ${id}] merged: ${stats.nodes} nodes, ${stats.chains ?? 0} chains ` +
@@ -1430,6 +1468,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			throw new NotesImportError(err instanceof Error && err.name === "AbortError" ? "aborted" : "failed", mergedStats,
 				err instanceof Error ? err.message : String(err), { cause: err });
 		} finally {
+			if (ended) emit("extraction-ended", { source: id, title: input.filePath, kind: "notes", outcome: ended });
 			finishExtraction(id); // done or failed — no longer running
 		}
 	}

@@ -58,7 +58,7 @@ import { documentText, isDocumentFile, isNoteFile, joinedText } from "./doc-text
 import { scanNoteFiles } from "../store/vault-scan.ts";
 import type { ChatRecord, GraphNode } from "../core/contracts.ts";
 import { piEngineForSpec } from "../agent/models.ts";
-import { notesSourceId } from "../agent/subagents/extraction.ts";
+import { NotesImportError, notesSourceId } from "../agent/subagents/extraction.ts";
 import { runSubagent } from "../agent/subagents/pi-run.ts";
 import { extraction } from "./chat-handler.ts";
 import { graphRevision } from "./graph.ts";
@@ -107,6 +107,18 @@ export interface VaultState {
 	dismissed: Record<string, { hash: string; folder: string }>;
 	/** Inbox suggestions already announced in the bell: path → "hash|folder". */
 	suggested: Record<string, string>;
+	/** Notes PARKED after the model never submitted findings for them
+	 *  (owner, 2026-11-09): path → the content that failed. Not retried
+	 *  while the file keeps that content, until «Reintentar» in Settings. */
+	failed: Record<string, FailedNote>;
+}
+
+export interface FailedNote {
+	hash: string;
+	/** ISO time of the failure. */
+	at: string;
+	/** The import error's message (for the log-minded; not shown raw). */
+	error: string;
 }
 
 export interface PendingDocument {
@@ -119,7 +131,7 @@ export interface PendingDocument {
 }
 
 function emptyState(root: string): VaultState {
-	return { version: 1, root, notes: {}, chats: {}, summaries: {}, concepts: {}, pending: {}, confirmed: {}, dismissed: {}, suggested: {} };
+	return { version: 1, root, notes: {}, chats: {}, summaries: {}, concepts: {}, pending: {}, confirmed: {}, dismissed: {}, suggested: {}, failed: {} };
 }
 
 function readState(root: string): VaultState {
@@ -422,16 +434,17 @@ async function processNote(rel: string): Promise<void> {
 	if (bytes === null) {
 		// Moved (phase 3): the same content at a new, untracked path keeps
 		// its ideas — re-key instead of removing anything.
-		const known = s.notes[rel]?.hash ?? s.pending[rel]?.hash;
+		const known = s.notes[rel]?.hash ?? s.pending[rel]?.hash ?? s.failed[rel]?.hash;
 		const movedTo = known ? findUntrackedCopy(config, s, known) : null;
 		if (movedTo) {
 			rekeyNote(s, rel, movedTo);
 			return;
 		}
 		// Deleted: its contribution leaves the graph.
-		const hadPending = s.pending[rel] !== undefined || s.confirmed[rel] !== undefined;
+		const hadPending = s.pending[rel] !== undefined || s.confirmed[rel] !== undefined || s.failed[rel] !== undefined;
 		delete s.pending[rel];
 		delete s.confirmed[rel];
+		delete s.failed[rel];
 		if (s.notes[rel]) {
 			deleteSourceTraces(s.notes[rel].sourceId);
 			delete s.notes[rel];
@@ -445,11 +458,12 @@ async function processNote(rel: string): Promise<void> {
 	const hash = hashOf(bytes);
 	if (s.notes[rel]?.hash === hash) return; // unchanged — costs nothing
 	if (s.pending[rel]?.hash === hash && s.confirmed[rel] !== hash) return; // still waiting for «Leer»
+	if (s.failed[rel]?.hash === hash) return; // parked: the model refused this content
 
 	// Moved here (phase 3): a known note with this exact content whose old
 	// path is gone — re-key it, no extraction.
-	if (!s.notes[rel] && !s.pending[rel]) {
-		const from = [...Object.entries(s.notes), ...Object.entries(s.pending)].find(
+	if (!s.notes[rel] && !s.pending[rel] && !s.failed[rel]) {
+		const from = [...Object.entries(s.notes), ...Object.entries(s.pending), ...Object.entries(s.failed)].find(
 			([other, entry]) => other !== rel && entry.hash === hash && !fs.existsSync(path.join(config.root, other)),
 		)?.[0];
 		if (from) {
@@ -485,6 +499,8 @@ async function processNote(rel: string): Promise<void> {
 		text = bytes.toString("utf-8");
 	}
 	delete s.pending[rel];
+	// New content (or «Reintentar»): a parked entry no longer applies.
+	delete s.failed[rel];
 
 	// Replace cleanly: whatever this path contributed before goes first.
 	// A legacy manual import of the same file (imported by bare file name
@@ -513,7 +529,18 @@ async function processNote(rel: string): Promise<void> {
 		return;
 	}
 	console.info(`[vault] extracting ${rel}`);
-	await extraction.importNotes({ filePath: rel, text, ...(segments ? { segments } : {}) });
+	try {
+		await extraction.importNotes({ filePath: rel, text, ...(segments ? { segments } : {}) });
+	} catch (err) {
+		// Only the MODEL refusing this content parks it (owner, 2026-11-09):
+		// network, quota, keys, configuration and cancellation retry later.
+		if (err instanceof NotesImportError && err.modelOnly) {
+			s.failed[rel] = { hash, at: new Date().toISOString(), error: err.message };
+			saveState();
+			console.info(`[vault] ${rel}: parked until it changes or «Reintentar»`);
+		}
+		throw err;
+	}
 	adoptLegacy();
 	s.notes[rel] = { hash, sourceId };
 	delete s.confirmed[rel];
@@ -540,7 +567,7 @@ function findUntrackedCopy(config: VaultConfig, s: VaultState, hash: string): st
 /** Move a note's bookkeeping from `from` to `to` (phase 3): same source id,
  *  same ideas; the source record's file path (and so its area) follows. */
 function rekeyNote(s: VaultState, from: string, to: string): void {
-	for (const table of [s.notes, s.pending, s.confirmed, s.dismissed] as Array<Record<string, unknown>>) {
+	for (const table of [s.notes, s.pending, s.confirmed, s.dismissed, s.failed] as Array<Record<string, unknown>>) {
 		if (table[from] !== undefined) {
 			table[to] = table[from];
 			delete table[from];
@@ -733,6 +760,29 @@ export function decidePendingDocument(rel: string, decision: "read" | "later"): 
 	return true;
 }
 
+/** Parked notes inside the folders being read (Settings, «No se pudieron
+ *  leer»), by path. */
+export function failedNotes(): Array<{ path: string } & FailedNote> {
+	const config = runtime().config;
+	const s = state();
+	if (!config || !s) return [];
+	return Object.entries(s.failed)
+		.filter(([rel]) => isWatchedNote(rel, config.folders, config.outputFolder))
+		.map(([rel, entry]) => ({ path: rel, ...entry }))
+		.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/** «Reintentar»: forget the parked failure and extract the note again.
+ *  False = that note is not parked. */
+export function retryFailedNote(rel: string): boolean {
+	const s = state();
+	if (!s || !s.failed[rel]) return false;
+	delete s.failed[rel];
+	saveState();
+	enqueue(rel);
+	return true;
+}
+
 /** Compare the selected folders against the state file and queue every
  *  new, changed, or deleted note. */
 function reconcileVault(): void {
@@ -752,9 +802,9 @@ function reconcileVault(): void {
 		}
 		const hash = hashOf(bytes);
 		// A document already waiting for «Leer» with this content stays put.
-		if (s.notes[rel]?.hash !== hash && s.pending[rel]?.hash !== hash) enqueue(rel);
+		if (s.notes[rel]?.hash !== hash && s.pending[rel]?.hash !== hash && s.failed[rel]?.hash !== hash) enqueue(rel);
 	}
-	for (const rel of [...Object.keys(s.notes), ...Object.keys(s.pending)]) {
+	for (const rel of [...Object.keys(s.notes), ...Object.keys(s.pending), ...Object.keys(s.failed)]) {
 		if (isWatchedNote(rel, config.folders, config.outputFolder) && !presentSet.has(rel)) enqueue(rel);
 	}
 }
@@ -1149,6 +1199,8 @@ export interface VaultOverview {
 	status: { enabled: boolean; watching: boolean; queued: number; running: number; synced: number; lastError: string | null };
 	/** Documents waiting for «Leer». */
 	pending: Array<{ path: string } & PendingDocument>;
+	/** Notes parked after the model never submitted findings. */
+	failed: Array<{ path: string } & FailedNote>;
 }
 
 /** The vault's folder tree two levels deep (for the folder checkboxes). */
@@ -1194,6 +1246,7 @@ export function vaultOverview(requestedRoot?: string): VaultOverview {
 			lastError: rt.lastError,
 		},
 		pending: rt.config ? pendingDocuments() : [],
+		failed: rt.config ? failedNotes() : [],
 	};
 }
 

@@ -46,6 +46,9 @@ import {
 	abortExtraction,
 	createExtractionPipeline,
 	NotesImportError,
+	EXTRACTOR_NEVER_SUBMITTED,
+	onlyModelFailures,
+	runEndOutcome,
 	extractionStatuses,
 	transcriptView,
 	sourceDigest,
@@ -60,7 +63,7 @@ import { getGraph, simplifyChains } from "../src/core/graph.ts";
 import { ModelsNotConfiguredError, ProviderKeyMissingError, providerKeyMissing, type ModelSlotName } from "../src/core/settings.ts";
 import { coverageOf, coverageSlots, messageViewLines } from "../src/core/coverage.ts";
 import { chatStore } from "../src/store/chats.ts";
-import { subscribe } from "../src/core/events.ts";
+import { subscribe, type ServerEvent } from "../src/core/events.ts";
 import { PATHS } from "../config.ts";
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
@@ -2395,6 +2398,76 @@ describe("notes import completion and retry reliability", () => {
 		assert.equal(calls, 2);
 		assert.equal(ledgers.readNodes().length, 1);
 		assert.equal(ledgers.readSources()[0]!.extractions?.length, 2);
+	});
+
+	it("tells the bell how a run ended; only a model that never submits is modelOnly; a cancel or a refused gate is silent (owner, 2026-11-09)", async () => {
+		const ended: Array<{ source: string; title: string; kind: string; outcome: string }> = [];
+		const stop = subscribe((event) => {
+			if (event.type !== "extraction-ended") return;
+			const e = event as ServerEvent<"extraction-ended">;
+			ended.push({ source: e.source, title: e.title, kind: e.kind, outcome: e.outcome });
+		});
+		try {
+			const ledgers = memoryLedgers();
+			// The model never submits: failed, modelOnly — the vault parks it.
+			await assert.rejects(make(ledgers, silentModel()).importNotes(input), (error) => {
+				assert.ok(error instanceof NotesImportError);
+				assert.equal(error.outcome, "failed");
+				assert.equal(error.modelOnly, true);
+				assert.equal(error.message, EXTRACTOR_NEVER_SUBMITTED);
+				return true;
+			});
+			assert.deepEqual(ended.splice(0), [{ source: ledgers.readSources()[0]!.id, title: "reliability.md", kind: "notes", outcome: "failed" }]);
+			// Success.
+			await make(ledgers).importNotes(input);
+			assert.deepEqual(ended.splice(0).map((e) => e.outcome), ["ok"]);
+			// A provider/network-style error: failed, but NOT modelOnly.
+			let calls = 0;
+			const flaky = createExtractionPipeline({
+				chatStore, graphStore: ledgers, getChunkTokens: () => 1,
+				engineFor: (role) => role === "auditor" ? submitModel("submit_review", NOTES_VERDICT) : fauxEngine([() => {
+					calls++;
+					if (calls === 2) throw new Error("fetch failed");
+					return fauxAssistantMessage([fauxToolCall("submit_findings", NOTES_FINDINGS as unknown as ToolCall["arguments"])], { stopReason: "toolUse" });
+				}]),
+			});
+			await assert.rejects(flaky.importNotes({ ...input, text: "first chunk\nsecond chunk" }), (error) => {
+				assert.ok(error instanceof NotesImportError);
+				assert.equal(error.outcome, "partial");
+				assert.equal(error.modelOnly, false);
+				return true;
+			});
+			assert.deepEqual(ended.splice(0).map((e) => e.outcome), ["failed"], "a partial run is a failure for the bell");
+			// The user cancels: nothing for the bell.
+			let n = 0;
+			const cancelled = createExtractionPipeline({
+				chatStore, graphStore: ledgers, getChunkTokens: () => 1,
+				engineFor: (role) => role === "auditor" ? submitModel("submit_review", NOTES_VERDICT) : submitModel("submit_findings", NOTES_FINDINGS, () => {
+					n++;
+					if (n === 2) abortExtraction(ledgers.readSources()[0]!.id);
+				}),
+			});
+			await assert.rejects(cancelled.importNotes({ ...input, text: "first chunk\nsecond chunk\nthird chunk" }), (error) => error instanceof NotesImportError && error.outcome === "aborted" && !error.modelOnly);
+			// No models configured: refused before any run — nothing for the bell.
+			await assert.rejects(createExtractionPipeline({ chatStore, graphStore: ledgers }).importNotes(input), ModelsNotConfiguredError);
+			assert.deepEqual(ended, []);
+		} finally {
+			stop();
+		}
+	});
+
+	it("runEndOutcome / onlyModelFailures (pure)", () => {
+		const ok = { status: "fulfilled", value: 1 } as const;
+		const refused = { status: "rejected", reason: new Error(EXTRACTOR_NEVER_SUBMITTED) } as const;
+		const network = { status: "rejected", reason: new Error("fetch failed") } as const;
+		const abort = Object.assign(new Error("aborted"), { name: "AbortError" });
+		assert.equal(runEndOutcome([]), null);
+		assert.equal(runEndOutcome([ok]), "ok");
+		assert.equal(runEndOutcome([ok, refused]), "failed");
+		assert.equal(runEndOutcome([ok, { status: "rejected", reason: abort }]), null);
+		assert.equal(onlyModelFailures([ok, refused, refused]), true);
+		assert.equal(onlyModelFailures([refused, network]), false);
+		assert.equal(onlyModelFailures([ok]), false);
 	});
 
 	for (const abortAt of [1, 2]) it(`abort in chunk ${abortAt} survives a usage-persistence error and stops later chunks`, async () => {

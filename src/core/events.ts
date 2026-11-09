@@ -36,6 +36,12 @@ export interface ServerEvents {
 	"jobs-changed": { chatId?: string };
 	/** An extraction run changed phase (activity dock). */
 	"activity-changed": Record<string, never>;
+	/** An extraction run over ONE source ended (owner, 2026-11-09): the
+	 *  bell says what actually happened. `source` = the chat id or the
+	 *  notes source id; `title` = the chat title or the note path;
+	 *  `kind` = which front door. A partial run is "failed". A run the
+	 *  user cancelled emits nothing (they know). */
+	"extraction-ended": { source: string; title: string; kind: "chat" | "notes"; outcome: "ok" | "failed"; chatId?: undefined };
 	/** The session list changed (create, delete, title). */
 	"chats-changed": Record<string, never>;
 	/** Web subscription state changed. No account or credential data on the bus. */
@@ -95,6 +101,7 @@ export const SERVER_EVENT_TYPES = [
 	"turn-settled",
 	"jobs-changed",
 	"activity-changed",
+	"extraction-ended",
 	"chats-changed",
 	"subscriptions-changed",
 	"record-changed",

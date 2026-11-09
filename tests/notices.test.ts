@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { MAX_NOTICES, addNotices, endedSince, extractionNotice, isExternalHref, jobNotice, reviewNotice, unreadCount, updateNotice, type Notice } from "../components/notices.tsx";
+import { MAX_NOTICES, addNotices, endedSince, extractionNotice, extractionNotices, isExternalHref, jobNotice, reviewNotice, unreadCount, updateNotice, type Notice } from "../components/notices.tsx";
 import type { ActivityFeed, FeedJob } from "../components/activity-dock.tsx";
 
 const job = (id: string, chatId = "chat_1", kind: FeedJob["kind"] = "research") =>
@@ -9,17 +9,12 @@ const extraction = (id: string, chatId: string, title = "Nota") => ({ id, chatId
 const feed = (jobs: FeedJob[], extractions: ActivityFeed["extractions"] = []): ActivityFeed => ({ jobs, extractions });
 
 describe("endedSince — what left the activity feed", () => {
-	it("reports ended jobs and ended extraction SOURCES (chunk rows of one source end once)", () => {
-		const prev = feed([job("j1"), job("j2")], [extraction("s1#0", "s1"), extraction("s1#1", "s1"), extraction("s2", "s2")]);
-		const next = feed([job("j2")], [extraction("s2", "s2")]);
+	it("reports ended jobs only — an extraction leaving the feed says nothing about success", () => {
+		const prev = feed([job("j1"), job("j2")], [extraction("s1#0", "s1"), extraction("s2", "s2")]);
+		const next = feed([job("j2")], []);
 		const ended = endedSince(prev, next);
 		assert.deepEqual(ended.jobs.map((j) => j.id), ["j1"]);
-		assert.deepEqual(ended.extractions, [{ source: "s1", title: "Nota" }]);
-	});
-
-	it("a source still running in any chunk has not ended", () => {
-		const prev = feed([], [extraction("s1#0", "s1"), extraction("s1#1", "s1")]);
-		assert.deepEqual(endedSince(prev, feed([], [extraction("s1#1", "s1")])).extractions, []);
+		assert.deepEqual(Object.keys(ended), ["jobs"]);
 	});
 });
 
@@ -37,14 +32,45 @@ describe("notice builders", () => {
 	});
 
 	it("extractions coalesce: one names its source, many become a count", () => {
-		const one = extractionNotice([{ source: "chat_9", title: "Derivadas" }], now);
+		const one = extractionNotice([{ source: "chat_9", title: "Derivadas", kind: "chat" }], "ok", now);
 		assert.equal(one.message, "notices.extractedOne");
 		assert.deepEqual(one.vars, { title: "Derivadas" });
 		assert.equal(one.href, "/chat/chat_9");
-		const many = extractionNotice([{ source: "src_a", title: "a.md" }, { source: "src_b", title: "b.md" }], now);
+		assert.equal(one.tone, "ok");
+		const many = extractionNotice([{ source: "src_a", title: "a.md", kind: "notes" }, { source: "src_b", title: "b.md", kind: "notes" }], "ok", now);
 		assert.equal(many.message, "notices.extractedMany");
 		assert.deepEqual(many.vars, { n: 2 });
 		assert.equal(many.href, "/knowledge");
+	});
+
+	it("a failed extraction is amber, never «Pasé a tu grafo», and points where it can be acted on", () => {
+		const note = extractionNotice([{ source: "src_a", title: "PC - HACKTHEBOX.md", kind: "notes" }], "failed", now);
+		assert.equal(note.message, "notices.extractionFailedOne");
+		assert.deepEqual(note.vars, { title: "PC - HACKTHEBOX.md" });
+		assert.equal(note.tone, "warn");
+		assert.equal(note.href, "/settings/connections");
+		const chat = extractionNotice([{ source: "chat_9", title: "Derivadas", kind: "chat" }], "failed", now);
+		assert.equal(chat.href, "/chat/chat_9");
+		const chats = extractionNotice([{ source: "chat_1", title: "a", kind: "chat" }, { source: "chat_2", title: "b", kind: "chat" }], "failed", now);
+		assert.equal(chats.message, "notices.extractionFailedMany");
+		assert.equal(chats.href, "/sessions");
+		const mixed = extractionNotice([{ source: "chat_1", title: "a", kind: "chat" }, { source: "src_b", title: "b.md", kind: "notes" }], "failed", now);
+		assert.equal(mixed.href, "/settings/connections");
+	});
+
+	it("a mixed batch splits into one notice per outcome, failures first", () => {
+		const notices = extractionNotices(
+			[
+				{ source: "src_a", title: "a.md", kind: "notes", outcome: "ok" },
+				{ source: "src_b", title: "b.md", kind: "notes", outcome: "failed" },
+				{ source: "src_c", title: "c.md", kind: "notes", outcome: "ok" },
+			],
+			now,
+		);
+		assert.deepEqual(notices.map((n) => n.message), ["notices.extractionFailedOne", "notices.extractedMany"]);
+		assert.deepEqual(notices[1]!.vars, { n: 2 });
+		assert.notEqual(notices[0]!.id, notices[1]!.id);
+		assert.deepEqual(extractionNotices([{ source: "src_a", title: "a.md", kind: "notes", outcome: "ok" }], now).map((n) => n.tone), ["ok"]);
 	});
 });
 

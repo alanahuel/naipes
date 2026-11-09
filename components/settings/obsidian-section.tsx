@@ -29,6 +29,8 @@ interface VaultOverview {
 	status: { enabled: boolean; watching: boolean; queued: number; running: number; synced: number; lastError: string | null };
 	/** Documents waiting for «Leer» (phase 2). */
 	pending?: Array<{ path: string; runs: number; pages?: number; deferred?: boolean }>;
+	/** Notes parked after the model never submitted findings (2026-11-09). */
+	failed?: Array<{ path: string; at: string }>;
 }
 
 const nameOf = (folder: string) => folder.split("/").pop() ?? folder;
@@ -97,6 +99,15 @@ export function ObsidianSection({
 	const pick = async () => {
 		const chosen = await window.np?.pickFolder?.(overview?.root || vaultPath);
 		if (chosen) void write({ ...obsidian, vaultPath: chosen, folders: [] });
+	};
+
+	const retry = async (file: string) => {
+		await fetch("/api/vault/failed", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ path: file }),
+		}).catch(() => null);
+		void refresh();
 	};
 
 	const decide = async (file: string, decision: "read" | "later") => {
@@ -232,6 +243,21 @@ export function ObsidianSection({
 									{t("settings.obsidian.notNow")}
 								</button>
 							)}
+						</div>
+					))}
+				</SettingsGroup>
+			)}
+
+			{overview?.failed && overview.failed.length > 0 && (
+				<SettingsGroup label={t("settings.obsidian.failed")} testid="obsidian-failed">
+					{overview.failed.map((note) => (
+						<div key={note.path} className="flex flex-wrap items-center gap-2 py-0.5 font-ui text-xs text-foreground" data-testid={`vault-failed-${note.path}`}>
+							<span className="min-w-0 flex-1 truncate" title={note.path}>
+								{note.path}
+							</span>
+							<button type="button" className="rounded-sm border border-border px-2 py-0.5 hover:border-muted-foreground/50" onClick={() => void retry(note.path)}>
+								{t("settings.obsidian.retry")}
+							</button>
 						</div>
 					))}
 				</SettingsGroup>

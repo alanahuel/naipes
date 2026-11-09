@@ -245,6 +245,8 @@ export default {
 	"settings.obsidian.confirmAbove": "Ask before reading above",
 	"settings.obsidian.confirmAboveHint": "Estimated extraction runs. A bigger PDF, epub or docx waits for your «Read» (6 ≈ 50 pages)",
 	"settings.obsidian.pending": "Waiting for confirmation",
+	"settings.obsidian.failed": "Couldn’t be read",
+	"settings.obsidian.retry": "Retry",
 	"settings.obsidian.pendingPages": "{file}: {pages} pages, about {runs} extraction runs",
 	"settings.obsidian.pendingRuns": "{file}: about {runs} extraction runs",
 	"settings.obsidian.deferred": "parked",

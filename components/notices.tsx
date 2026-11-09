@@ -8,8 +8,10 @@
  *     (turn-settled for another chat);
  *   - a background task ended (it left the activity feed): research, demo,
  *     visual or PDF — or it failed (read back from /api/jobs);
- *   - ideas went into your graph (an extraction run ended). Many at once
- *     (a vault sync) coalesce into one notice;
+ *   - ideas went into your graph — or could NOT (server event
+ *     "extraction-ended", owner 2026-11-09: the bell says what actually
+ *     happened; a run you cancelled says nothing). Many at once (a vault
+ *     sync) coalesce into one notice per outcome;
  *   - spaced review: the daily digest or the evening reminder went out
  *     (server event "review-notice"; opens Repaso);
  *   - an exam: below its target, 7 days / 1 day before, or the day's plan
@@ -180,24 +182,26 @@ export function unreadCount(list: readonly Notice[]): number {
 	return list.filter((n) => !n.read).length;
 }
 
-/** What left the feed between two snapshots: ended jobs (by id) and ended
- *  extraction SOURCES (chunk rows of one source end together). Pure. */
+/** The background jobs that left the feed between two snapshots (by id).
+ *  Extractions are NOT read off the feed: leaving it says nothing about
+ *  success — their notices come from "extraction-ended". Pure. */
 export function endedSince(prev: ActivityFeed, next: ActivityFeed): {
 	jobs: Array<{ id: string; chatId: string; kind: JobKind; title: string }>;
-	extractions: Array<{ source: string; title: string }>;
 } {
 	const nextJobs = new Set(next.jobs.map((j) => j.id));
 	const jobs = prev.jobs.filter((j) => !nextJobs.has(j.id)).map((j) => ({ id: j.id, chatId: j.chatId, kind: j.kind, title: j.title }));
-	const nextSources = new Set(next.extractions.map((e) => e.chatId));
-	const seen = new Set<string>();
-	const extractions: Array<{ source: string; title: string }> = [];
-	for (const e of prev.extractions) {
-		if (nextSources.has(e.chatId) || seen.has(e.chatId)) continue;
-		seen.add(e.chatId);
-		extractions.push({ source: e.chatId, title: e.title });
-	}
-	return { jobs, extractions };
+	return { jobs };
 }
+
+/** One ended extraction run (the "extraction-ended" payload, trimmed). */
+export interface EndedExtraction {
+	source: string;
+	title: string;
+	kind: "chat" | "notes";
+}
+
+/** Where the knowledge-folder settings live (parked notes, «Reintentar»). */
+export const KNOWLEDGE_SETTINGS_HREF = "/settings/connections";
 
 /** One notice for a finished job (its stored record decides ok/failed). */
 export function jobNotice(job: { id: string; chatId: string; kind: JobKind; title: string }, record: Pick<JobRecord, "status"> | undefined, now = new Date()): Notice {
@@ -213,18 +217,44 @@ export function jobNotice(job: { id: string; chatId: string; kind: JobKind; titl
 	};
 }
 
-/** One notice for a batch of ended extractions (one title, or a count). */
-export function extractionNotice(batch: ReadonlyArray<{ source: string; title: string }>, now = new Date()): Notice {
+/** One notice for a batch of ended extractions with the SAME outcome (one
+ *  title, or a count). A failure points where it can be acted on: the
+ *  session, or the knowledge-folder settings («Reintentar»). Pure. */
+export function extractionNotice(batch: ReadonlyArray<EndedExtraction>, outcome: "ok" | "failed" = "ok", now = new Date()): Notice {
 	const one = batch.length === 1 ? batch[0]! : null;
+	const sources = batch.map((b) => b.source).join(",").slice(0, 80);
+	if (outcome === "failed") {
+		const anyNotes = batch.some((b) => b.kind === "notes");
+		return {
+			id: `extraction-failed:${now.getTime()}:${sources}`,
+			at: now.toISOString(),
+			message: one ? "notices.extractionFailedOne" : "notices.extractionFailedMany",
+			vars: one ? { title: one.title } : { n: batch.length },
+			href: one?.kind === "chat" ? `/chat/${one.source}` : anyNotes ? KNOWLEDGE_SETTINGS_HREF : "/sessions",
+			tone: "warn",
+			read: false,
+		};
+	}
 	return {
-		id: `extraction:${now.getTime()}:${batch.map((b) => b.source).join(",").slice(0, 80)}`,
+		id: `extraction:${now.getTime()}:${sources}`,
 		at: now.toISOString(),
 		message: one ? "notices.extractedOne" : "notices.extractedMany",
 		vars: one ? { title: one.title } : { n: batch.length },
-		href: one && one.source.startsWith("chat_") ? `/chat/${one.source}` : "/knowledge",
+		href: one?.kind === "chat" ? `/chat/${one.source}` : "/knowledge",
 		tone: "ok",
 		read: false,
 	};
+}
+
+/** Split a coalesced batch by outcome: one notice per non-empty side,
+ *  failures first (newest-first list → they sit on top). Pure. */
+export function extractionNotices(batch: ReadonlyArray<EndedExtraction & { outcome: "ok" | "failed" }>, now = new Date()): Notice[] {
+	const out: Notice[] = [];
+	for (const outcome of ["failed", "ok"] as const) {
+		const side = batch.filter((b) => b.outcome === outcome).map(({ source, title, kind }) => ({ source, title, kind }));
+		if (side.length > 0) out.push(extractionNotice(side, outcome, now));
+	}
+	return out;
 }
 
 function loadNotices(): Notice[] {
@@ -302,11 +332,9 @@ export function NoticesProvider({ children }: { children: React.ReactNode }) {
 			.catch(() => {});
 	});
 
-	// Background tasks and extractions that left the activity feed.
+	// Background tasks that left the activity feed.
 	const { feed } = useActivity();
 	const prevFeed = useRef<ActivityFeed | null>(null);
-	const pendingExtractions = useRef<Array<{ source: string; title: string }>>([]);
-	const flushTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	useEffect(() => {
 		const prev = prevFeed.current;
 		prevFeed.current = feed;
@@ -318,16 +346,21 @@ export function NoticesProvider({ children }: { children: React.ReactNode }) {
 				.then((body) => push([jobNotice(job, body?.jobs?.find((j) => j.id === job.id))]))
 				.catch(() => push([jobNotice(job, undefined)]));
 		}
-		if (ended.extractions.length > 0) {
-			pendingExtractions.current.push(...ended.extractions);
-			if (flushTimer.current) clearTimeout(flushTimer.current);
-			flushTimer.current = setTimeout(() => {
-				const batch = pendingExtractions.current;
-				pendingExtractions.current = [];
-				if (batch.length > 0) push([extractionNotice(batch)]);
-			}, EXTRACTION_COALESCE_MS);
-		}
 	}, [feed, push]);
+
+	// Extraction runs that ended — succeeded or failed (a cancelled run
+	// emits nothing). Coalesced; one notice per outcome.
+	const pendingExtractions = useRef<Array<EndedExtraction & { outcome: "ok" | "failed" }>>([]);
+	const flushTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	useServerEvent("extraction-ended", ({ source, title, kind, outcome }) => {
+		pendingExtractions.current.push({ source, title, kind, outcome });
+		if (flushTimer.current) clearTimeout(flushTimer.current);
+		flushTimer.current = setTimeout(() => {
+			const batch = pendingExtractions.current;
+			pendingExtractions.current = [];
+			if (batch.length > 0) push(extractionNotices(batch));
+		}, EXTRACTION_COALESCE_MS);
+	});
 	useEffect(() => () => {
 		if (flushTimer.current) clearTimeout(flushTimer.current);
 	}, []);

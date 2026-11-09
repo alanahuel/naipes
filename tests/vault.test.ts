@@ -285,6 +285,107 @@ describe("vault sync", () => {
 		assert.ok(!nodeNames().includes("Fuerza"), "adopted once the retry succeeds");
 	});
 
+	it("parks a note the model refused until it changes or «Reintentar» (owner, 2026-11-09)", async () => {
+		const handler = await import("../src/server/chat-handler.ts");
+		const { NotesImportError, EXTRACTOR_NEVER_SUBMITTED } = await import("../src/agent/subagents/extraction.ts");
+		const working = handler.extraction.importNotes;
+		let refuse = true;
+		handler.extraction.importNotes = async (input) => {
+			if (refuse && input.filePath === "Notas/htb.md") {
+				imports.push({ filePath: input.filePath, text: input.text });
+				throw new NotesImportError("failed", { nodes: 0, chains: 0 }, EXTRACTOR_NEVER_SUBMITTED, { modelOnly: true });
+			}
+			return working(input);
+		};
+		try {
+			write("Notas/htb.md", "# Nmap\n");
+			vault.reconfigureVault();
+			await vault.whenVaultIdle();
+			assert.deepEqual(imports.map((i) => i.filePath), ["Notas/htb.md"]);
+			assert.deepEqual(vault.failedNotes().map((f) => f.path), ["Notas/htb.md"]);
+			assert.deepEqual(vault.vaultOverview().failed.map((f) => f.path), ["Notas/htb.md"], "Settings sees it");
+
+			imports.length = 0;
+			vault.reconfigureVault();
+			await vault.whenVaultIdle();
+			assert.deepEqual(imports, [], "not retried on the next start");
+			await vault.syncPathNow("Notas/htb.md");
+			assert.deepEqual(imports, [], "nor when the watcher pokes the unchanged file");
+
+			write("Notas/htb.md", "# Nmap\n# Puertos\n");
+			vault.reconfigureVault();
+			await vault.whenVaultIdle();
+			assert.equal(imports.length, 1, "new content is tried again");
+			assert.equal(vault.failedNotes().length, 1, "and parked again for that content");
+
+			refuse = false;
+			imports.length = 0;
+			assert.equal(vault.retryFailedNote("Notas/htb.md"), true);
+			await vault.whenVaultIdle();
+			assert.equal(imports.length, 1);
+			assert.deepEqual(vault.failedNotes(), []);
+			assert.ok(nodeNames().includes("Puertos"));
+			assert.equal(vault.retryFailedNote("Notas/htb.md"), false, "nothing parked any more");
+		} finally {
+			handler.extraction.importNotes = working;
+		}
+		fs.rmSync(path.join(VAULT, "Notas/htb.md"));
+		vault.reconfigureVault();
+		await vault.whenVaultIdle();
+	});
+
+	it("a parked note travels with a move and is forgotten when deleted", async () => {
+		const handler = await import("../src/server/chat-handler.ts");
+		const { NotesImportError, EXTRACTOR_NEVER_SUBMITTED } = await import("../src/agent/subagents/extraction.ts");
+		const working = handler.extraction.importNotes;
+		handler.extraction.importNotes = async (input) => {
+			imports.push({ filePath: input.filePath, text: input.text });
+			throw new NotesImportError("failed", { nodes: 0, chains: 0 }, EXTRACTOR_NEVER_SUBMITTED, { modelOnly: true });
+		};
+		try {
+			write("Notas/thm.md", "# Gobuster\n");
+			await assert.rejects(vault.syncPathNow("Notas/thm.md"), NotesImportError);
+			assert.deepEqual(vault.failedNotes().map((f) => f.path), ["Notas/thm.md"]);
+			imports.length = 0;
+			fs.mkdirSync(path.join(VAULT, "Notas", "viejas"), { recursive: true });
+			fs.renameSync(path.join(VAULT, "Notas", "thm.md"), path.join(VAULT, "Notas", "viejas", "thm.md"));
+			await vault.syncPathNow("Notas/viejas/thm.md");
+			await vault.syncPathNow("Notas/thm.md");
+			assert.deepEqual(imports, [], "a move is not a new attempt");
+			assert.deepEqual(vault.failedNotes().map((f) => f.path), ["Notas/viejas/thm.md"]);
+			fs.rmSync(path.join(VAULT, "Notas", "viejas", "thm.md"));
+			await vault.syncPathNow("Notas/viejas/thm.md");
+			assert.deepEqual(vault.failedNotes(), []);
+		} finally {
+			handler.extraction.importNotes = working;
+		}
+	});
+
+	it("never parks a failure that is not the model's (network, quota, configuration)", async () => {
+		const handler = await import("../src/server/chat-handler.ts");
+		const { NotesImportError } = await import("../src/agent/subagents/extraction.ts");
+		const working = handler.extraction.importNotes;
+		handler.extraction.importNotes = async (input) => {
+			imports.push({ filePath: input.filePath, text: input.text });
+			throw new NotesImportError("failed", { nodes: 0, chains: 0 }, "fetch failed");
+		};
+		try {
+			write("Notas/red.md", "# Latencia\n");
+			vault.reconfigureVault();
+			await vault.whenVaultIdle();
+			assert.deepEqual(vault.failedNotes(), []);
+		} finally {
+			handler.extraction.importNotes = working;
+		}
+		imports.length = 0;
+		vault.reconfigureVault();
+		await vault.whenVaultIdle();
+		assert.deepEqual(imports.map((i) => i.filePath), ["Notas/red.md"], "retried on the next start, as before");
+		fs.rmSync(path.join(VAULT, "Notas/red.md"));
+		vault.reconfigureVault();
+		await vault.whenVaultIdle();
+	});
+
 	it("writes concept notes and keeps the user's zone across rewrites", () => {
 		vault.exportVaultNow();
 		const rel = path.join(VAULT, OUT, "Conceptos", "Masa.md");
