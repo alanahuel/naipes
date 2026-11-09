@@ -12,7 +12,7 @@ export function isSettingsPage(value: unknown): value is SettingsPageId {
 /** Where an old dialog section (and an optional Keys row) lands now —
  *  every `open(section, row)` caller and the Electron menu route here. */
 export function pageForSection(section?: string, row?: string): SettingsPageId {
-	if (row === "DEEPGRAM_API_KEY" || row === "TAVILY_API_KEY" || row === "BRAVE_API_KEY") return "connections";
+	if (row === "DEEPGRAM_API_KEY" || row === "WHISPER_MODELS" || row === "TAVILY_API_KEY" || row === "BRAVE_API_KEY") return "connections";
 	switch (section) {
 		case "obsidian":
 			return "connections";

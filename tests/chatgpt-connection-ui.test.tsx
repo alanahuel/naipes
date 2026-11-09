@@ -88,6 +88,8 @@ test("Tu IA is the default settings page and opens first from the profile menu",
 
 test("Providers has exactly four ordered sections; unknown variables stay masked/read-only at the end of Model API keys", async () => {
  globalThis.fetch = async (url) => {
+  // The Dictation group reads the engine (Deepgram here, so its key row shows).
+  if (url === "/api/settings") return Response.json({ settings: { version: 1, dictation: { language: "en", engine: "deepgram" } } });
   assert.equal(url, "/api/keys");
   return Response.json({ providers: [{ id: "openai", envVar: "OPENAI_API_KEY", label: "OpenAI" }], keys: [{ id: "FUTURE_VAR", info: null, present: true, masked: "…abcd", source: "file", shadowedByEnv: false }] });
  };

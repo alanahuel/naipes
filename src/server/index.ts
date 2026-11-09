@@ -57,3 +57,5 @@ export { documentText, isNoteFile, isDocumentFile, joinedText, NOTE_EXTENSIONS, 
 // «Conexión MCP» (owner, 2026-11-08): the local write API for MCP clients.
 export { reconfigureMcpApi, mcpApiStatus, regenerateMcpToken, type McpApiStatus } from "./mcp-api.ts";
 export { listMcpDeletions, decideMcpDeletion } from "./mcp-deletions.ts";
+// Local Whisper dictation (owner, 2026-11-08): model downloads + file serving.
+export { whisperModelStatuses, startWhisperDownload, cancelOrDeleteWhisperModel, whisperModelFile, type WhisperModelStatus } from "./whisper-models.ts";

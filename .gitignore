@@ -26,3 +26,6 @@ __pycache__/
 /packaging/aur/pkg/
 /packaging/aur/*.deb
 /packaging/aur/*.pkg.tar.*
+
+# onnxruntime-web runtime for local Whisper (scripts/copy-ort-wasm.mjs)
+/public/ort/

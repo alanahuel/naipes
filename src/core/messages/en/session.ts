@@ -241,6 +241,9 @@ export default {
 	"session.dictation.searchLanguages": "Search dictation languages",
 	"session.dictation.searchPlaceholder": "Search languages…",
 	"session.dictation.noLanguages": "No languages match.",
+	"session.dictation.whisperMissing": "Download a Whisper model in Settings to dictate",
+	"session.dictation.whisperFailed": "Whisper could not transcribe: {error}",
+	"session.dictation.whisperNoLanguage": "Whisper lacks this language: it will detect it",
 
 	// Deleting a session
 	"session.delete.aria": "Delete session",

@@ -75,15 +75,15 @@ To build and install your own checkout on Linux:
 bash scripts/install-linux.sh
 ```
 
-Add your provider API key (or connect a subscription) and choose your models, then start a session with what you want to understand. Over 30 providers are available, including OpenAI, Anthropic, Google, DeepSeek, and OpenRouter. Optional dictation and web search use separate service keys.
+Add your provider API key (or connect a subscription) and choose your models, then start a session with what you want to understand. Over 30 providers are available, including OpenAI, Anthropic, Google, DeepSeek, and OpenRouter. Optional web search and Deepgram dictation use separate service keys; local Whisper dictation needs none.
 
-**Dictation:** create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** ([required for token minting](https://developers.deepgram.com/reference/auth/tokens/grant)) and add it under **Settings → Providers → Dictation**. Choose the language below the key; **Multilingual** detects the language automatically and supports mixed-language speech.
+**Dictation:** by default it uses **local Whisper**, which transcribes on your computer: the audio never leaves it and costs nothing. In **Settings → Connections → Dictation**, download a model (Base, Small or Large-v3-turbo, 145 to 762 MB) and choose the language; **Multilingual** detects the language automatically. It needs WebGPU to be fast; without a real GPU it runs on the CPU, slowly. Alternatively, choose **Deepgram** as the engine: create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** ([required for token minting](https://developers.deepgram.com/reference/auth/tokens/grant)) and add it there.
 
 ## Your keys, your data
 
 - **Your keys and models.** No Naipes subscription or markup. You pay your providers for usage; a live cost meter shows model costs.
 - **Local storage.** Your chats, graph, settings, and API keys live on your machine. Learning records are plain files you can inspect.
-- **External services.** Models run through your configured providers. Model requests send the context needed for the task; web research and dictation also contact external services. Local storage does not mean offline processing.
+- **External services.** Models run through your configured providers. Model requests send the context needed for the task; web research and Deepgram dictation also contact external services (local Whisper only downloads its model once). Local storage does not mean offline processing.
 - **Assistants connected over MCP.** What an assistant reads from Naipes is sent to its model provider. Writing only listens on your machine (127.0.0.1), is off by default, and needs a token.
 - **Inspectable behavior.** System prompts are visible and editable.
 

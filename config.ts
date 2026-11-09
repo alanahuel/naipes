@@ -36,6 +36,9 @@ export const PATHS = {
 	/** Image attachments (owner, 2026-11-06): attachments/<chatId>/<id>.jpg
 	 *  — src/store/attachments.ts. */
 	attachments: path.join(DATA_ROOT, "attachments"),
+	/** Local Whisper models (owner, 2026-11-08): models/whisper/whisper-<id>/
+	 *  — downloaded on request from Settings, src/server/whisper-models.ts. */
+	whisperModels: path.join(DATA_ROOT, "models", "whisper"),
 } as const;
 
 // ─── Models ────────────────────────────────────────────────────────────────

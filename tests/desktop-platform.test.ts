@@ -23,7 +23,7 @@ function windowOptions(platform: string, env: Record<string, string> = {}) {
 		once() {}
 	}
 	const electron = {
-		app: { setName() {}, getPath: () => "/fixture/Naipes", setPath() {}, requestSingleInstanceLock: () => false, quit() {} },
+		app: { setName() {}, getPath: () => "/fixture/Naipes", setPath() {}, requestSingleInstanceLock: () => false, quit() {}, commandLine: { appendSwitch() {} } },
 		BrowserWindow: FakeWindow,
 		session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
 	};

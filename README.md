@@ -75,15 +75,15 @@ Para compilar e instalar tu propia copia en Linux:
 bash scripts/install-linux.sh
 ```
 
-Añade la API key de tu proveedor (o conecta una suscripción) y elige tus modelos. Después empieza una sesión con lo que quieras entender. Hay más de 30 proveedores disponibles, entre ellos OpenAI, Anthropic, Google, DeepSeek y OpenRouter. El dictado y la búsqueda web opcionales usan claves de servicio aparte.
+Añade la API key de tu proveedor (o conecta una suscripción) y elige tus modelos. Después empieza una sesión con lo que quieras entender. Hay más de 30 proveedores disponibles, entre ellos OpenAI, Anthropic, Google, DeepSeek y OpenRouter. La búsqueda web opcional y el dictado con Deepgram usan claves de servicio aparte; el dictado con Whisper local no necesita ninguna.
 
-**Dictado:** crea una [API key de Deepgram](https://console.deepgram.com/) con **rol Member o superior** ([necesario para emitir tokens](https://developers.deepgram.com/reference/auth/tokens/grant)) y añádela en **Ajustes → Proveedores → Dictado**. Debajo de la clave eliges el idioma; **Multilingual** reconoce el idioma automáticamente y admite habla mezclada.
+**Dictado:** por defecto usa **Whisper local**, que transcribe en tu equipo: el audio no sale de él y no tiene coste. En **Ajustes → Conexiones → Dictado** descarga un modelo (Base, Small o Large-v3-turbo, de 145 a 762 MB) y elige el idioma; **Multilingual** detecta el idioma solo. Necesita WebGPU para ir rápido; sin una GPU real funciona con la CPU, pero lento. Como alternativa puedes elegir **Deepgram** como motor: crea una [API key de Deepgram](https://console.deepgram.com/) con **rol Member o superior** ([necesario para emitir tokens](https://developers.deepgram.com/reference/auth/tokens/grant)) y añádela ahí mismo.
 
 ## Tus claves, tus datos
 
 - **Tus claves y tus modelos.** Sin suscripción a Naipes ni comisiones. Pagas a tus proveedores por lo que uses, y un contador en vivo muestra el coste de los modelos.
 - **Almacenamiento local.** Tus chats, el grafo, los ajustes y las API keys viven en tu equipo. Los registros de aprendizaje son archivos de texto plano que puedes inspeccionar.
-- **Servicios externos.** Los modelos se ejecutan a través de los proveedores que configures. Cada petición envía el contexto necesario para la tarea, y la investigación web y el dictado también contactan con servicios externos. Que los datos se guarden en local no significa que el procesamiento sea offline.
+- **Servicios externos.** Los modelos se ejecutan a través de los proveedores que configures. Cada petición envía el contexto necesario para la tarea, y la investigación web y el dictado con Deepgram también contactan con servicios externos (Whisper local solo descarga su modelo una vez). Que los datos se guarden en local no significa que el procesamiento sea offline.
 - **Asistentes conectados por MCP.** Lo que un asistente lee de Naipes se envía a su proveedor de modelos. La escritura solo escucha en tu equipo (127.0.0.1), está desactivada por defecto y necesita un token.
 - **Comportamiento inspeccionable.** Los prompts del sistema son visibles y editables.
 

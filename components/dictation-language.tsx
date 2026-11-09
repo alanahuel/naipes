@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { DICTATION_LANGUAGES, type DictationLanguage } from "@/src/core";
+import { DICTATION_LANGUAGES, whisperLanguage, type DictationLanguage } from "@/src/core";
 import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
 import { SettingsMenuTrigger, SettingsRow } from "@/components/settings/controls";
@@ -26,7 +26,7 @@ function DictationLanguagePicker({ preference, disabled }: {
 	disabled: boolean;
 }) {
 	const t = useT();
-	const { language, saving, error, load, save } = preference;
+	const { language, engine, saving, error, load, save } = preference;
 	const [open, setOpen] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const label = DICTATION_LANGUAGES.find((item) => item.code === language)?.label ?? "—";
@@ -103,7 +103,15 @@ function DictationLanguagePicker({ preference, disabled }: {
 					ariaLabel={t("session.dictation.searchLanguages")}
 					placeholder={t("session.dictation.searchPlaceholder")}
 					empty={t("session.dictation.noLanguages")}
-					renderItem={(item) => <span className="text-card-foreground">{item.label}</span>}
+					renderItem={(item) => <span className="text-card-foreground">
+						{item.label}
+						{/* Owner (2026-11-08): with local Whisper, a language it lacks is
+						    flagged — dictating in it falls back to auto-detection. */}
+						{engine === "whisper" && whisperLanguage(item.code) === null && <span
+							data-testid={`dictation-language-whisper-auto-${item.code}`}
+							className="ml-1.5 text-muted-foreground/70"
+						>· {t("session.dictation.whisperNoLanguage")}</span>}
+					</span>}
 				/>
 			</div>
 		</MenuShell>}

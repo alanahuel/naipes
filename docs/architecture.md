@@ -189,7 +189,8 @@ flowchart LR
         FS["fs stores — src/store (data/)"]
         LLM["LLM engines — pi-ai/OpenRouter via piEngineFor"]
         HEAD["headless Chrome — demo verify · SVG render"]
-        DEEP["Deepgram STT — token-minting route, browser-side WebSocket"]
+        DEEP["Deepgram STT (optional engine) — token-minting route, browser-side WebSocket"]
+        HF["Hugging Face — local Whisper model downloads (pinned, sha256-verified; docs/dictation.md)"]
         WEB["web tools — Google CSE + Readability/Jina (researcher)"]
     end
 
@@ -206,6 +207,7 @@ flowchart LR
     SESS --> HEAD
     SESS --> WEB
     BROWSER --> DEEP
+    HTTP --> HF
 ```
 
 ---
@@ -415,7 +417,8 @@ flowchart LR
     end
     subgraph OUTSIDE["outside the process"]
         OR["OpenRouter (BYOK key from auth.json, env-injected — never argv)"]
-        DG["Deepgram STT (browser-direct WebSocket)"]
+        DG["Deepgram STT (optional engine; browser-direct WebSocket)"]
+        HFD["Hugging Face (Whisper model downloads only)"]
         GCSE["Google CSE / Jina (researcher tools)"]
         CHROME["system Chrome (headless: demo verify · SVG render)"]
         DISK["data/ ledgers (via NP_DATA_DIR seam)"]
@@ -425,6 +428,7 @@ flowchart LR
     NEXT --> CHROME
     NEXT --> DISK
     REND --> DG
+    NEXT --> HFD
     REND -->|"fetch /api/*"| NEXT
 ```
 

@@ -183,6 +183,16 @@ if (process.argv.includes("--mcp")) {
 		app.setPath("userData", `${app.getPath("userData")}-dev`);
 	}
 
+	// Local Whisper dictation (owner, 2026-11-08): the engine runs on WebGPU.
+	// macOS (Metal) and Windows (D3D12) have it by default; Linux Chromium
+	// keeps it behind these two switches — with only the first, the adapter
+	// is SwiftShader (CPU emulation) and a transcription never finishes
+	// (phase-0 spike on the owner's AMD Vega). Must land before app-ready.
+	if (process.platform === "linux") {
+		app.commandLine.appendSwitch("enable-unsafe-webgpu");
+		app.commandLine.appendSwitch("enable-features", "Vulkan");
+	}
+
 	// The whole normal boot — lock included — lives in this else: a helper is
 	// a SECOND instance of this very binary on purpose (the running app owns
 	// the lock), so it must never reach this check.

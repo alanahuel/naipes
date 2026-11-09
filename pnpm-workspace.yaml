@@ -10,6 +10,11 @@ nodeLinker: hoisted
 # `"overrides": { "katex": "$katex" }`).
 overrides:
   katex: 0.18.2
+  # Local Whisper dictation (2026-11-08): transformers.js runs ONLY in the
+  # renderer (its web build: onnxruntime-web). Its Node-only deps are dead
+  # weight here — onnxruntime-node alone is ~288 MB of native binaries.
+  '@huggingface/transformers>onnxruntime-node': '-'
+  '@huggingface/transformers>sharp': '-'
 
 # Dependency install scripts: NONE run (owner, 2026-11-04 — security).
 # esbuild/unrs-resolver get their native binaries as optional deps; the

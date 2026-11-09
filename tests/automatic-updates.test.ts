@@ -117,6 +117,7 @@ function fixture({ packaged = true, updaterMissing = false, localBuild = false, 
 		requestSingleInstanceLock: () => false,
 		quit() {},
 		whenReady: async () => {},
+		commandLine: { appendSwitch() {} },
 	});
 	const electron = {
 		app, BrowserWindow: FakeWindow,

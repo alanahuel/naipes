@@ -239,6 +239,9 @@ export default {
 	"session.dictation.searchLanguages": "Buscar idiomas de dictado",
 	"session.dictation.searchPlaceholder": "Buscar idiomas…",
 	"session.dictation.noLanguages": "Ningún idioma coincide.",
+	"session.dictation.whisperMissing": "Descarga un modelo de Whisper en Ajustes para dictar",
+	"session.dictation.whisperFailed": "Whisper no pudo transcribir: {error}",
+	"session.dictation.whisperNoLanguage": "Whisper no tiene este idioma: lo detectará solo",
 
 	// Eliminar una sesión
 	"session.delete.aria": "Eliminar la sesión",

@@ -31,6 +31,8 @@ import { ProviderMenuList } from "./model-menu.tsx";
 import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { DictationLanguageSetting } from "@/components/dictation-language";
+import { DictationEngineSetting, WhisperModelsSetting } from "@/components/dictation-engine-settings";
+import { useDictationLanguage } from "@/components/dictation-preference";
 import { translator, useT, type Translate } from "@/components/i18n";
 
 /** One pi-ai provider with plain API-key auth (the Platform seam —
@@ -345,6 +347,10 @@ export function KeysSection({
 }) {
 	const t = useT();
 	const show = (g: KeysGroup) => !groups || groups.includes(g);
+	/** Local Whisper (default) or Deepgram — Deepgram's key row and hint
+	 *  only belong to the Deepgram engine (owner, 2026-11-08). */
+	const { engine: dictationEngine } = useDictationLanguage();
+	const deepgram = dictationEngine === "deepgram";
 	const [statuses, setStatuses] = useState<AuthKeyStatus[] | null>(null);
 	const [providers, setProviders] = useState<ProviderKeyInfo[] | undefined>(undefined);
 	const [loading, setLoading] = useState(true);
@@ -484,7 +490,9 @@ export function KeysSection({
 			</SettingsGroup>}
 
 			{(["Dictation", "Search"] as const).filter((label) => show(label === "Dictation" ? "dictation" : "search")).map((label) => <SettingsGroup key={label} label={label === "Dictation" ? t("settings.providers.groupDictation") : t("settings.providers.groupSearch")} testid={label === "Dictation" ? "group-dictation" : "group-search"}>
-				{toolRows.filter((status) => label === "Dictation" ? status.id === "DEEPGRAM_API_KEY" : status.id !== "DEEPGRAM_API_KEY").map((status) => (
+				{label === "Dictation" && <DictationEngineSetting />}
+				{label === "Dictation" && dictationEngine === "whisper" && <WhisperModelsSetting />}
+				{toolRows.filter((status) => label === "Dictation" ? deepgram && status.id === "DEEPGRAM_API_KEY" : status.id !== "DEEPGRAM_API_KEY").map((status) => (
 					<KeyTableRow
 						key={status.id}
 						label={status.info?.label ?? status.id}
@@ -504,14 +512,14 @@ export function KeysSection({
 				))}
 				{label === "Dictation" && <>
 					<DictationLanguageSetting />
-					<p data-testid="dictation-setup-hint" className="px-1 text-2xs leading-relaxed text-muted-foreground/70">
+					{deepgram && <p data-testid="dictation-setup-hint" className="px-1 text-2xs leading-relaxed text-muted-foreground/70">
 						{t("settings.providers.dictationHintBefore")}<a
 							href="https://console.deepgram.com/"
 							target="_blank"
 							rel="noreferrer"
 							className="underline underline-offset-2 hover:text-foreground"
 						>{t("settings.providers.dictationHintLink")}</a>{t("settings.providers.dictationHintAfter")}
-					</p>
+					</p>}
 				</>}
 			</SettingsGroup>)}
 

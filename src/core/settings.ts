@@ -33,6 +33,7 @@ import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
 import type { SearchEngineId } from "./search.ts";
 import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
+import { isDictationEngine, isWhisperModelId, type DictationEngine, type WhisperModelId } from "./whisper.ts";
 import { DEFAULT_VAULT_OUTPUT_FOLDER } from "./vault-notes.ts";
 import { DEFAULT_LOCALE, isLocale, type Locale } from "./i18n.ts";
 
@@ -353,9 +354,13 @@ export function resolveObsidianFormat(section: ObsidianSettings | undefined): bo
 	return typeof section?.vaultPath === "string" && section.vaultPath.trim() !== "";
 }
 
-/** One app-wide dictation preference, shared by every composer. */
+/** One app-wide dictation preference, shared by every composer. The
+ *  language serves both engines (Whisper maps it — core/whisper.ts). */
 export interface DictationSettings {
 	language?: DictationLanguage;
+	/** Local Whisper (default, owner 2026-11-08) or Deepgram (BYOK key). */
+	engine?: DictationEngine;
+	whisperModel?: WhisperModelId;
 }
 
 /** Agent settings — everything about the non-conversation machinery. */
@@ -539,7 +544,7 @@ export interface FactorySettings {
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
 	general: { autoUpdate: true, language: DEFAULT_LOCALE },
-	dictation: { language: "en" },
+	dictation: { language: "en", engine: "whisper", whisperModel: "large-v3-turbo" },
 	appearance: {
 		mode: "system",
 		background: null, // each theme's default sheet color lives in globals.css
@@ -856,10 +861,14 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.dictation !== undefined) {
 		const raw = r.dictation;
-		out.dictation = raw !== null && typeof raw === "object" && !Array.isArray(raw) &&
-			isDictationLanguage((raw as Record<string, unknown>).language)
-			? { language: (raw as DictationSettings).language }
-			: {};
+		const d: DictationSettings = {};
+		if (raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
+			const rec = raw as Record<string, unknown>;
+			if (isDictationLanguage(rec.language)) d.language = rec.language;
+			if (isDictationEngine(rec.engine)) d.engine = rec.engine;
+			if (isWhisperModelId(rec.whisperModel)) d.whisperModel = rec.whisperModel;
+		}
+		out.dictation = d;
 	}
 	if (r.agent !== null && typeof r.agent === "object" && !Array.isArray(r.agent)) {
 		out.agent = sanitizeAgent(r.agent as Record<string, unknown>);
