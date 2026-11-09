@@ -1139,10 +1139,18 @@ export function parseSessionStart(body: unknown): ParseResult<{ kind: ExamSessio
 	return { ok: true, value: { kind: raw.kind, ...(typeof raw.pointId === "string" ? { pointId: raw.pointId } : {}) } };
 }
 
-/** Round-robin across points so a batch spans the syllabus. */
+/** Round-robin across points so a batch spans the syllabus; the
+ *  «conocimientos previos» first (owner 2026-11-09), one queue each. */
 function spread(ids: readonly string[], status: ExamStatusModel, size: number): string[] {
 	const wanted = new Set(ids);
-	const queues = status.points.map((p) => p.nodeIds.filter((id) => wanted.has(id)));
+	const prereqQueues = status.prerequisites.map((q) => q.nodeIds.filter((id) => wanted.has(id)));
+	const first = spreadQueues(prereqQueues, size);
+	const rest = new Set(first);
+	const queues = status.points.map((p) => p.nodeIds.filter((id) => wanted.has(id) && !rest.has(id)));
+	return [...first, ...spreadQueues(queues, size - first.length)];
+}
+
+function spreadQueues(queues: string[][], size: number): string[] {
 	const out: string[] = [];
 	const seen = new Set<string>();
 	while (out.length < size && queues.some((q) => q.length > 0)) {
@@ -1188,8 +1196,11 @@ export function startExamSession(id: string, kind: ExamSessionKind, pointId: str
 			return { ok: true, session: { id: chat.id, title: chat.title, opening: t(locale, "exams.session.placementOpening"), kind } };
 		}
 		case "practice": {
-			const target = MODE_LEVEL[record.standard.mode];
-			const climbing = status.ideas.filter((i) => !i.toTeach && i.level < target).sort((a, b) => a.level - b.level || (a.nodeId < b.nodeId ? -1 : 1));
+			// Each idea climbs to its own bar (a prerequisite's: Componer);
+			// a blocked point's ideas wait (owner 2026-11-09).
+			const climbing = status.ideas
+				.filter((i) => !i.toTeach && !i.blocked && i.level < i.goal)
+				.sort((a, b) => b.prerequisiteIds.length - a.prerequisiteIds.length || a.level - b.level || (a.nodeId < b.nodeId ? -1 : 1));
 			const ids = spread(climbing.map((i) => i.nodeId), status, effectiveSettings().review.batchSize);
 			if (ids.length === 0) return { ok: false, status: 409, error: "nothing to practice" };
 			const levels = Object.fromEntries(ids.map((n) => [n, status.ideas.find((i) => i.nodeId === n)!.level]));

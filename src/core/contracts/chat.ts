@@ -92,6 +92,9 @@ export interface ChatExamLink {
 	/** Teach of a researched point (owner 2026-11-06): the target ideas it
 	 *  establishes, frozen at creation (consolidate: the known ones). */
 	targetIds?: string[];
+	/** Teach of a «conocimiento previo» (owner 2026-11-09): its id in the
+	 *  exam (no pointId then). */
+	prerequisiteId?: string;
 }
 
 /** The chat record format this build writes and understands. */

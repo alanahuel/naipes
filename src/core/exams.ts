@@ -147,6 +147,38 @@ export interface TargetIdea {
 
 export const MAX_TARGETS_PER_POINT = 12;
 
+/** «Conocimientos previos» (owner 2026-11-09): knowledge the syllabus
+ *  takes for granted. Not counted in the coverage; each one BLOCKS the
+ *  points (or the shallower prerequisites) that rest on it until it is
+ *  taught and solved at least at Recordar. Its own bar is Componer with
+ *  the exam's recall, whatever the preset — a deep foundation. */
+export interface ExamPrerequisite {
+	id: string;
+	statement: string;
+	source: TargetSource;
+	/** Graph ideas that express it (empty = not in the graph yet). */
+	nodeIds: string[];
+	/** What rests on it: syllabus point ids and/or prerequisite ids. */
+	blocks: string[];
+	origin: PrerequisiteOrigin;
+	/** 1 = right under the syllabus … MAX_PREREQUISITE_DEPTH. */
+	depth: number;
+	/** The same prerequisite across exams (owner: shared through the
+	 *  graph — taught once, reviewed once); defaults to its id. */
+	key: string;
+}
+
+/** research = the reconnaissance research; diagnosis = found by the
+ *  placement test after a miss; user = added by hand. */
+export type PrerequisiteOrigin = "research" | "diagnosis" | "user";
+
+const isPrerequisiteOrigin = (v: unknown): v is PrerequisiteOrigin => v === "research" || v === "diagnosis" || v === "user";
+
+/** Owner 2026-11-09: the drill-down stops three levels under the syllabus. */
+export const MAX_PREREQUISITE_DEPTH = 3;
+/** A prerequisite's bar: Componer, whatever the preset. */
+export const PREREQUISITE_LEVEL: ModeLevel = 3;
+
 /** A researched point's links are its targets' links (kept in sync on
  *  every write). */
 export function syncPointLinks(blocks: SyllabusBlock[]): SyllabusBlock[] {
@@ -386,6 +418,8 @@ export interface ExamRecord {
 	context: ExamContext;
 	materials: ExamMaterial[];
 	blocks: SyllabusBlock[];
+	/** «Conocimientos previos» (owner 2026-11-09); absent = none found yet. */
+	prerequisites?: ExamPrerequisite[];
 	mapping: { state: MappingState; error?: string; at?: string };
 	reading?: ExamReading;
 	research?: ExamResearch;
@@ -638,15 +672,40 @@ export function sanitizeTargets(raw: unknown): TargetIdea[] | undefined {
 		const statement = shortText(r.statement, 2000);
 		if (!id || !statement || seen.has(id)) continue;
 		seen.add(id);
-		const src = r.source !== null && typeof r.source === "object" ? (r.source as Record<string, unknown>) : {};
-		const kind = src.kind === "material" || src.kind === "web" || src.kind === "user" || src.kind === "notes" ? src.kind : "model";
-		const ref = shortText(src.ref, 2000);
-		const year = shortText(src.year, 20);
+		out.push({ id, statement, source: sanitizeSource(r.source), nodeIds: strList(r.nodeIds) });
+	}
+	return out;
+}
+
+function sanitizeSource(raw: unknown): TargetSource {
+	const src = raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+	const kind = src.kind === "material" || src.kind === "web" || src.kind === "user" || src.kind === "notes" ? src.kind : "model";
+	const ref = shortText(src.ref, 2000);
+	const year = shortText(src.year, 20);
+	return { kind, title: shortText(src.title, 500), ...(ref ? { ref } : {}), ...(year ? { year } : {}), ...(src.outdated === true ? { outdated: true } : {}) };
+}
+
+export function sanitizePrerequisites(raw: unknown): ExamPrerequisite[] | undefined {
+	if (!Array.isArray(raw)) return undefined;
+	const out: ExamPrerequisite[] = [];
+	const seen = new Set<string>();
+	for (const x of raw) {
+		if (x === null || typeof x !== "object") continue;
+		const r = x as Record<string, unknown>;
+		const id = str(r.id, 64);
+		const statement = shortText(r.statement, 2000);
+		if (!id || !statement || seen.has(id)) continue;
+		seen.add(id);
+		const depth = typeof r.depth === "number" && Number.isFinite(r.depth) ? clamp(Math.round(r.depth), 1, MAX_PREREQUISITE_DEPTH) : 1;
 		out.push({
 			id,
 			statement,
-			source: { kind, title: shortText(src.title, 500), ...(ref ? { ref } : {}), ...(year ? { year } : {}), ...(src.outdated === true ? { outdated: true } : {}) },
+			source: sanitizeSource(r.source),
 			nodeIds: strList(r.nodeIds),
+			blocks: strList(r.blocks).filter((b) => b !== id),
+			origin: isPrerequisiteOrigin(r.origin) ? r.origin : "research",
+			depth,
+			key: str(r.key, 200) || id,
 		});
 	}
 	return out;
@@ -788,6 +847,7 @@ export function sanitizeExamRecord(raw: unknown): ExamRecord | null {
 	const research = sanitizeResearch(r.research);
 	const guide = sanitizeGuide(r.guide);
 	const contrast = sanitizeContrast(r.contrast);
+	const prerequisites = sanitizePrerequisites(r.prerequisites);
 	return {
 		version: CURRENT_EXAM_VERSION,
 		id,
@@ -801,6 +861,7 @@ export function sanitizeExamRecord(raw: unknown): ExamRecord | null {
 		context: sanitizeContext(r.context),
 		materials: sanitizeMaterials(r.materials),
 		blocks: sanitizeBlocks(r.blocks),
+		...(prerequisites ? { prerequisites } : {}),
 		mapping: {
 			state: mappingState,
 			...(typeof mapping.error === "string" ? { error: mapping.error } : {}),
@@ -921,8 +982,16 @@ export function deadlineDue(input: {
 
 /** An exam's ideas: the mapped ones ∪ those born in its own teach
  *  sessions (a taught «falta» point joins the exam through them). */
-export function examNodeIds(exam: Pick<ExamRecord, "id" | "blocks">, chats: ReadonlyArray<Pick<ExamChat, "id" | "exam">>, nodesBornIn: ReadonlyMap<string, readonly string[]>): string[] {
+export function examNodeIds(exam: Pick<ExamRecord, "id" | "blocks" | "prerequisites">, chats: ReadonlyArray<Pick<ExamChat, "id" | "exam">>, nodesBornIn: ReadonlyMap<string, readonly string[]>): string[] {
 	const out = new Set<string>();
+	// «Conocimientos previos» (owner 2026-11-09): their ideas, and the
+	// ones born in their own teach sessions, are the exam's too.
+	const prereqIds = new Set((exam.prerequisites ?? []).map((p) => p.id));
+	for (const p of exam.prerequisites ?? []) for (const id of p.nodeIds) out.add(id);
+	for (const chat of chats) {
+		if (chat.exam?.id !== exam.id || chat.exam.kind !== "teach" || !chat.exam.prerequisiteId || !prereqIds.has(chat.exam.prerequisiteId)) continue;
+		for (const id of nodesBornIn.get(chat.id) ?? []) out.add(id);
+	}
 	const researched = new Set<string>();
 	for (const p of studyPoints(exam)) {
 		for (const id of p.nodeIds) out.add(id);
@@ -932,7 +1001,7 @@ export function examNodeIds(exam: Pick<ExamRecord, "id" | "blocks">, chats: Read
 	// Researched points gain born ideas through the sort (targets or
 	// ampliación); unresearched ones the old way, every born idea.
 	for (const chat of chats) {
-		if (chat.exam?.id !== exam.id || chat.exam.kind !== "teach" || (chat.exam.pointId && researched.has(chat.exam.pointId))) continue;
+		if (chat.exam?.id !== exam.id || chat.exam.kind !== "teach" || chat.exam.prerequisiteId || (chat.exam.pointId && researched.has(chat.exam.pointId))) continue;
 		for (const id of nodesBornIn.get(chat.id) ?? []) out.add(id);
 	}
 	return [...out];
@@ -1048,9 +1117,18 @@ export interface IdeaStatus extends IdeaLevel {
 	nodeId: string;
 	name: string;
 	pointIds: string[];
+	/** The «conocimientos previos» it expresses (owner 2026-11-09). */
+	prerequisiteIds: string[];
+	/** The mode level it climbs to: the standard's, or Componer for a
+	 *  prerequisite's idea. */
+	goal: ModeLevel;
 	/** Recall on the exam day with no further study (null = never graded). */
 	recallAtExam: number | null;
+	/** Meets its own bar (`goal` + the exam's recall). */
 	meets: boolean;
+	/** Every point it belongs to is blocked by a prerequisite (owner
+	 *  2026-11-09): no mode practice meanwhile — dated review goes on. */
+	blocked: boolean;
 	/** Due in Repaso before today's end. */
 	dueToday: boolean;
 }
@@ -1090,6 +1168,38 @@ export interface PointStatus {
 	targets: TargetStatus[] | null;
 	/** «Ampliación» ideas (not counted). */
 	extension: string[];
+	/** Prerequisites resting under it that are not unlocked yet — the
+	 *  plan does not teach it meanwhile (owner 2026-11-09). */
+	blockedBy: string[];
+}
+
+/** One «conocimiento previo»'s standing (owner 2026-11-09). */
+export interface PrerequisiteStatus {
+	id: string;
+	key: string;
+	statement: string;
+	depth: number;
+	origin: PrerequisiteOrigin;
+	/** What rests on it directly (points and prerequisites). */
+	blocks: string[];
+	/** Syllabus points resting on it, directly or through shallower
+	 *  prerequisites. */
+	pointIds: string[];
+	/** Its ideas in the graph (linked ∪ born in its teach sessions). */
+	nodeIds: string[];
+	probe: PointProbe | null;
+	taughtSession: boolean;
+	/** Taught (or shown known) and solved at least at Recordar: what
+	 *  rests on it may be taught. */
+	unlocked: boolean;
+	/** Every idea at Componer with the exam's recall. */
+	mastered: boolean;
+	/** placement = not evaluated yet; consolidate = shown known, or its
+	 *  ideas failed (short session); teach = unknown; taught = taught,
+	 *  its ideas not extracted yet; linked = climbing; mastered. */
+	state: "mastered" | "linked" | "placement" | "consolidate" | "teach" | "taught";
+	/** Deeper prerequisites under it not unlocked yet. */
+	blockedBy: string[];
 }
 
 export interface ExamStatusModel {
@@ -1102,11 +1212,15 @@ export interface ExamStatusModel {
 	reachedPreset: ExamPreset | null;
 	points: PointStatus[];
 	ideas: IdeaStatus[];
+	/** «Conocimientos previos», deepest first. */
+	prerequisites: PrerequisiteStatus[];
+	/** pendingPoints also holds unlinked targets and prerequisites (all
+	 *  probed by id through `syllabusPoint`) — prerequisites first. */
 	placement: { pendingIdeas: string[]; pendingPoints: string[]; done: boolean };
 }
 
 export interface ExamStatusInput {
-	exam: Pick<ExamRecord, "id" | "examDate" | "standard" | "blocks">;
+	exam: Pick<ExamRecord, "id" | "examDate" | "standard" | "blocks" | "prerequisites">;
 	now: number;
 	/** The review model's items (events included), by node id. */
 	items: ReadonlyMap<string, ReviewItem>;
@@ -1119,8 +1233,11 @@ export interface ExamStatusInput {
 	dueEnd: number;
 }
 
+const meetsLevel = (idea: Pick<IdeaStatus, "toTeach" | "level" | "recallAtExam">, level: ModeLevel, recall: number) =>
+	!idea.toTeach && idea.level >= level && idea.recallAtExam !== null && idea.recallAtExam >= recall;
+
 const meetsWith = (idea: Pick<IdeaStatus, "toTeach" | "level" | "recallAtExam">, standard: Pick<ExamStandard, "mode" | "recall">) =>
-	!idea.toTeach && idea.level >= MODE_LEVEL[standard.mode] && idea.recallAtExam !== null && idea.recallAtExam >= standard.recall;
+	meetsLevel(idea, MODE_LEVEL[standard.mode], standard.recall);
 
 /** The units a point's score counts: its targets' linked ideas (a target
  *  counts only when ALL of them meet — owner 2026-11-06; an unlinked
@@ -1174,43 +1291,79 @@ export function computeExamStatus(input: ExamStatusInput): ExamStatusModel {
 		}
 	}
 
+	// «Conocimientos previos» (owner 2026-11-09): linked ideas ∪ ideas born
+	// in their own teach sessions here.
+	const prereqs = exam.prerequisites ?? [];
+	const prereqNodes = new Map(prereqs.map((p) => [p.id, [...p.nodeIds]]));
+	const prereqTaught = new Set<string>();
+	for (const chat of examChats) {
+		const pid = chat.exam!.prerequisiteId;
+		if (chat.exam!.kind !== "teach" || !pid || !prereqNodes.has(pid)) continue;
+		prereqTaught.add(pid);
+		const list = prereqNodes.get(pid)!;
+		for (const id of input.nodesBornIn.get(chat.id) ?? []) {
+			examTaught.add(id);
+			if (!list.includes(id)) list.push(id);
+		}
+	}
+
 	const pointsOf = new Map<string, string[]>();
 	for (const [pid, ids] of pointNodes) for (const id of ids) pointsOf.set(id, [...(pointsOf.get(id) ?? []), pid]);
 	for (const p of recordPoints.values()) for (const id of p.extension ?? []) if (!(pointsOf.get(id) ?? []).includes(p.id)) pointsOf.set(id, [...(pointsOf.get(id) ?? []), p.id]);
+	const prereqsOf = new Map<string, string[]>();
+	for (const [pid, ids] of prereqNodes) for (const id of ids) prereqsOf.set(id, [...(prereqsOf.get(id) ?? []), pid]);
 
+	const standardLevel = MODE_LEVEL[exam.standard.mode];
 	const ideas: IdeaStatus[] = [];
 	const ideaById = new Map<string, IdeaStatus>();
-	for (const [nodeId, pointIds] of pointsOf) {
+	for (const nodeId of new Set([...prereqsOf.keys(), ...pointsOf.keys()])) {
 		const item = input.items.get(nodeId);
 		const level = ideaLevel(item?.events ?? [], placementChats);
 		const recallAtExam = item && item.stability !== null && item.lastReview !== null ? recallAt(item.stability, item.lastReview, moment) : null;
+		const prerequisiteIds = prereqsOf.get(nodeId) ?? [];
+		const goal: ModeLevel = prerequisiteIds.length > 0 ? PREREQUISITE_LEVEL : standardLevel;
 		const status: IdeaStatus = {
 			nodeId,
 			name: item?.name ?? input.names.get(nodeId) ?? nodeId,
-			pointIds,
+			pointIds: pointsOf.get(nodeId) ?? [],
+			prerequisiteIds,
+			goal,
 			...level,
 			recallAtExam,
 			meets: false,
+			blocked: false,
 			dueToday: !!item && !item.paused && item.released && item.due !== null && item.due < input.dueEnd,
 		};
-		status.meets = meetsWith(status, exam.standard);
+		status.meets = meetsLevel(status, goal, exam.standard.recall);
 		ideas.push(status);
 		ideaById.set(nodeId, status);
 	}
+	const meetsStandard = (i: IdeaStatus) => meetsWith(i, exam.standard);
 
-	const target = MODE_LEVEL[exam.standard.mode];
 	const ideaNeed = (members: IdeaStatus[]): PointNeed => {
 		if (members.some((i) => !i.placed && !examTaught.has(i.nodeId))) return "placement";
 		if (members.some((i) => i.toTeach)) return "consolidate";
-		if (members.some((i) => i.level < target)) return "practice";
+		if (members.some((i) => i.level < i.goal)) return "practice";
 		return "done";
 	};
+
+	const prerequisites = prerequisiteStatuses({
+		prereqs,
+		prereqNodes,
+		prereqTaught,
+		ideaById,
+		probes,
+		examTaught,
+		recall: exam.standard.recall,
+		pointIds: new Set(recordPoints.keys()),
+	});
+	const lockedUnder = (id: string) => prerequisites.filter((q) => !q.unlocked && q.blocks.includes(id)).map((q) => q.id);
 	const points: PointStatus[] = studyPoints(exam).map((p) => {
 		const nodeIds = pointNodes.get(p.id) ?? [];
 		const probe = probes.get(p.id) ?? null;
 		const members = nodeIds.map((id) => ideaById.get(id)!).filter(Boolean);
 		const extension = (p.extension ?? []).filter((id) => ideaById.has(id));
-		const base = { id: p.id, blockId: p.blockId, text: p.text, nodeIds, probe, taughtSession: taughtSession.has(p.id), extension };
+		const base = { id: p.id, blockId: p.blockId, text: p.text, nodeIds, probe, taughtSession: taughtSession.has(p.id), extension, blockedBy: lockedUnder(p.id) };
 		if (p.targets) {
 			// Researched (owner 2026-11-06): targets decide. An unlinked
 			// target is probed first; known → a short consolidation, else
@@ -1218,7 +1371,7 @@ export function computeExamStatus(input: ExamStatusInput): ExamStatusModel {
 			const targets: TargetStatus[] = p.targets.map((tg) => {
 				const linked = tg.nodeIds.map((id) => ideaById.get(id)).filter((i): i is IdeaStatus => !!i);
 				const tProbe = probes.get(tg.id) ?? null;
-				const mastered = linked.length > 0 && linked.every((i) => i.meets);
+				const mastered = linked.length > 0 && linked.every(meetsStandard);
 				const state: TargetStatus["state"] = mastered
 					? "mastered"
 					: linked.length > 0
@@ -1236,10 +1389,13 @@ export function computeExamStatus(input: ExamStatusInput): ExamStatusModel {
 			return { ...base, gap: targets.some((x) => x.nodeIds.length === 0), score, need, targets };
 		}
 		const gap = p.nodeIds.length === 0;
-		const score = members.length ? members.filter((i) => i.meets).length / members.length : 0;
+		const score = members.length ? members.filter(meetsStandard).length / members.length : 0;
 		const need: PointNeed = gap && !taughtSession.has(p.id) ? (probe === null ? "placement" : probe === "known" ? "consolidate" : "teach") : ideaNeed(members);
 		return { ...base, gap, score, need, targets: null };
 	});
+
+	const blockedPoints = new Set(points.filter((p) => p.blockedBy.length > 0).map((p) => p.id));
+	for (const i of ideas) i.blocked = i.prerequisiteIds.length === 0 && i.pointIds.length > 0 && i.pointIds.every((pid) => blockedPoints.has(pid));
 
 	const coverage = coverageWith(points, ideaById, exam.standard);
 	let reachedPreset: ExamPreset | null = null;
@@ -1250,13 +1406,24 @@ export function computeExamStatus(input: ExamStatusInput): ExamStatusModel {
 	// Placement is exhaustive (owner): every syllabus idea the placement
 	// test hasn't reached, and every «falta» point not yet probed.
 	// Extension ideas are not placed (they were formed in exam sessions).
+	// Prerequisites first (owner 2026-11-09: every one is evaluated at the
+	// start of the test).
 	const counted = new Set(points.flatMap((p) => p.nodeIds));
-	const pendingIdeas = ideas.filter((i) => counted.has(i.nodeId) && !i.placed && !examTaught.has(i.nodeId)).map((i) => i.nodeId);
-	// «Falta» points (unresearched) and unlinked targets not probed yet —
-	// both are probed by id through `syllabusPoint`.
-	const pendingPoints = points.flatMap((p) =>
-		p.targets ? p.targets.filter((x) => x.state === "placement").map((x) => x.id) : p.gap && !p.taughtSession && p.probe === null ? [p.id] : [],
-	);
+	const unplaced = (i: IdeaStatus) => !i.placed && !examTaught.has(i.nodeId);
+	const pendingIdeas = [
+		// A prerequisite's idea tested anywhere (another exam's test, practice,
+		// teaching) is already known to the memory — shared through the graph.
+		...ideas.filter((i) => i.prerequisiteIds.length > 0 && unplaced(i) && !i.tested),
+		...ideas.filter((i) => i.prerequisiteIds.length === 0 && counted.has(i.nodeId) && unplaced(i)),
+	].map((i) => i.nodeId);
+	// Unlinked prerequisites, «falta» points (unresearched) and unlinked
+	// targets not probed yet — all probed by id through `syllabusPoint`.
+	const pendingPoints = [
+		...prerequisites.filter((q) => q.state === "placement" && q.nodeIds.length === 0).map((q) => q.id),
+		...points.flatMap((p) =>
+			p.targets ? p.targets.filter((x) => x.state === "placement").map((x) => x.id) : p.gap && !p.taughtSession && p.probe === null ? [p.id] : [],
+		),
+	];
 	return {
 		examId: exam.id,
 		today,
@@ -1266,8 +1433,71 @@ export function computeExamStatus(input: ExamStatusInput): ExamStatusModel {
 		reachedPreset,
 		points,
 		ideas,
+		prerequisites,
 		placement: { pendingIdeas, pendingPoints, done: pendingIdeas.length === 0 && pendingPoints.length === 0 },
 	};
+}
+
+/** Each prerequisite's standing, deepest first (owner 2026-11-09). */
+function prerequisiteStatuses(input: {
+	prereqs: readonly ExamPrerequisite[];
+	prereqNodes: ReadonlyMap<string, readonly string[]>;
+	prereqTaught: ReadonlySet<string>;
+	ideaById: ReadonlyMap<string, IdeaStatus>;
+	probes: ReadonlyMap<string, PointProbe>;
+	examTaught: ReadonlySet<string>;
+	recall: number;
+	pointIds: ReadonlySet<string>;
+}): PrerequisiteStatus[] {
+	const byId = new Map(input.prereqs.map((p) => [p.id, p]));
+	// Points resting on it, through shallower prerequisites too.
+	const pointsUnder = (id: string, seen = new Set<string>()): string[] => {
+		if (seen.has(id)) return [];
+		seen.add(id);
+		const out = new Set<string>();
+		for (const b of byId.get(id)?.blocks ?? []) {
+			if (input.pointIds.has(b)) out.add(b);
+			else if (byId.has(b)) for (const x of pointsUnder(b, seen)) out.add(x);
+		}
+		return [...out];
+	};
+	const base = input.prereqs.map((p) => {
+		const linked = (input.prereqNodes.get(p.id) ?? []).map((id) => input.ideaById.get(id)).filter((i): i is IdeaStatus => !!i);
+		const probe = input.probes.get(p.id) ?? null;
+		const taughtSession = input.prereqTaught.has(p.id);
+		const mastered = linked.length > 0 && linked.every((i) => meetsLevel(i, PREREQUISITE_LEVEL, input.recall));
+		let state: PrerequisiteStatus["state"];
+		if (linked.length > 0) {
+			state = mastered
+				? "mastered"
+				: linked.some((i) => !i.placed && !i.tested && !input.examTaught.has(i.nodeId))
+					? "placement"
+					: linked.some((i) => i.toTeach)
+						? "consolidate"
+						: "linked";
+		} else state = taughtSession ? "taught" : probe === null ? "placement" : probe === "known" ? "consolidate" : "teach";
+		// Owner: a dependent unlocks once the base is taught (or shown
+		// known) and solved at least at Recordar.
+		const unlocked = linked.length > 0 ? linked.every((i) => !i.toTeach && i.level >= 1) : probe === "known";
+		return {
+			id: p.id,
+			key: p.key,
+			statement: p.statement,
+			depth: p.depth,
+			origin: p.origin,
+			blocks: p.blocks.filter((b) => input.pointIds.has(b) || byId.has(b)),
+			pointIds: pointsUnder(p.id),
+			nodeIds: linked.map((i) => i.nodeId),
+			probe,
+			taughtSession,
+			unlocked,
+			mastered,
+			state,
+			blockedBy: [] as string[],
+		};
+	});
+	for (const q of base) q.blockedBy = base.filter((d) => !d.unlocked && d.blocks.includes(q.id)).map((d) => d.id);
+	return base.sort((a, b) => b.depth - a.depth || b.pointIds.length - a.pointIds.length || (a.id < b.id ? -1 : 1));
 }
 
 // ─── durations (owner: defaults, then the learner's measured averages) ──────
@@ -1402,7 +1632,7 @@ const ZERO_WORK: WorkBreakdown = { placement: 0, teach: 0, practice: 0, review: 
  * prioritized blocks, then the cheapest.
  */
 export function examWork(input: {
-	status: Pick<ExamStatusModel, "points" | "ideas" | "placement">;
+	status: Pick<ExamStatusModel, "points" | "ideas" | "placement"> & { prerequisites?: readonly PrerequisiteStatus[] };
 	standard: Pick<ExamStandard, "mode" | "recall" | "coverage">;
 	examDate: string;
 	now: number;
@@ -1420,8 +1650,9 @@ export function examWork(input: {
 
 	// Placement (exhaustive): climbs to the standard's mode for untested
 	// ideas; one problem per unprobed «falta» point.
+	// Prerequisites' ideas climb to Componer (owner 2026-11-09).
 	const placement =
-		(status.placement.pendingIdeas.length * target + status.placement.pendingPoints.length) * durations.problem;
+		(status.placement.pendingIdeas.reduce((sum, id) => sum + (ideaById.get(id)?.goal ?? target), 0) + status.placement.pendingPoints.length) * durations.problem;
 
 	const reviewsFor = (nodeId: string | null) => {
 		const item = nodeId ? input.items.get(nodeId) : undefined;
@@ -1435,7 +1666,7 @@ export function examWork(input: {
 		});
 	};
 
-	interface Cost { teach: number; practice: number; review: number; met: boolean; priority: boolean }
+	interface Cost { id: string; teach: number; practice: number; review: number; met: boolean; priority: boolean }
 	const priority = new Set(input.priorityBlocks);
 	const costs: Cost[] = status.points.map((p) => {
 		let teach = 0;
@@ -1473,7 +1704,7 @@ export function examWork(input: {
 				review += reviewsFor(i.nodeId) * durations.review;
 			}
 		}
-		return { teach, practice, review, met, priority: priority.has(p.blockId) };
+		return { id: p.id, teach, practice, review, met, priority: priority.has(p.blockId) };
 	});
 
 	const needed = Math.ceil(standard.coverage * status.points.length - 1e-9);
@@ -1486,10 +1717,30 @@ export function examWork(input: {
 	let teach = 0;
 	let practice = 0;
 	let review = 0;
-	for (const c of order.slice(0, needed)) {
+	const chosen = order.slice(0, needed);
+	for (const c of chosen) {
 		teach += c.teach;
 		practice += c.practice;
 		review += c.review;
+	}
+	// «Conocimientos previos» under the chosen points (owner 2026-11-09:
+	// not counted in the coverage, but they take time first). A shared
+	// one counts once — its cost is its own, not each point's.
+	const chosenIds = new Set(chosen.map((c) => c.id));
+	for (const q of status.prerequisites ?? []) {
+		if (q.mastered || !q.pointIds.some((id) => chosenIds.has(id))) continue;
+		const members = q.nodeIds.map((id) => ideaById.get(id)).filter((i): i is IdeaStatus => !!i);
+		if (q.state === "teach") teach += durations.teach;
+		else if (q.state === "consolidate") teach += durations.consolidate;
+		if (members.length === 0) {
+			practice += PREREQUISITE_LEVEL * durations.problem;
+			review += reviewsFor(null) * durations.review;
+		}
+		for (const i of members) {
+			const from = i.toTeach ? 0 : i.placed || i.tested ? i.level : PREREQUISITE_LEVEL;
+			practice += Math.max(0, PREREQUISITE_LEVEL - from) * durations.problem;
+			review += reviewsFor(i.nodeId) * durations.review;
+		}
 	}
 	// Reviews of points already meeting still have to happen to KEEP them.
 	return { placement, teach, practice, review, total: placement + teach + practice + review };
@@ -1597,13 +1848,21 @@ export interface ExamBlock {
 	/** Ideas (review/practice/placement) or the point to teach. */
 	nodeIds: string[];
 	pointId?: string;
+	/** teach: a «conocimiento previo» instead of a point (owner 2026-11-09). */
+	prerequisiteId?: string;
 	/** teach: the short «afianzado» session. */
 	short?: boolean;
 }
 
+/** The next prerequisite to teach (owner 2026-11-09: first priority —
+ *  deepest first, then the one most points rest on), or undefined. */
+export function nextPrerequisite(prerequisites: readonly PrerequisiteStatus[]): PrerequisiteStatus | undefined {
+	return prerequisites.find((q) => (q.state === "teach" || q.state === "consolidate") && q.blockedBy.length === 0);
+}
+
 /** Split today's allocation into the ordered blocks. Pure. */
 export function todayBlocks(input: {
-	status: Pick<ExamStatusModel, "points" | "ideas" | "placement">;
+	status: Pick<ExamStatusModel, "points" | "ideas" | "placement"> & { prerequisites?: readonly PrerequisiteStatus[] };
 	standard: Pick<ExamStandard, "mode">;
 	minutes: number;
 	durations: Durations;
@@ -1613,6 +1872,7 @@ export function todayBlocks(input: {
 	const blocks: ExamBlock[] = [];
 	let left = input.minutes;
 	const target = MODE_LEVEL[input.standard.mode];
+	const goal = (i: Pick<IdeaStatus, "goal">) => i.goal ?? target;
 	// 1) dated review — always offered when something is due, even past
 	//    the budget (forgetting doesn't wait for the plan).
 	const due = status.ideas.filter((i) => i.dueToday);
@@ -1625,22 +1885,31 @@ export function todayBlocks(input: {
 	// 2) mode practice — the placement test first while it is pending.
 	if (!status.placement.done) {
 		const ideas = status.placement.pendingIdeas;
-		const minutes = Math.min(left, (ideas.length * target + status.placement.pendingPoints.length) * durations.problem);
+		const byId = new Map(status.ideas.map((i) => [i.nodeId, i]));
+		const climbs = ideas.reduce((sum, id) => sum + (byId.get(id)?.goal ?? target), 0);
+		const minutes = Math.min(left, (climbs + status.placement.pendingPoints.length) * durations.problem);
 		blocks.push({ kind: "placement", minutes, nodeIds: ideas });
 		left -= minutes;
 	} else {
-		const climbing = status.ideas.filter((i) => !i.toTeach && i.level < target);
+		const climbing = status.ideas.filter((i) => !i.toTeach && !i.blocked && i.level < goal(i));
 		if (climbing.length > 0) {
-			const minutes = Math.min(left, climbing.reduce((s, i) => s + (target - i.level) * durations.problem, 0));
+			const minutes = Math.min(left, climbing.reduce((s, i) => s + (goal(i) - i.level) * durations.problem, 0));
 			blocks.push({ kind: "practice", minutes, nodeIds: climbing.map((i) => i.nodeId) });
 			left -= minutes;
 		}
 	}
 	if (left <= 0) return blocks;
-	// 3) teach one point — prioritized blocks first, syllabus order.
+	// 3) teach — a «conocimiento previo» first (owner 2026-11-09), else one
+	//    point not blocked by one: prioritized blocks first, syllabus order.
+	const prereq = nextPrerequisite(status.prerequisites ?? []);
+	if (prereq) {
+		const short = prereq.state === "consolidate";
+		blocks.push({ kind: "teach", minutes: Math.min(left, short ? durations.consolidate : durations.teach), nodeIds: prereq.nodeIds, prerequisiteId: prereq.id, short });
+		return blocks;
+	}
 	const priority = new Set(input.priorityBlocks);
 	const teachable = status.points
-		.filter((p) => p.need === "teach" || p.need === "consolidate")
+		.filter((p) => (p.need === "teach" || p.need === "consolidate") && !(p.blockedBy ?? []).length)
 		.sort((a, b) => Number(priority.has(b.blockId)) - Number(priority.has(a.blockId)));
 	const next = teachable[0];
 	if (next) {

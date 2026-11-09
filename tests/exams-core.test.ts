@@ -45,6 +45,11 @@ import {
 	weekdayIndex,
 	type ExamChat,
 	type ExamRecord,
+	type PrerequisiteStatus,
+	type ExamPrerequisite,
+	sanitizePrerequisites,
+	nextPrerequisite,
+	examNodeIds,
 	type SyllabusBlock,
 } from "../src/core/exams.ts";
 import {
@@ -369,11 +374,12 @@ describe("researched points: targets decide (owner 2026-11-06)", () => {
 
 describe("work, budget and today's blocks", () => {
 	const status = {
+		prerequisites: [] as PrerequisiteStatus[],
 		points: [
-			{ id: "pt1", blockId: "b1", text: "a", nodeIds: ["n1"], gap: false, probe: null, taughtSession: false, score: 0, need: "practice" as const, targets: null, extension: [] },
-			{ id: "pt2", blockId: "b2", text: "b", nodeIds: [], gap: true, probe: "known" as const, taughtSession: false, score: 0, need: "consolidate" as const, targets: null, extension: [] },
+			{ id: "pt1", blockId: "b1", text: "a", nodeIds: ["n1"], gap: false, probe: null, taughtSession: false, score: 0, need: "practice" as const, targets: null, extension: [], blockedBy: [] as string[] },
+			{ id: "pt2", blockId: "b2", text: "b", nodeIds: [], gap: true, probe: "known" as const, taughtSession: false, score: 0, need: "consolidate" as const, targets: null, extension: [], blockedBy: [] as string[] },
 		],
-		ideas: [{ nodeId: "n1", name: "n1", pointIds: ["pt1"], level: 1 as const, tested: true, placed: true, toTeach: false, recallAtExam: 0.9, meets: false, dueToday: true }],
+		ideas: [{ nodeId: "n1", name: "n1", pointIds: ["pt1"], prerequisiteIds: [] as string[], goal: 2 as const, level: 1 as const, tested: true, placed: true, toTeach: false, recallAtExam: 0.9, meets: false, blocked: false, dueToday: true }],
 		placement: { pendingIdeas: [], pendingPoints: [], done: true },
 	};
 	const durations = { teach: 25, consolidate: 10, problem: 6, review: 2 };
@@ -611,5 +617,107 @@ describe("point types: syllabus, rules, tutor (owner 2026-11-06)", () => {
 			dueEnd: T0 + D,
 		});
 		assert.deepEqual(status.points.map((p) => p.id), ["p1"]);
+	});
+});
+
+describe("«conocimientos previos» (owner 2026-11-09)", () => {
+	const item = (nodeId: string, events: ReturnType<typeof ev>[], over: Partial<ReviewItem> = {}): ReviewItem => ({
+		nodeId, name: nodeId, group: { kind: "area", id: "a" }, state: "review", stability: 60, difficulty: 5, retrievability: 0.95,
+		due: T0 + 30 * D, lastReview: T0 - D, reps: 3, lapses: 0, paused: false, released: true, events, ...over,
+	});
+	const prereq = (id: string, over: Partial<ExamPrerequisite> = {}): ExamPrerequisite => ({
+		id, statement: `stmt ${id}`, source: { kind: "model", title: "" }, nodeIds: [], blocks: ["pt1"], origin: "research", depth: 1, key: id, ...over,
+	});
+	const place: ExamChat = { id: "place1", kind: "practice", createdAt: new Date(T0).toISOString(), exam: { id: "exam_test_1", kind: "placement" }, messages: [] };
+	const run = (prerequisites: ExamPrerequisite[], items: Map<string, ReviewItem>, chats: ExamChat[] = [place], born = new Map<string, string[]>()) =>
+		computeExamStatus({ exam: exam({ prerequisites }), now: T0, items, names: new Map(), chats, nodesBornIn: born, confidenceThreshold: 70, dueEnd: T0 + D });
+
+	it("sanitizes: depth clamped to 1–3, key defaults to the id, self-blocks dropped", () => {
+		const out = sanitizePrerequisites([
+			{ id: "q1", statement: "Potencias", blocks: ["pt1", "q1"], depth: 7, origin: "diagnosis" },
+			{ id: "q1", statement: "dup" },
+			{ id: "q2", statement: "" },
+		])!;
+		assert.equal(out.length, 1);
+		assert.deepEqual(out[0]!.blocks, ["pt1"]);
+		assert.equal(out[0]!.depth, 3);
+		assert.equal(out[0]!.key, "q1");
+		assert.equal(out[0]!.origin, "diagnosis");
+		assert.equal(sanitizeExamRecord({ ...exam(), prerequisites: [{ id: "q", statement: "s", blocks: ["pt1"] }] })!.prerequisites!.length, 1);
+	});
+
+	it("an unknown prerequisite blocks its point and the deeper one blocks it; not in the coverage", () => {
+		const q1 = prereq("q1", { blocks: ["pt1"] });
+		const q2 = prereq("q2", { blocks: ["q1"], depth: 2, origin: "diagnosis" });
+		const chats: ExamChat[] = [{ ...place, messages: [...solvedProblem(T0, { syllabusPoint: "q1" }, { outcome: "surrendered" }), ...solvedProblem(T0 + H, { syllabusPoint: "q2" }, { outcome: "surrendered" })] }];
+		const status = run([q1, q2], new Map(), chats);
+		const [deep, shallow] = status.prerequisites;
+		assert.equal(deep!.id, "q2", "deepest first");
+		assert.equal(deep!.state, "teach");
+		assert.deepEqual(deep!.pointIds, ["pt1"], "points rest on it through q1");
+		assert.deepEqual(shallow!.blockedBy, ["q2"]);
+		assert.deepEqual(status.points.find((p) => p.id === "pt1")!.blockedBy, ["q1"]);
+		assert.deepEqual(status.points.find((p) => p.id === "pt2")!.blockedBy, []);
+		// the plan teaches the deepest unblocked prerequisite first
+		const blocks = todayBlocks({ status, standard: { mode: "discrimination" }, minutes: 120, durations: { teach: 25, consolidate: 10, problem: 6, review: 2 }, priorityBlocks: [] });
+		assert.equal(blocks.at(-1)!.prerequisiteId, "q2");
+		assert.equal(nextPrerequisite(status.prerequisites)!.id, "q2");
+	});
+
+	it("unknown and untested prerequisites are probed first in the placement test", () => {
+		const status = run([prereq("q1"), prereq("q2", { nodeIds: ["p1"] })], new Map([["p1", item("p1", [])]]), [place]);
+		assert.equal(status.placement.pendingPoints[0], "q1");
+		assert.equal(status.placement.pendingIdeas[0], "p1");
+		assert.equal(status.ideas.find((i) => i.nodeId === "p1")!.goal, 3, "a prerequisite's idea climbs to Componer");
+		assert.equal(status.ideas.find((i) => i.nodeId === "n1")!.goal, 2, "a syllabus idea to the standard's mode");
+	});
+
+	it("unlocks at Recordar; mastered only at Componer with the exam's recall; known-but-unlinked doesn't block", () => {
+		const atRecall = run([prereq("q1", { nodeIds: ["p1"] })], new Map([["p1", item("p1", [ev({ nodeId: "p1", chatId: "place1", step: "up", mode: "recall" })])]]));
+		const q = atRecall.prerequisites[0]!;
+		assert.equal(q.unlocked, true);
+		assert.equal(q.mastered, false);
+		assert.equal(q.state, "linked");
+		assert.deepEqual(atRecall.points.find((p) => p.id === "pt1")!.blockedBy, []);
+		const composed = run([prereq("q1", { nodeIds: ["p1"] })], new Map([["p1", item("p1", [ev({ nodeId: "p1", chatId: "place1", step: "up", mode: "composition" })])]]));
+		assert.equal(composed.prerequisites[0]!.mastered, true);
+		const known: ExamChat = { ...place, messages: solvedProblem(T0, { syllabusPoint: "q1" }, {}, 90) };
+		const k = run([prereq("q1")], new Map(), [known]).prerequisites[0]!;
+		assert.equal(k.state, "consolidate");
+		assert.equal(k.unlocked, true, "shown known: an «afianzado» session, nothing blocked meanwhile");
+	});
+
+	it("a blocked point's ideas get no mode practice (dated review goes on)", () => {
+		const items = new Map([
+			["n1", item("n1", [ev({ nodeId: "n1", chatId: "place1", step: "up", mode: "recall" })], { due: T0 })],
+			["n2", item("n2", [ev({ nodeId: "n2", chatId: "place1", step: "up", mode: "recall" })])],
+		]);
+		// pt2 (a «falta» point) probed known, so the placement test is done.
+		const messages = [...solvedProblem(T0, { syllabusPoint: "q1" }, { outcome: "surrendered" }), ...solvedProblem(T0 + H, { syllabusPoint: "pt2" }, {}, 90)];
+		const status = run([prereq("q1", { nodeIds: [] })], items, [{ ...place, messages }]);
+		assert.equal(status.placement.done, true);
+		assert.ok(status.ideas.find((i) => i.nodeId === "n1")!.blocked);
+		const blocks = todayBlocks({ status, standard: { mode: "discrimination" }, minutes: 120, durations: { teach: 25, consolidate: 10, problem: 6, review: 2 }, priorityBlocks: [] });
+		assert.deepEqual(blocks.map((b) => b.kind), ["review", "teach"], "no practice block for the blocked point's ideas");
+	});
+
+	it("ideas born in its teach session belong to it and to the exam", () => {
+		const teach: ExamChat = { id: "tq", kind: "teach", createdAt: new Date(T0).toISOString(), exam: { id: "exam_test_1", kind: "teach", prerequisiteId: "q1" }, messages: [] };
+		const born = new Map([["tq", ["p9"]]]);
+		const status = run([prereq("q1")], new Map([["p9", item("p9", [ev({ nodeId: "p9", chatId: "tq", kind: "teach-check", step: "up", mode: "recall" })])]]), [place, teach], born);
+		const q = status.prerequisites[0]!;
+		assert.deepEqual(q.nodeIds, ["p9"]);
+		assert.equal(q.unlocked, true);
+		assert.ok(!status.placement.pendingIdeas.includes("p9"), "taught here, not placed");
+		assert.ok(examNodeIds(exam({ prerequisites: [prereq("q1")] }), [teach], born).includes("p9"));
+	});
+
+	it("examWork adds the prerequisites under the chosen points once", () => {
+		const q1 = prereq("q1", { blocks: ["pt1", "pt2"] });
+		const status = run([q1], new Map(), [{ ...place, messages: solvedProblem(T0, { syllabusPoint: "q1" }, { outcome: "surrendered" }) }]);
+		const base = { examDate: "2026-11-30", now: T0, durations: { teach: 25, consolidate: 10, problem: 6, review: 2 }, finalWindowDays: 3, items: new Map(), priorityBlocks: [] };
+		const withQ = examWork({ ...base, status, standard: { mode: "discrimination", recall: 0.9, coverage: 1 } });
+		const without = examWork({ ...base, status: { ...status, prerequisites: [] }, standard: { mode: "discrimination", recall: 0.9, coverage: 1 } });
+		assert.equal(withQ.teach - without.teach, 25, "taught once although two points rest on it");
 	});
 });
