@@ -36,6 +36,7 @@ import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
 import { isDictationEngine, isWhisperModelId, type DictationEngine, type WhisperModelId } from "./whisper.ts";
 import { DEFAULT_VAULT_OUTPUT_FOLDER } from "./vault-notes.ts";
 import { DEFAULT_LOCALE, isLocale, type Locale } from "./i18n.ts";
+import { sanitizeOnboardingSettings, type OnboardingSettings } from "./onboarding.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
  *  changes (a field renamed/meaning changed); pure additions never bump. */
@@ -509,6 +510,9 @@ export interface UserSettings {
 	desktop?: DesktopSettings;
 	phone?: PhoneSettings;
 	mcp?: McpSettings;
+	/** «Primeros pasos» / «Novedades» (owner, 2026-11-09) — written only
+	 *  through POST /api/onboarding (core/onboarding.ts). */
+	onboarding?: OnboardingSettings;
 	[key: string]: unknown;
 }
 
@@ -904,6 +908,7 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 		if (autostart !== undefined) desktop.autostart = autostart;
 		out.desktop = desktop;
 	}
+	if (r.onboarding !== undefined) out.onboarding = sanitizeOnboardingSettings(r.onboarding);
 	// Unknown top-level keys ride along untouched (forward-compat). One
 	// known-DEAD key is stripped instead of riding: `chat` (the old
 	// default-settings section) died with per-session models (owner,

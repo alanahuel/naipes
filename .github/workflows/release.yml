@@ -25,6 +25,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The onboarding gate reads the commits since the previous tag.
+          fetch-depth: 0
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -42,6 +45,8 @@ jobs:
               process.exit(1);
             }
           '
+      - name: Onboarding entry for this version
+        run: pnpm run check:onboarding
       - run: pnpm run typecheck
       - run: pnpm test
       - run: pnpm run lint

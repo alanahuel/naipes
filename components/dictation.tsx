@@ -9,6 +9,7 @@ import { deepgramListenUrl, whisperLanguage, type DictationEngine, type Dictatio
 import { pcm16ToFloat32, prepareWhisper, transcribeWhisper } from "@/components/whisper-engine";
 import { useDictationLanguage } from "@/components/dictation-preference";
 import { setDictationActive } from "@/components/dictation-state";
+import { markDictationUsed } from "@/components/onboarding-signal";
 export { isDictationActive } from "@/components/dictation-state";
 
 /**
@@ -358,6 +359,8 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		const text = bufferRef.current.join(" ");
 		bufferRef.current = [];
 		(questionTarget ?? appendRef.current)(text);
+		// The onboarding's dictation step has no other trace (owner, 2026-11-09).
+		if (text.trim()) markDictationUsed();
 	}, []);
 
 	/** Full teardown of one run's machinery. Idempotent; generation-guarded by callers. */

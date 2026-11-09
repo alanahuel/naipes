@@ -19,6 +19,8 @@ import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
 import type { ChatListItem, GraphSnapshot, TurnUsage } from "@/src/core";
 import { useT } from "@/components/i18n";
+import { OnboardingCard } from "@/components/onboarding-card";
+import type { OnboardingTarget } from "@/src/core";
 
 /** «Seguir con»: what needs you first (your turn, a waiting problem, the
  *  tutor working), then the most recent — three at most; archived
@@ -210,6 +212,28 @@ export function Home({ initialConfigured }: { initialConfigured: boolean }) {
 	const { chats } = useChatList();
 	const recent = chats ? continueWith(chats) : null;
 
+	/* «Pruébalo» (onboarding, owner 2026-11-09): the exact place — the
+	 * setup dialog, this composer in a mode, a route, or the session at
+	 * the top of «Seguir con». */
+	const tryStep = (target: OnboardingTarget) => {
+		switch (target.kind) {
+			case "setup":
+				setSetupOpen(true);
+				return;
+			case "composer":
+				setMode(target.mode);
+				topicInputRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+				topicInputRef.current?.focus();
+				return;
+			case "href":
+				router.push(target.href);
+				return;
+			case "recentSession":
+				if (recent?.[0]) router.push(`/chat/${recent[0].id}`);
+				return;
+		}
+	};
+
 	return (
 		<div className="h-full overflow-y-auto" data-testid="start-page">
 			<div className="mx-auto flex w-full max-w-[46rem] flex-col gap-10 px-4 pb-16 pt-[12vh]">
@@ -323,6 +347,10 @@ export function Home({ initialConfigured }: { initialConfigured: boolean }) {
 					/>
 					</div>
 				</section>
+
+				{/* «Primeros pasos» / «Novedades» (owner, 2026-11-09): the first
+				    card under the composer; hidden when nothing is pending. */}
+				<OnboardingCard recentSessionId={recent?.[0]?.id ?? null} onTarget={tryStep} />
 
 				{/* «Para repasar hoy» (Repaso, owner 2026-11-04): only when
 				    something is due — after the composer, before «Ahora». */}
