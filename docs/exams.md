@@ -32,7 +32,7 @@ Replayed from the review events (`src/core/review.ts` carries `mode` and `step` 
 | hints R3–R5, surrendered | miss |
 | teach check Good / Hard / Again | up / stay / miss, at Recordar |
 
-A miss drops one mode; two misses in a row at Recordar or below → «por enseñar»; in the placement test a miss with no level yet → «por enseñar». A later teach event clears it. Every practice submission carries the learner's 0–100 confidence (the practice dock's slider); a solve below the threshold also grades **Hard** in FSRS. Mock exams never grade.
+A miss drops one mode; two misses in a row at Recordar or below → «por enseñar»; in the placement test a miss with no level yet → «por enseñar». A later teach event clears it. Every practice submission carries the learner's 0–100 confidence (the practice dock's slider — never pre-filled since 2026-11-09: it must be picked before sending and any change to the answer empties it); a solve below the threshold also grades **Hard** in FSRS. Mock exams never grade.
 
 ## Lifecycle (v2, owner 2026-11-06: the syllabus leads)
 
@@ -73,6 +73,19 @@ Before, a syllabus with no guidelines text was outlined from the names of the fo
 - Every exam session (placement, teach, consolidate, deepen, practice, mock) gets `instructions.md` appended with the rules and tutor instructions (an empty part left out; an unresearched point stands in with its text): the tutor checks each reply against them and may step outside an exam rule briefly when it truly helps, saying so and why.
 - Revisar has a type selector per block and point («Reglas (n)» for instruction points); the exam page shows only studied points under Temario, and two editable sections «Instrucciones de la asignatura» / «Instrucciones para el tutor».
 
+## «Conocimientos previos» (owner 2026-11-09)
+
+Knowledge the syllabus takes for granted (earlier-stage foundations it does not teach itself). Stored in `ExamRecord.prerequisites`: statement, source, graph links (`nodeIds`), what rests on it (`blocks`: point ids or shallower prerequisite ids), `origin` (research · diagnosis · user), `depth` (1 = right under the syllabus, at most 3) and a shared `key`.
+
+- **Not counted** in the coverage. Its own bar is **Componer** with the exam's recall, whatever the preset (`PREREQUISITE_LEVEL`; an idea's `goal`).
+- **Blocking**: a point (or shallower prerequisite) rests on it until it is **unlocked** — taught, or shown known, and solved at least at Recordar (`PrerequisiteStatus.unlocked`). A blocked point is not taught and its ideas get **no mode practice** (dated review goes on): `PointStatus.blockedBy`, `IdeaStatus.blocked`.
+- **Plan**: the placement test asks every prerequisite first (`pendingIdeas`/`pendingPoints` lead with them); the day's teach block takes the deepest unblocked one first, then the one most points rest on (`nextPrerequisite`); one session each (`ChatExamLink.prerequisiteId`, prompts `teach-prerequisite.md` / `consolidate-prerequisite.md` — a short one when shown known but not in the graph). `examWork` adds the prerequisites under the points chosen for the coverage, once.
+- **Shared through the graph**: ideas born in its teach sessions belong to it; same-key prerequisites in other exams carry each other's ideas (`sharePrerequisiteIdeas`, also in the Repaso deadlines) — taught once, reviewed once.
+- **Found by the research**: after a draft's whole research, the **prerequisite finder** (`exam-prerequisites.ts`, strong slot, `search_ideas` over the graph, owner-approved prompt) lists each block's level-1 prerequisites, reusing EXISTING ones (this exam's and other exams'); mapping state `prerequisites`; reviewed in Revisar («Conocimientos previos»: edit, remove, add, change the topics that need it).
+- **Diagnosis in the placement test** (`placement-prerequisites*.md`): after a miss or «no lo sé», 1–2 short recall problems on what it rests on; a newly detected base is registered with the practice tool `note_prerequisite` (`noteDiagnosedPrerequisite`: one level under the missed item, at most 3; the same statement reuses the existing one).
+- **Active exams** (retroactive): «Detectar conocimientos previos» (`POST/PUT/DELETE /api/exams/[id]/prerequisites`) runs the finder with the placement test's misses (`placementMisses`) as evidence; the proposal waits in `prerequisiteSearch` («Lo sugiere: “…”») until «Aplicar» (checked items) or «Descartar». New unlinked ones become placement questions.
+- Exam page: section «Conocimientos previos» (state, origin, «Lo necesitan» / «Base de», «Bloquea N temas», «Editar»), «Bloqueado por: …» under points.
+
 ## The plan
 
 - **Work** (`examWork`): the exhaustive placement test (climbs to the standard's mode), teaching «falta» points (full, or a short «afianzado» when the placement showed the learner knows it), consolidation for «por enseñar» ideas, mode practice, and reviews until the exam. Only the points needed for the coverage count: already meeting first, then prioritized blocks, then the cheapest.
@@ -107,6 +120,7 @@ Folded into the desktop clock (`POST /api/review/notify` → `deskNotice`): the 
 | `GET/PUT/DELETE /api/exams/[id]` | detail with the derived plan / edit, activate, archive, real grade / delete |
 | `POST /api/exams/[id]/map` | start read → guide → outline → research (202; 503 without a strong model) |
 | `POST /api/exams/[id]/preview` | the wizard's what-if forecast |
+| `POST/PUT/DELETE /api/exams/[id]/prerequisites` | «Detectar conocimientos previos»: run the finder / apply `{ accept }` / discard |
 | `POST /api/exams/[id]/sessions` | start a block: placement, practice, review, teach, mock, deepen |
 | `POST /api/exams/syllabus-file` | a syllabus file → text |
 
