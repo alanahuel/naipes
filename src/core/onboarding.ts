@@ -100,6 +100,7 @@ export const ONBOARDING_ENTRIES: readonly OnboardingEntry[] = [
 	{ id: "probeMemory", version: "0.16.0" },
 	{ id: "examPrerequisites", version: "0.17.0" },
 	{ id: "onboarding", version: "0.18.0" },
+	{ id: "examTabs", version: "0.19.0" },
 ];
 
 /** Compare "X.Y.Z" versions (pre-release suffixes ignored). */

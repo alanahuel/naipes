@@ -47,4 +47,6 @@ export default {
 	"onboarding.entry.examPrerequisites.body": "Si un punto del temario necesita algo que aún no dominas, lo detecto y te lo enseño primero.",
 	"onboarding.entry.onboarding.title": "Primeros pasos y novedades",
 	"onboarding.entry.onboarding.body": "Esta tarjeta: te guía por lo que aún no has probado y te cuenta lo nuevo de cada versión.",
+	"onboarding.entry.examTabs.title": "Exámenes por pestañas",
+	"onboarding.entry.examTabs.body": "La página de cada examen se organiza en pestañas: resumen, temario, conocimientos previos e instrucciones de la asignatura y del tutor, que ya puedes escribir desde ahí.",
 };
