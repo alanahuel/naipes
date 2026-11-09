@@ -6,7 +6,7 @@
  * the open tab (the exam page keeps it in the URL).
  *
  * Narrow windows: the row scrolls sideways instead of wrapping; the open
- * tab scrolls into view when it changes.
+ * tab is kept in view when it changes and when the row resizes.
  *
  * A tab can carry a dot (`alert`): a small primary mark plus a sr-only
  * label, for «something here wants you».
@@ -44,21 +44,44 @@ export function Tabs<V extends string>({
 	className?: string;
 }) {
 	const listRef = React.useRef<HTMLDivElement | null>(null);
+	// Keep the open tab visible in a row narrower than its tabs — on change
+	// and on resize — scrolling the row only (never the page).
 	React.useEffect(() => {
-		listRef.current?.querySelector<HTMLElement>("[data-state=active]")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+		const list = listRef.current;
+		if (!list) return;
+		const reveal = () => {
+			const tab = list.querySelector<HTMLElement>("[data-state=active]");
+			if (!tab) return;
+			const left = tab.getBoundingClientRect().left - list.getBoundingClientRect().left + list.scrollLeft;
+			if (left < list.scrollLeft) list.scrollLeft = left;
+			else if (left + tab.offsetWidth > list.scrollLeft + list.clientWidth) list.scrollLeft = left + tab.offsetWidth - list.clientWidth;
+		};
+		reveal();
+		const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(reveal);
+		observer?.observe(list);
+		return () => observer?.disconnect();
 	}, [value]);
 	return (
 		<RadixTabs.Root value={value} onValueChange={(v) => onChange(v as V)} activationMode="automatic" className={cn("flex flex-col gap-8", className)}>
-			<RadixTabs.List ref={listRef} aria-label={label} className="flex overflow-x-auto border-b [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+			{/* The app-wide thin scrollbar (globals.css, unlayered) beats any
+			    utility class, so the row hides its own with an inline style;
+			    overflow-y hidden + the underline as an inset shadow = nothing
+			    overflows vertically (no 1px scroll, no stray bar). */}
+			<RadixTabs.List
+				ref={listRef}
+				aria-label={label}
+				style={{ scrollbarWidth: "none" }}
+				className="flex overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_var(--color-border)] [&::-webkit-scrollbar]:hidden"
+			>
 				{items.map((item) => (
 					<RadixTabs.Trigger
 						key={item.value}
 						value={item.value}
 						data-testid={item.testid}
 						className={cn(
-							"relative -mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 border-transparent px-3 py-2.5 text-sm first:pl-1 text-muted-foreground transition-colors",
+							"relative flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-2.5 text-sm first:pl-1 text-muted-foreground transition-colors",
 							"hover:text-foreground focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-							"data-[state=active]:border-primary data-[state=active]:font-medium data-[state=active]:text-foreground",
+							"data-[state=active]:font-medium data-[state=active]:text-foreground data-[state=active]:shadow-[inset_0_-2px_0_var(--color-primary)]",
 						)}
 					>
 						{item.label}
