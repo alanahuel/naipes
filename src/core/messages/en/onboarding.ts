@@ -51,5 +51,7 @@ export default {
 	"onboarding.entry.onboarding.title": "First steps and what’s new",
 	"onboarding.entry.onboarding.body": "This card: it walks you through what you haven’t tried yet and tells you what each version brings.",
 	"onboarding.entry.examTabs.title": "Exams in tabs",
+	"onboarding.entry.examPages.title": "Long lists in pages",
+	"onboarding.entry.examPages.body": "In exams, the syllabus, prior knowledge and instructions show 10 at a time, and each tab remembers its page.",
 	"onboarding.entry.examTabs.body": "Each exam’s page is organised in tabs: summary, syllabus, prior knowledge, and the subject’s and tutor’s instructions, which you can now write right there.",
 } satisfies Record<keyof typeof es, Message>;

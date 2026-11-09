@@ -31,6 +31,7 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { BarChart } from "@/components/ui/bar-chart";
 import { Select } from "@/components/ui/select";
 import { Tabs, TabPanel } from "@/components/ui/tabs";
+import { Pager, type Paging } from "@/components/ui/pager";
 import { useServerEvent } from "@/components/server-events";
 import { cleanPrerequisites, PrerequisitesEditor, PrerequisitesSection } from "@/components/exam-prerequisites";
 import { stashOpeningPrompt } from "@/components/opening-prompt";
@@ -74,6 +75,11 @@ import {
 	EXAM_TABS as EXAM_TAB_ORDER,
 	examTabFromParam,
 	examTabHref,
+	examPageFromParam,
+	examPageHref,
+	examPageParam,
+	pageSlice,
+	type PagedExamTab,
 	type ExamTab,
 	POINT_KINDS,
 	type PointKind,
@@ -1914,7 +1920,7 @@ function ContrastPanel({ exam }: { exam: ExamDetailView }) {
 	);
 }
 
-function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight: boolean }) {
+function SyllabusSection({ exam, highlight, paging }: { exam: ExamDetailView; highlight: boolean; paging?: Paging }) {
 	const t = useT();
 	const [open, setOpen] = useState<string | null>(null);
 	const points = exam.model?.points ?? [];
@@ -1955,6 +1961,10 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 		const next = priority.has(blockId) ? [...priority].filter((b) => b !== blockId) : [...priority, blockId];
 		void sendJson(`/api/exams/${exam.id}`, "PUT", { priorityBlocks: next });
 	};
+	// Only what is studied shows here; instructions have their own tabs.
+	const studied = exam.record.blocks.filter((b) => points.some((p) => p.blockId === b.id));
+	const slice = pageSlice(studied.length, paging?.page ?? 1);
+	const shownBlocks = paging ? studied.slice(slice.start, slice.end) : studied;
 	return (
 		<section className="flex flex-col gap-3" data-testid="exam-syllabus" id="exam-syllabus">
 			<SectionTitle
@@ -2004,10 +2014,8 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 			{contrast && contrast.state !== "running" && <ContrastPanel exam={exam} />}
 			{highlight && <p className="px-1 text-sm text-muted-foreground">{t("exams.syllabus.prioritizeHint")}</p>}
 			<ul className="overflow-hidden rounded-xl border">
-				{exam.record.blocks.map((b) => {
+				{shownBlocks.map((b) => {
 					const blockPoints = points.filter((p) => p.blockId === b.id);
-					// Only what is studied shows here; instructions have their own sections.
-					if (blockPoints.length === 0) return null;
 					const score = Math.round(blockScore(blockPoints) * 100);
 					const isOpen = open === b.id;
 					return (
@@ -2075,6 +2083,7 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 					);
 				})}
 			</ul>
+			{paging && <Pager page={slice.page} pages={slice.pages} onPage={paging.onPage} testid="exam-syllabus-pager" />}
 		</section>
 	);
 }
@@ -2082,7 +2091,7 @@ function SyllabusSection({ exam, highlight }: { exam: ExamDetailView; highlight:
 /** «Instrucciones de la asignatura» / «Instrucciones para el tutor»
  *  (owner 2026-11-06): each instruction point with its rules — edit,
  *  add, delete (saved on blur), and change the point's type. */
-function InstructionsSection({ exam, kind }: { exam: ExamDetailView; kind: "rules" | "tutor" }) {
+function InstructionsSection({ exam, kind, paging }: { exam: ExamDetailView; kind: "rules" | "tutor"; paging?: Paging }) {
 	const t = useT();
 	const [blocks, setBlocks] = useState<SyllabusBlock[]>(exam.record.blocks);
 	const [error, setError] = useState<string | null>(null);
@@ -2092,6 +2101,8 @@ function InstructionsSection({ exam, kind }: { exam: ExamDetailView; kind: "rule
 	const points = instructionPoints({ blocks }, kind);
 	const pendingTotal = pendingKindPoints(exam.record).length;
 	const pendingHere = points.some((p) => p.pendingFrom);
+	const slice = pageSlice(points.length, paging?.page ?? 1);
+	const shownPoints = paging ? points.slice(slice.start, slice.end) : points;
 	const [adding, setAdding] = useState<string | null>(null);
 	const [picking, setPicking] = useState(false);
 	const syllabusPoints = blocks
@@ -2121,6 +2132,8 @@ function InstructionsSection({ exam, kind }: { exam: ExamDetailView; kind: "rule
 		const next = addInstructionPoint(blocks, kind, text, { block: localId("b_"), point: localId("p_") }, t(`exams.kind.${kind}` as MessageKey));
 		setBlocks(next);
 		setAdding(null);
+		// Land on the page the new section went to (the list's end).
+		paging?.onPage(pageSlice(points.length + 1, Number.MAX_SAFE_INTEGER).page);
 		await save(next);
 	};
 	const input = "min-w-0 flex-1 resize-y rounded-md border border-transparent bg-transparent px-2 py-1 outline-none hover:border-border focus:border-primary/50";
@@ -2151,7 +2164,7 @@ function InstructionsSection({ exam, kind }: { exam: ExamDetailView; kind: "rule
 			)}
 			{points.length > 0 && (
 			<ul className="overflow-hidden rounded-xl border">
-				{points.map((p) => {
+				{shownPoints.map((p) => {
 					const block = blocks.find((b) => b.id === p.blockId)!;
 					return (
 						<li key={p.id} className="border-b px-4 py-2.5 text-sm last:border-b-0" data-testid="exam-instruction-point">
@@ -2213,6 +2226,7 @@ function InstructionsSection({ exam, kind }: { exam: ExamDetailView; kind: "rule
 				})}
 			</ul>
 			)}
+			{paging && <Pager page={slice.page} pages={slice.pages} onPage={paging.onPage} testid={`exam-instructions-${kind}-pager`} />}
 			{editable && adding !== null && (
 				<form
 					className="flex items-center gap-2"
@@ -2463,7 +2477,15 @@ export function ExamPage({ id }: { id: string }) {
 	const tab = examTabFromParam(searchParams.get("tab"));
 	// The native history API (Next docs, «Linking and navigating»): the URL
 	// and useSearchParams update at once, no server round-trip per tab.
-	const setTab = (next: ExamTab) => window.history.replaceState(null, "", examTabHref(id, next));
+	const setTab = (next: ExamTab) => window.history.replaceState(null, "", examTabHref(id, next, window.location.search));
+	// Each tab's own page (?p-temario=3…), kept when switching tabs.
+	const paging = (which: PagedExamTab): Paging => ({
+		page: examPageFromParam(searchParams.get(examPageParam(which))),
+		onPage: (next) => {
+			window.history.replaceState(null, "", examPageHref(id, which, next, window.location.search));
+			document.querySelector(`[data-testid="exam-tab-${which}"]`)?.scrollIntoView({ block: "nearest" });
+		},
+	});
 	if (data === undefined) return <p className="p-10 text-sm text-muted-foreground">{t("exams.loading")}</p>;
 	if (data === null) return <p role="alert" className="p-10 text-sm text-warn">{t("exams.loadFailed")}</p>;
 	if (data.status === "draft") return <DraftWizard exam={data} reload={reload} />;
@@ -2514,16 +2536,16 @@ export function ExamPage({ id }: { id: string }) {
 						{live && data.daysLeft <= MOCK_SHOW_DAYS && data.daysLeft > 0 && <MockSection exam={data} />}
 					</TabPanel>
 					<TabPanel value="syllabus" testid="exam-panel-syllabus">
-						<SyllabusSection exam={data} highlight={live && highlight} />
+						<SyllabusSection exam={data} highlight={live && highlight} paging={paging("syllabus")} />
 					</TabPanel>
 					<TabPanel value="prior" testid="exam-panel-prior">
-						<PrerequisitesSection exam={data} />
+						<PrerequisitesSection exam={data} paging={paging("prior")} />
 					</TabPanel>
 					<TabPanel value="rules" testid="exam-panel-rules">
-						<InstructionsSection exam={data} kind="rules" />
+						<InstructionsSection exam={data} kind="rules" paging={paging("rules")} />
 					</TabPanel>
 					<TabPanel value="tutor" testid="exam-panel-tutor">
-						<InstructionsSection exam={data} kind="tutor" />
+						<InstructionsSection exam={data} kind="tutor" paging={paging("tutor")} />
 					</TabPanel>
 				</Tabs>
 		</Page>

@@ -26,8 +26,51 @@ export function examTabFromParam(value: string | null | undefined): ExamTab {
 	return EXAM_TABS.find((t) => SLUGS[t] === value) ?? "summary";
 }
 
-/** The exam page's href for a tab (Resumen = no ?tab). */
-export const examTabHref = (examId: string, tab: ExamTab): string => (tab === "summary" ? `/exams/${examId}` : `/exams/${examId}?tab=${SLUGS[tab]}`);
+/** The exam page's href for a tab (Resumen = no ?tab), keeping the
+ *  other query params — each tab's page among them. */
+export function examTabHref(examId: string, tab: ExamTab, current = ""): string {
+	const q = new URLSearchParams(current);
+	if (tab === "summary") q.delete("tab");
+	else q.set("tab", SLUGS[tab]);
+	const qs = q.toString();
+	return qs ? `/exams/${examId}?${qs}` : `/exams/${examId}`;
+}
+
+// ─── pages (owner 2026-11-09) ──────────────────────────────────────────────
+
+/** Long lists (Temario's blocks, Conocimientos previos, Asignatura's and
+ *  Tutor's sections) split into pages of this many; no pager up to it. */
+export const EXAM_PAGE_SIZE = 10;
+
+/** The tabs with a paged list. */
+export type PagedExamTab = Exclude<ExamTab, "summary">;
+
+/** Each tab keeps its own page in the URL (`?tab=temario&p-temario=3`),
+ *  so switching tabs and back keeps it; page 1 = no param. */
+export const examPageParam = (tab: PagedExamTab): string => `p-${SLUGS[tab]}`;
+
+export function examPageFromParam(value: string | null | undefined): number {
+	const n = Number.parseInt(value ?? "", 10);
+	return Number.isFinite(n) && n >= 1 ? n : 1;
+}
+
+/** The exam page's href with `tab`'s page set (1 = removed). */
+export function examPageHref(examId: string, tab: PagedExamTab, page: number, current = ""): string {
+	const q = new URLSearchParams(current);
+	if (page <= 1) q.delete(examPageParam(tab));
+	else q.set(examPageParam(tab), String(page));
+	const qs = q.toString();
+	return qs ? `/exams/${examId}?${qs}` : `/exams/${examId}`;
+}
+
+/** One page of a list: the page clamped to what exists (a list that
+ *  shrank lands on its last page), its item range, and the page count. */
+export function pageSlice(total: number, page: number, size = EXAM_PAGE_SIZE): { page: number; pages: number; start: number; end: number } {
+	const pages = Math.max(1, Math.ceil(total / size));
+	const at = Math.min(Math.max(1, Math.floor(page) || 1), pages);
+	const start = (at - 1) * size;
+	return { page: at, pages, start, end: Math.min(total, start + size) };
+}
 
 /** Which tabs carry the «something to do / running» dot. */
 export function examTabAlerts(exam: Pick<ExamDetailView, "status" | "infeasible" | "record">): Record<ExamTab, boolean> {

@@ -17,8 +17,9 @@ import { PlusIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 import { SectionTitle } from "@/components/ui/page";
+import { Pager, type Paging } from "@/components/ui/pager";
 import { useT, type Translate } from "@/components/i18n";
-import type { DemandMode, ExamDetailView, ExamPrerequisite, IdeaStatus, MessageKey, PrerequisiteOrigin, PrerequisiteStatus } from "@/src/core";
+import { pageSlice, type DemandMode, type ExamDetailView, type ExamPrerequisite, type IdeaStatus, type MessageKey, type PrerequisiteOrigin, type PrerequisiteStatus } from "@/src/core";
 
 const primaryBtn = buttonVariants({ variant: "default" });
 const quietBtn = buttonVariants({ variant: "outline", size: "sm" });
@@ -153,7 +154,7 @@ export const cleanPrerequisites = (list: readonly ExamPrerequisite[]): ExamPrere
 
 /** The exam page's section: each prerequisite's standing; «Editar»;
  *  «Detectar conocimientos previos» and its proposal. */
-export function PrerequisitesSection({ exam }: { exam: ExamDetailView }) {
+export function PrerequisitesSection({ exam, paging }: { exam: ExamDetailView; paging?: Paging }) {
 	const t = useT();
 	const statuses = exam.model?.prerequisites ?? [];
 	const record = exam.record.prerequisites ?? [];
@@ -200,6 +201,8 @@ export function PrerequisitesSection({ exam }: { exam: ExamDetailView }) {
 	}
 
 	const running = search?.state === "running";
+	const slice = pageSlice(statuses.length, paging?.page ?? 1);
+	const shown = paging ? statuses.slice(slice.start, slice.end) : statuses;
 	return (
 		<section className="flex flex-col gap-3" data-testid="exam-prerequisites">
 			<SectionTitle
@@ -235,7 +238,7 @@ export function PrerequisitesSection({ exam }: { exam: ExamDetailView }) {
 			{search && search.state !== "running" && search.mode === "review" && <ProposalPanel exam={exam} onRetry={() => void detect()} />}
 			{statuses.length > 0 && (
 				<ul className="overflow-hidden rounded-xl border">
-					{statuses.map((q) => (
+					{shown.map((q) => (
 						<li key={q.id} className="border-b px-4 py-2 text-sm last:border-b-0" data-testid="exam-prereq">
 							<div className="flex items-start justify-between gap-3">
 								<span className="min-w-0">{q.statement}</span>
@@ -252,6 +255,7 @@ export function PrerequisitesSection({ exam }: { exam: ExamDetailView }) {
 					))}
 				</ul>
 			)}
+			{paging && <Pager page={slice.page} pages={slice.pages} onPage={paging.onPage} testid="exam-prereq-pager" />}
 		</section>
 	);
 }

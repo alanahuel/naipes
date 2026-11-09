@@ -6,8 +6,9 @@ import React from "react";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { addInstructionPoint, EMPTY_EXAM_CONTEXT, examTabAlerts, examTabFromParam, examTabHref, examTabParam, EXAM_TABS, presetStandard, type ExamRecord, type SyllabusBlock } from "../src/core/index.ts";
+import { addInstructionPoint, EMPTY_EXAM_CONTEXT, examPageFromParam, examPageHref, examPageParam, examTabAlerts, pageSlice, examTabFromParam, examTabHref, examTabParam, EXAM_TABS, presetStandard, type ExamRecord, type SyllabusBlock } from "../src/core/index.ts";
 import { Tabs, TabPanel } from "../components/ui/tabs.tsx";
+import { Pager } from "../components/ui/pager.tsx";
 
 const researched = (id: string, text: string, over: Partial<SyllabusBlock["points"][number]> = {}) => ({ id, text, nodeIds: [], targets: [], ...over });
 
@@ -108,5 +109,36 @@ describe("exam tabs: the Tabs primitive", () => {
 		assert.match(html, /uno/);
 		assert.doesNotMatch(html, /dos/);
 		assert.match(html, /hay algo pendiente/);
+	});
+});
+
+describe("exam tabs: pages (owner 2026-11-09)", () => {
+	it("switching tabs keeps every tab's page; page 1 drops its param", () => {
+		assert.equal(examTabHref("e1", "prior", "?tab=temario&p-temario=3"), "/exams/e1?tab=previos&p-temario=3");
+		assert.equal(examTabHref("e1", "summary", "?tab=temario&p-temario=3"), "/exams/e1?p-temario=3");
+		assert.equal(examPageHref("e1", "syllabus", 2, "?tab=temario"), "/exams/e1?tab=temario&p-temario=2");
+		assert.equal(examPageHref("e1", "syllabus", 1, "?tab=temario&p-temario=2"), "/exams/e1?tab=temario");
+		assert.equal(examPageParam("rules"), "p-asignatura");
+	});
+	it("reads a page; junk = 1", () => {
+		assert.equal(examPageFromParam("3"), 3);
+		assert.equal(examPageFromParam(null), 1);
+		assert.equal(examPageFromParam("0"), 1);
+		assert.equal(examPageFromParam("x"), 1);
+	});
+	it("slices 10 per page and clamps to what exists", () => {
+		assert.deepEqual(pageSlice(23, 1), { page: 1, pages: 3, start: 0, end: 10 });
+		assert.deepEqual(pageSlice(23, 3), { page: 3, pages: 3, start: 20, end: 23 });
+		assert.deepEqual(pageSlice(23, 9), { page: 3, pages: 3, start: 20, end: 23 });
+		assert.deepEqual(pageSlice(10, 2), { page: 1, pages: 1, start: 0, end: 10 });
+		assert.deepEqual(pageSlice(0, 1), { page: 1, pages: 1, start: 0, end: 0 });
+		assert.equal(pageSlice(11, Number.MAX_SAFE_INTEGER).page, 2);
+	});
+	it("the pager: nothing for one page; status and disabled ends", () => {
+		assert.equal(renderToStaticMarkup(<Pager page={1} pages={1} onPage={() => {}} />), "");
+		const html = renderToStaticMarkup(<Pager page={1} pages={4} onPage={() => {}} />);
+		assert.match(html, /1 of 4/);
+		assert.match(html, /<button[^>]*disabled=""[^>]*data-testid="pager-prev"/);
+		assert.doesNotMatch(html, /<button[^>]*disabled=""[^>]*data-testid="pager-next"/);
 	});
 });
