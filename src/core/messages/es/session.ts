@@ -115,6 +115,7 @@ export default {
 	"session.question.dontKnow": "No lo sé",
 	"session.question.otherPlaceholder": "Escribe tu propia respuesta…",
 	"session.question.confidence": "Seguridad",
+	"session.question.confidenceMissing": "Elige tu seguridad",
 	"session.question.confidenceAria": "Seguridad: la probabilidad de que tu respuesta sea correcta",
 	"session.question.confidenceValue": "{n} por ciento",
 	"session.question.confidenceHint": "La probabilidad de que tu respuesta sea correcta: 50 % es lanzar una moneda. Ajústala con ←/→.",

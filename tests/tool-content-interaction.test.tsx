@@ -29,6 +29,13 @@ test("actual select → submit → saved result → historical Why uses source d
 		assert.ok(choice);
 		await act(async () => choice.click());
 		assert.equal(choice.getAttribute("aria-checked"), "true");
+		// The confidence is never pre-filled (owner 2026-11-09): state it.
+		// The dock's global ←/→ picks it (from unchosen: the middle stop).
+		await act(async () => {
+			const key = new window.Event("keydown", { bubbles: true, cancelable: true });
+			Object.assign(key, { key: "ArrowRight" });
+			document.body.dispatchEvent(key);
+		});
 		const submit = [...host.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("Submit answer"))!;
 		assert.equal(submit.disabled, false);
 		// linkedom does not implement the browser's default button→form

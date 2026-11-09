@@ -543,10 +543,9 @@ export interface AnswerRequest {
 /** The confidence slider's snap stops (owner, 2026-10-01): raw probability
  *  that the selected answer is correct, uneven on purpose — resolution
  *  concentrates at the top where the calibration signal lives (90 vs 100
- *  separates knows from mastered). 50 is a genuine coin flip and the
- *  resting default — untouched and deliberate 50 are the same number. */
+ *  separates knows from mastered). 50 is a genuine coin flip. No stop is
+ *  pre-selected any more (owner 2026-11-09): the learner always picks. */
 export const CONFIDENCE_STOPS: readonly number[] = [0, 30, 50, 70, 90, 100];
-export const DEFAULT_CONFIDENCE_INDEX = 2;
 
 // ─── dock selection (the client state machine, pure for tests) ─────────────
 
@@ -566,7 +565,8 @@ export interface QuestionFormDraft {
 	thinking: string;
 	other: string;
 	text: string;
-	confidenceIndex: number;
+	/** null = not chosen yet (owner 2026-11-09: never pre-filled). */
+	confidenceIndex: number | null;
 }
 
 export interface QuestionDraft {

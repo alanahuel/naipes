@@ -9,7 +9,7 @@ import { useEnterSubmits } from "@/components/enter-submits";
 import { cn } from "@/lib/utils";
 import { useT } from "@/components/i18n";
 import { ConfidenceSlider } from "@/components/confidence-rail";
-import { CONFIDENCE_STOPS, DEFAULT_CONFIDENCE_INDEX, type AttachmentRef } from "@/src/core";
+import type { AttachmentRef } from "@/src/core";
 import { AttachButton, AttachmentTrayView, useAttachmentTray } from "@/components/attachments";
 
 /**
@@ -56,16 +56,21 @@ export interface PracticeDockProps {
 export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmit, onEscape, compactionRunning = false }: PracticeDockProps) {
 	const t = useT();
 	const [thinking, setThinking] = useState("");
-	// The stated confidence (owner, 2026-11-05 — «Exámenes»): the quiz
-	// dock's default stop, kept across one problem's submissions and reset
-	// for the next problem.
-	const defaultConfidence = CONFIDENCE_STOPS[DEFAULT_CONFIDENCE_INDEX]!;
-	const [confidence, setConfidence] = useState(defaultConfidence);
-	const confidenceRef = useRef(defaultConfidence);
+	// The stated confidence (owner, 2026-11-05 — «Exámenes»), NEVER
+	// pre-filled (owner 2026-11-09): null until the learner picks a stop;
+	// any change to the answer (typing, dictation, photos) and every
+	// submission empty it again, so each send carries a fresh choice.
+	const [confidence, setConfidence] = useState<number | null>(null);
+	const confidenceRef = useRef<number | null>(null);
+	const [confidenceMissing, setConfidenceMissing] = useState(false);
+	const clearConfidence = useCallback(() => {
+		confidenceRef.current = null;
+		setConfidence(null);
+	}, []);
 	useEffect(() => {
-		confidenceRef.current = defaultConfidence;
-		setConfidence(defaultConfidence);
-	}, [problemCallId, defaultConfidence]);
+		clearConfidence();
+		setConfidenceMissing(false);
+	}, [problemCallId, clearConfidence]);
 	// Ref MIRRORS the field ("nothing gets lost", the question-dock
 	// discipline): a submit resuming after `await finishDictation()` reads
 	// the tail, never a stale closure.
@@ -73,6 +78,13 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 	// Photos of the paper working (owner, 2026-11-06 — the reason the
 	// feature exists): the same tray as the composer.
 	const tray = useAttachmentTray();
+	// Adding or removing a photo changes the answer too.
+	const trayCount = useRef(tray.count);
+	useEffect(() => {
+		if (trayCount.current === tray.count) return;
+		trayCount.current = tray.count;
+		clearConfidence();
+	}, [tray.count, clearConfidence]);
 
 	useDictationTarget(
 		useCallback(
@@ -80,8 +92,9 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 				const v = joinDictation(thinkingRef.current, t);
 				thinkingRef.current = v;
 				setThinking(v);
+				clearConfidence();
 			},
-			[],
+			[clearConfidence],
 		),
 		true,
 	);
@@ -90,9 +103,17 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 		if (compactionRunning || tray.uploading) return;
 		const text = thinkingRef.current.trim();
 		if (text.length === 0 && tray.count === 0) return;
+		const stated = confidenceRef.current;
+		if (stated === null) {
+			setConfidenceMissing(true);
+			return;
+		}
 		thinkingRef.current = "";
 		setThinking("");
-		onSubmit(text, confidenceRef.current, tray.take());
+		const photos = tray.take();
+		trayCount.current = 0;
+		clearConfidence();
+		onSubmit(text, stated, photos);
 	};
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): dictation
@@ -139,10 +160,13 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 					onChange={(stop) => {
 						confidenceRef.current = stop;
 						setConfidence(stop);
+						setConfidenceMissing(false);
 					}}
 					label={t("session.question.confidence")}
+					missingLabel={t("session.question.confidenceMissing")}
+					missing={confidenceMissing}
 					ariaLabel={t("session.question.confidenceAria")}
-					valueText={t("session.question.confidenceValue", { n: confidence })}
+					valueText={confidence === null ? "—" : t("session.question.confidenceValue", { n: confidence })}
 				/>
 			</div>
 
@@ -163,6 +187,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 					onChange={(e) => {
 						thinkingRef.current = e.target.value;
 						setThinking(e.target.value);
+						clearConfidence();
 					}}
 					onKeyDown={(e) => {
 						// Esc ends dictation — stopPropagation claims it (the

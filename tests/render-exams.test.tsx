@@ -101,11 +101,11 @@ describe("exams: static renders", () => {
 		assert.ok(html.includes('value="30"'));
 	});
 	it("the confidence slider and the practice dock carry it", () => {
-		const slider = renderToStaticMarkup(<ConfidenceSlider value={70} onChange={() => {}} label="Confidence" ariaLabel="a" valueText="70" />);
+		const slider = renderToStaticMarkup(<ConfidenceSlider value={70} onChange={() => {}} label="Confidence" missingLabel="Pick" ariaLabel="a" valueText="70" />);
 		assert.ok(slider.includes("70%"));
 		const dock = renderToStaticMarkup(<PracticeDock problemCallId="p1" input={{ statement: "S" }} expanded onExpand={() => {}} onSubmit={() => {}} />);
 		assert.ok(dock.includes('data-testid="practice-confidence"'));
-		assert.ok(dock.includes("50%"), "the quiz dock's default stop");
+		assert.ok(dock.includes(">—</span>"), "never pre-filled (owner 2026-11-09)");
 	});
 	it("a draft card carries the «···» menu; an active card does not (owner, 2026-11-06)", () => {
 		const summary = (status: ExamSummaryView["status"]): ExamSummaryView => ({

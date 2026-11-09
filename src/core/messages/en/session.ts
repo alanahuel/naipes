@@ -117,6 +117,7 @@ export default {
 	"session.question.dontKnow": "I don't know",
 	"session.question.otherPlaceholder": "Type your own answer…",
 	"session.question.confidence": "Confidence",
+	"session.question.confidenceMissing": "Pick your confidence",
 	"session.question.confidenceAria": "Confidence — the probability your selected answer is correct",
 	"session.question.confidenceValue": "{n} percent",
 	"session.question.confidenceHint": "The probability your selected answer is correct — 50% is a coin flip. Adjust with ←/→.",
