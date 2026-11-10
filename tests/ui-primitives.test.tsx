@@ -117,13 +117,13 @@ describe("PageHeader", () => {
 });
 
 describe("NarrowNav", () => {
-	it("names the current section and lists all five tabs on demand", async () => {
+	it("names the current section and lists all six tabs on demand", async () => {
 		await mount(<NarrowNav pathname="/exams/abc" />);
 		const button = document.querySelector<HTMLButtonElement>('[data-testid="narrow-nav-button"]')!;
 		assert.match(button.textContent ?? "", /Exams/);
 		await act(async () => button.click());
 		const links = [...document.querySelectorAll<HTMLAnchorElement>('[data-testid="narrow-nav-menu"] a')];
-		assert.equal(links.length, 5);
+		assert.equal(links.length, 6);
 		assert.equal(links.filter((a) => a.getAttribute("aria-current") === "page").length, 1);
 	});
 });

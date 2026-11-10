@@ -137,7 +137,8 @@ describe("planCalendar", () => {
 			],
 		);
 		assert.equal(today.repasoMinutes, 10);
-		assert.equal(today.examMinutes.ex1, 61);
+		assert.equal(today.examMinutes.ex1, 80);
+		assert.deepEqual(today.unscheduled, { ex1: 19 }, "allocated, no session known yet → an estimate");
 		// Day 2: the practice the taught point opened.
 		assert.deepEqual(plan.days[1]!.items.map((i) => [i.kind, i.minutes]), [["practice", 12]]);
 	});

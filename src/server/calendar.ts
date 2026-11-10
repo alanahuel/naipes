@@ -18,9 +18,12 @@ import {
 	sanitizeEvent,
 	splitPart,
 	toConfirm,
+	type CalendarConfirmView,
 	type CalendarDay,
 	type CalendarEvent,
+	type CalendarExamView,
 	type CalendarItem,
+	type CalendarView,
 	type EventKind,
 	type IcsFeed,
 	type ImportedMeta,
@@ -44,45 +47,6 @@ type Result<T> = { ok: true; value: T } | { ok: false; status: 400 | 404 | 409 |
 const changed = () => emit("calendar-changed", {});
 
 // ─── the view ───────────────────────────────────────────────────────────────
-
-export interface CalendarExamView {
-	id: string;
-	title: string;
-	examDate: string;
-	points: Array<{ id: string; text: string; blockTitle: string }>;
-	prerequisites: Array<{ id: string; statement: string }>;
-}
-
-export interface CalendarSeriesView {
-	seriesKey: string;
-	feedId: string;
-	title: string;
-	meta: ImportedMeta;
-}
-
-export interface CalendarConfirmView {
-	key: string;
-	title: string;
-	kind: EventKind;
-	day: string;
-	start?: string;
-	examId: string;
-	planned: string[];
-}
-
-export interface CalendarView {
-	now: number;
-	today: string;
-	days: CalendarDay[];
-	late: CalendarItem[];
-	toConfirm: CalendarConfirmView[];
-	exams: CalendarExamView[];
-	events: CalendarEvent[];
-	feeds: IcsFeed[];
-	series: CalendarSeriesView[];
-	dayMinutes: Record<string, number>;
-	settings: { weeklyMinutes: number[]; slots: Array<{ weekday: number; start: string; end: string }>; alertMinutes: number; prepareMinutes: number };
-}
 
 /** At most this many days per view request (a month view + margins). */
 export const MAX_VIEW_DAYS = 62;

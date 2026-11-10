@@ -372,6 +372,7 @@ export function computeCalendar(input: {
 		exams: examInputs,
 		prepare,
 		doneToday,
+		reviewMinutes: durations.review,
 	});
 	return { source, plan, pinned: views, days, claims, budgetFor, doneToday };
 }

@@ -306,7 +306,9 @@ function summaryOf(c: ExamComputed, today: string): ExamSummaryView {
 		coverage: c.status?.coverage ?? null,
 		reachedPreset: c.status?.reachedPreset ?? null,
 		meetsStandard: c.status?.meetsStandard ?? false,
-		todayMinutes: c.blocks.reduce((s, b) => s + b.minutes, 0),
+		// «Calendario» (owner 2026-11-10): today's cards for this exam that
+		// are still to do (classes are not study minutes here).
+		todayMinutes: c.calendarToday.filter((i) => i.type === "session" && i.state !== "done").reduce((s, i) => s + i.minutes, 0),
 		infeasible: c.infeasible,
 		...(c.record.final ? { final: c.record.final } : {}),
 		...(c.record.realGrade ? { realGrade: c.record.realGrade } : {}),
@@ -335,6 +337,8 @@ export function examDetailView(id: string, now = Date.now()): ExamDetailView | n
 		weeklyMinutes: effectiveSettings().exams.weeklyMinutes,
 		startedToday: c.startedToday,
 		reading: readingProgress(c.record),
+		calendarToday: c.calendarToday,
+		calendarMinutes: state.calendar.plan.days.map((d) => Math.round(d.examMinutes[c.record.id] ?? 0)),
 	};
 }
 

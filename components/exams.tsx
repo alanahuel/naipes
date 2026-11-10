@@ -32,6 +32,7 @@ import { BarChart } from "@/components/ui/bar-chart";
 import { Select } from "@/components/ui/select";
 import { Tabs, TabPanel } from "@/components/ui/tabs";
 import { Pager, type Paging } from "@/components/ui/pager";
+import { DialogHost, ItemRow as CalendarItemRow, useCalendar, useStartCalendar, type CalendarDialog } from "@/components/calendar";
 import { useServerEvent } from "@/components/server-events";
 import { cleanPrerequisites, PrerequisitesEditor, PrerequisitesSection } from "@/components/exam-prerequisites";
 import { stashOpeningPrompt } from "@/components/opening-prompt";
@@ -1521,45 +1522,40 @@ function DraftWizard({ exam, reload }: { exam: ExamDetailView; reload: () => voi
 
 // ─── one exam ───────────────────────────────────────────────────────────────
 
+/** «Hoy» = the calendar's cards for this exam today («Calendario», owner
+ *  2026-11-10: one source of truth — parts and classes included). */
 function TodaySection({ exam }: { exam: ExamDetailView }) {
 	const t = useT();
-	const { state, start } = useStartExamSession(exam.id);
-	const points = exam.model?.points ?? [];
-	const prereqs = exam.model?.prerequisites ?? [];
-	const total = Math.round(exam.blocks.reduce((s, b) => s + b.minutes, 0));
-	const first = exam.blocks[0];
+	const { data: view } = useCalendar(null);
+	const start = useStartCalendar();
+	const [dialog, setDialog] = useState<CalendarDialog | null>(null);
+	const items = (view?.days[0]?.items ?? []).filter((i) => i.examId === exam.id);
+	const todo = items.filter((i) => i.type === "session" && i.state !== "done");
+	const total = Math.round(todo.reduce((s, i) => s + i.minutes, 0));
+	const first = todo[0];
+	const ordered = [...items.filter((i) => i.state !== "done" || i.type === "event"), ...items.filter((i) => i.state === "done" && i.type === "session")];
 	return (
 		<section className="flex flex-col gap-3" data-testid="exam-today">
 			<SectionTitle
 				right={
 					first ? (
-						<button type="button" className={primaryBtn} disabled={state === "starting"} onClick={() => void start(first.kind, first.prerequisiteId ?? first.pointId)} data-testid="exam-start">
-							{state === "starting" ? t("exams.today.starting") : t("exams.today.start")}
+						<button type="button" className={primaryBtn} disabled={start.starting !== null} onClick={() => void start.start(first.key)} data-testid="exam-start">
+							{start.starting ? t("exams.today.starting") : t("exams.today.start")}
 						</button>
 					) : undefined
 				}
 			>
 				{first ? t("exams.today.title", { min: total }) : t("exams.today.empty")}
 			</SectionTitle>
-			{exam.blocks.length > 0 && (
-				<ol className="overflow-hidden rounded-xl border">
-					{exam.blocks.map((b, i) => (
-						<li key={`${b.kind}:${b.prerequisiteId ?? b.pointId ?? i}`} className="flex items-center justify-between gap-3 border-b px-4 py-2.5 text-sm last:border-b-0">
-							<span className="flex min-w-0 items-center gap-3">
-								<span className="tabular-nums text-muted-foreground">{i + 1}</span>
-								<span className="min-w-0 truncate">{blockLabel(b, points, t, prereqs)}</span>
-							</span>
-							<span className="flex shrink-0 items-center gap-3">
-								<span className="tabular-nums text-muted-foreground">~{Math.round(b.minutes)} min</span>
-								<button type="button" className="text-muted-foreground hover:text-foreground" disabled={state === "starting"} aria-label={t("exams.today.startBlock", { block: blockLabel(b, points, t, prereqs) })} onClick={() => void start(b.kind, b.prerequisiteId ?? b.pointId)}>
-									<ChevronRightIcon className="size-4" />
-								</button>
-							</span>
-						</li>
+			{view && ordered.length > 0 && (
+				<ListCard>
+					{ordered.map((item) => (
+						<CalendarItemRow key={item.key} item={item} view={view} start={start} openDialog={setDialog} />
 					))}
-				</ol>
+				</ListCard>
 			)}
-			{state === "failed" && <p role="alert" className="px-1 text-xs text-warn">{t("exams.today.startFailed")}</p>}
+			{start.failed && <p role="alert" className="px-1 text-xs text-warn">{t("exams.today.startFailed")}</p>}
+			{view && <DialogHost dialog={dialog} view={view} onClose={() => setDialog(null)} />}
 		</section>
 	);
 }
@@ -1624,7 +1620,8 @@ function LevelSection({ exam, onPrioritize }: { exam: ExamDetailView; onPrioriti
 function PlanSection({ exam }: { exam: ExamDetailView }) {
 	const t = useT();
 	const { locale } = useLocale();
-	const counts = exam.allocation.slice(0, 14);
+	// «Calendario» (owner 2026-11-10): the calendar's minutes for this exam.
+	const counts = (exam.calendarMinutes?.length ? exam.calendarMinutes : exam.allocation).slice(0, 14);
 	const days = exam.days.slice(0, counts.length);
 	if (counts.length === 0) return null;
 	const label = (i: number) => (i === 0 ? t("exams.plan.today") : dateLabel(days[i]!, locale, { weekday: "short", day: "numeric" }));

@@ -487,6 +487,8 @@ export interface CalendarItem {
 	/** Pinned sessions: their id and which sitting this is. */
 	pinned?: { id: string; anchored: boolean; part: number; parts: number; chatId?: string };
 	state: "planned" | "inProgress" | "done" | "late";
+	/** repaso / review: ideas due (≈ minutes / review minutes). */
+	count?: number;
 	/** Events: «consume mi tiempo»; imported or not. */
 	consumes?: boolean;
 	source?: "manual" | "feed";
@@ -506,6 +508,9 @@ export interface CalendarDay {
 	repasoMinutes: number;
 	/** Budget left after everything placed (never below 0). */
 	free: number;
+	/** Concrete days: minutes allocated to an exam that no concrete session
+	 *  takes yet (what follows depends on the placement test). */
+	unscheduled?: Record<string, number>;
 }
 
 /** A pinned session's sitting as the planner sees it. */
@@ -537,6 +542,8 @@ export interface PlanCalendarInput {
 	/** Study minutes already done today in sessions not on the calendar
 	 *  (they used today's budget). */
 	doneToday: number;
+	/** Minutes per idea in review (for the cards' idea count). */
+	reviewMinutes?: number;
 }
 
 export interface CalendarPlan {
@@ -624,8 +631,9 @@ export function planCalendar(input: PlanCalendarInput): CalendarPlan {
 		// 1) Repaso first (owner: forgetting doesn't wait — offered even
 		//    past the budget).
 		const repaso = Math.round(input.repaso[index] ?? 0);
+		const count = (m: number) => (input.reviewMinutes ? { count: Math.max(1, Math.round(m / input.reviewMinutes)) } : {});
 		if (repaso >= 1) {
-			add({ kind: "repaso", minutes: Math.max(MIN_SESSION_MINUTES, repaso) });
+			add({ kind: "repaso", minutes: Math.max(MIN_SESSION_MINUTES, repaso), ...count(repaso) });
 			repasoMinutes = Math.max(MIN_SESSION_MINUTES, repaso);
 		}
 		// 2) «Preparar clase» the day of the class.
@@ -636,12 +644,13 @@ export function planCalendar(input: PlanCalendarInput): CalendarPlan {
 		// What today's teaching opens is practised from tomorrow on (its
 		// ideas are extracted after the session).
 		const opened = new Map<string, number>();
+		const unscheduled: Record<string, number> = {};
 		for (const e of order) {
 			const pool = pools.get(e.examId)!;
 			let share = Math.min(Math.max(0, e.allocation[index] ?? 0), Math.max(0, left));
 			const review = Math.round(e.reviewDue[index] ?? 0);
 			if (review >= 1) {
-				add({ kind: "review", minutes: review, examId: e.examId });
+				add({ kind: "review", minutes: review, examId: e.examId, ...count(review) });
 				share -= review;
 			}
 			for (let guard = 0; share >= MIN_SESSION_MINUTES && guard < 12; guard++) {
@@ -673,6 +682,13 @@ export function planCalendar(input: PlanCalendarInput): CalendarPlan {
 					...(next.short ? { short: true } : {}),
 				});
 			}
+			// Allocated but no session known yet: shown as an estimate.
+			if (share >= MIN_SESSION_MINUTES) {
+				const m = Math.round(share);
+				unscheduled[e.examId] = (unscheduled[e.examId] ?? 0) + m;
+				left -= m;
+				addExam(e.examId, m);
+			}
 		}
 		for (const [examId, m] of opened) pools.get(examId)!.practice += m;
 		const placed = assignHours({
@@ -683,7 +699,7 @@ export function planCalendar(input: PlanCalendarInput): CalendarPlan {
 			sessions: auto,
 		});
 		items.push(...placed);
-		return { day, budget, concrete, items: sortItems(items), examMinutes, repasoMinutes, free: Math.max(0, left) };
+		return { day, budget, concrete, items: sortItems(items), examMinutes, repasoMinutes, free: Math.max(0, left), ...(Object.keys(unscheduled).length ? { unscheduled } : {}) };
 	});
 	for (const view of input.pinned) {
 		const part = view.session.parts[view.part]!;
@@ -756,6 +772,47 @@ export function assignHours(input: {
 		fit.start += s.minutes;
 		return { ...s, start: minutesToClock(start), hour: "suggested" as const };
 	});
+}
+
+// ─── the API view (GET /api/calendar) ───────────────────────────────────────
+
+export interface CalendarExamView {
+	id: string;
+	title: string;
+	examDate: string;
+	points: Array<{ id: string; text: string; blockTitle: string }>;
+	prerequisites: Array<{ id: string; statement: string }>;
+}
+
+export interface CalendarSeriesView {
+	seriesKey: string;
+	feedId: string;
+	title: string;
+	meta: ImportedMeta;
+}
+
+export interface CalendarConfirmView {
+	key: string;
+	title: string;
+	kind: EventKind;
+	day: string;
+	start?: string;
+	examId: string;
+	planned: string[];
+}
+
+export interface CalendarView {
+	now: number;
+	today: string;
+	days: CalendarDay[];
+	late: CalendarItem[];
+	toConfirm: CalendarConfirmView[];
+	exams: CalendarExamView[];
+	events: CalendarEvent[];
+	feeds: IcsFeed[];
+	series: CalendarSeriesView[];
+	dayMinutes: Record<string, number>;
+	settings: { weeklyMinutes: number[]; slots: Array<{ weekday: number; start: string; end: string }>; alertMinutes: number; prepareMinutes: number };
 }
 
 // ─── editing (the learner touches a session → it is anchored) ───────────────

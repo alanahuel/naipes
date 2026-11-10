@@ -105,6 +105,7 @@ export const TABS: ReadonlyArray<{ href: string; label: MessageKey; testid: stri
 	{ href: "/knowledge", label: "shell.tabs.knowledge", testid: "tab-knowledge", match: (p) => p.startsWith("/knowledge") },
 	{ href: "/review", label: "shell.tabs.review", testid: "tab-review", match: (p) => p.startsWith("/review") },
 	{ href: "/exams", label: "shell.tabs.exams", testid: "tab-exams", match: (p) => p.startsWith("/exams") },
+	{ href: "/calendar", label: "shell.tabs.calendar", testid: "tab-calendar", match: (p) => p.startsWith("/calendar") },
 ];
 
 /** The settings pages the profile menu opens (route segment → copy). */
@@ -113,6 +114,7 @@ export const SETTINGS_PAGES: ReadonlyArray<{ id: string; label: MessageKey; hint
 	{ id: "connections", label: "shell.profile.connections", hint: "shell.profile.connectionsHint" },
 	{ id: "review", label: "shell.profile.review", hint: "shell.profile.reviewHint" },
 	{ id: "exams", label: "shell.profile.exams", hint: "shell.profile.examsHint" },
+	{ id: "calendar", label: "shell.profile.calendar", hint: "shell.profile.calendarHint" },
 	{ id: "appearance", label: "shell.profile.appearance", hint: "shell.profile.appearanceHint" },
 	{ id: "shortcuts", label: "shell.profile.shortcuts" },
 	{ id: "advanced", label: "shell.profile.advanced", hint: "shell.profile.advancedHint" },

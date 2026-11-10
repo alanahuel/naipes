@@ -29,6 +29,7 @@
  */
 
 import { forgetting_curve, FSRS6_DEFAULT_DECAY } from "ts-fsrs";
+import type { CalendarItem } from "./calendar.ts";
 import {
 	DAY_ROLLOVER_HOUR,
 	daysBetween,
@@ -2334,6 +2335,10 @@ export interface ExamDetailView extends ExamSummaryView {
 	startedToday: boolean;
 	/** While/after reading unread folders: notes settled and failed. */
 	reading: { total: number; done: number; failed: Array<{ path: string; error: string }> } | null;
+	/** «Calendario» (owner 2026-11-10): today's cards for this exam and
+	 *  its planned minutes per day from today (the calendar's plan). */
+	calendarToday: CalendarItem[];
+	calendarMinutes: number[];
 }
 
 // ─── sorting ideas born in exam sessions (owner 2026-11-06) ─────────────────

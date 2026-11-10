@@ -79,8 +79,8 @@ describe("exams: pure formatting", () => {
 		assert.equal(es(n.message, n.vars), "Física: no llegas al objetivo");
 		assert.equal(es(examNotice({ examId: "e", exam: "Física", kind: "study", minutes: 45 }).message, { exam: "Física", min: 45 }), "Hoy toca estudiar para Física (~45 min)");
 	});
-	it("the fifth tab is Exámenes", () => {
-		assert.deepEqual(TABS.map((t) => t.href), ["/", "/sessions", "/knowledge", "/review", "/exams"]);
+	it("the fifth tab is Exámenes, the sixth Calendario", () => {
+		assert.deepEqual(TABS.map((t) => t.href), ["/", "/sessions", "/knowledge", "/review", "/exams", "/calendar"]);
 		assert.ok(TABS[4]!.match("/exams/exam_x"));
 	});
 });
@@ -96,9 +96,10 @@ describe("exams: static renders", () => {
 		assert.equal((html.match(/type="number"/g) ?? []).length, 7);
 		assert.ok(html.indexOf('value="90"') > html.indexOf('value="45"'));
 	});
-	it("the settings section shows time, durations and plan", () => {
+	it("the settings section shows durations and plan; the time links to Calendario", () => {
 		const html = renderToStaticMarkup(<ExamSettingsSection exams={{ teachMinutes: 30 }} onChange={() => {}} />);
-		for (const id of ["exams-teachMinutes", "exams-problemMinutes", "exams-finalWindowDays", "exams-placementBatch", "exam-weekly"]) assert.ok(html.includes(id), id);
+		for (const id of ["exams-teachMinutes", "exams-problemMinutes", "exams-finalWindowDays", "exams-placementBatch", "exams-time-link"]) assert.ok(html.includes(id), id);
+		assert.ok(!html.includes("exam-weekly"), "the minutes per day moved to Settings → Calendario");
 		assert.ok(html.includes('value="30"'));
 	});
 	it("the confidence slider and the practice dock carry it", () => {

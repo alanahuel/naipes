@@ -9,7 +9,7 @@
 
 import { FACTORY_SETTINGS, type ExamSettings, type MessageKey } from "@/src/core";
 import { useT } from "@/components/i18n";
-import { WeeklyMinutes } from "@/components/exams";
+import Link from "next/link";
 import { CommitInput, SettingsGroup, SettingsRow } from "./controls.tsx";
 import { parseIntField } from "./review-section.tsx";
 
@@ -48,8 +48,13 @@ export function ExamSettingsSection({ exams, onChange }: { exams: ExamSettings |
 	return (
 		<div className="flex flex-col" data-testid="section-exams">
 			<SettingsGroup label={t("settings.exams.time")}>
-				<p className="px-1 pb-2 text-sm text-muted-foreground">{t("settings.exams.timeHint")}</p>
-				<WeeklyMinutes value={e.weeklyMinutes} onChange={(weeklyMinutes) => set({ weeklyMinutes })} />
+				{/* «Calendario» (owner 2026-11-10): the minutes per day moved there. */}
+				<p className="px-1 pb-2 text-sm text-muted-foreground">
+					{t("settings.exams.timeMoved")}{" "}
+					<Link href="/settings/calendar" className="text-foreground underline-offset-2 hover:underline" data-testid="exams-time-link">
+						{t("settings.exams.timeLink")}
+					</Link>
+				</p>
 			</SettingsGroup>
 			<SettingsGroup label={t("settings.exams.durations")}>
 				<p className="px-1 pb-2 text-sm text-muted-foreground">{t("settings.exams.durationsHint")}</p>

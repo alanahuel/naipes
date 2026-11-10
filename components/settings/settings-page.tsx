@@ -32,6 +32,7 @@ import {
 	type DesktopSettings,
 	type ReviewSettings,
 	type ExamSettings,
+	type CalendarSettings,
 	type UserSettings,
 } from "@/src/core";
 import { MENU_CLOSE_EVENT, MENU_OPEN_EVENT } from "@/components/menu-shell";
@@ -47,13 +48,14 @@ import { McpSection } from "./mcp-section";
 import { ObsidianSection } from "./obsidian-section.tsx";
 import { ReviewSettingsSection } from "./review-section.tsx";
 import { ExamSettingsSection } from "./exams-section.tsx";
+import { CalendarSettingsSection } from "./calendar-section.tsx";
 import { UpdateSettings } from "./update-settings.tsx";
 import { SettingsRow, Toggle } from "./controls.tsx";
 import type { SettingsPageId } from "./pages.ts";
 
 export { SETTINGS_PAGE_IDS, isSettingsPage, pageForSection, type SettingsPageId } from "./pages.ts";
 
-type WritableSection = "general" | "agent" | "models" | "appearance" | "graph" | "compaction" | "obsidian" | "review" | "exams" | "desktop" | "phone" | "mcp";
+type WritableSection = "general" | "agent" | "models" | "appearance" | "graph" | "compaction" | "obsidian" | "review" | "exams" | "calendar" | "desktop" | "phone" | "mcp";
 
 /** The settings record + its one writer. */
 export function useSettingsRecord() {
@@ -94,6 +96,7 @@ const PAGE_COPY: Record<SettingsPageId, { title: MessageKey; subtitle: MessageKe
 	connections: { title: "settings.page.connections.title", subtitle: "settings.page.connections.subtitle" },
 	review: { title: "settings.page.review.title", subtitle: "settings.page.review.subtitle" },
 	exams: { title: "settings.page.exams.title", subtitle: "settings.page.exams.subtitle" },
+	calendar: { title: "settings.page.calendar.title", subtitle: "settings.page.calendar.subtitle" },
 	appearance: { title: "settings.page.appearance.title", subtitle: "settings.page.appearance.subtitle" },
 	shortcuts: { title: "settings.page.shortcuts.title", subtitle: "settings.page.shortcuts.subtitle" },
 	advanced: { title: "settings.page.advanced.title", subtitle: "settings.page.advanced.subtitle" },
@@ -199,6 +202,13 @@ export function SettingsPage({ page, initialRow }: { page: SettingsPageId; initi
 					/>
 				) : page === "exams" ? (
 					<ExamSettingsSection exams={record.exams} onChange={(next: ExamSettings) => void write("exams", next)} />
+				) : page === "calendar" ? (
+					<CalendarSettingsSection
+						calendar={record.calendar}
+						exams={record.exams}
+						onCalendarChange={(next: CalendarSettings) => void write("calendar", next)}
+						onExamsChange={(next: ExamSettings) => void write("exams", next)}
+					/>
 				) : page === "appearance" ? (
 					<Block testid="section-appearance">
 						<AppearanceSection appearance={record.appearance} onSectionChange={(next: AppearanceSettings) => void write("appearance", next)} />

@@ -7,8 +7,7 @@ import Link from "next/link";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { SessionRow, useChatList } from "@/components/sessions";
 import { ActivitySection } from "@/components/activity-dock";
-import { ReviewTodayCard } from "@/components/review";
-import { ExamsTodayCard } from "@/components/exams";
+import { CalendarTodayCard } from "@/components/calendar";
 import { SetupDialog } from "@/components/setup-dialog";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
@@ -352,13 +351,9 @@ export function Home({ initialConfigured }: { initialConfigured: boolean }) {
 				    card under the composer; hidden when nothing is pending. */}
 				<OnboardingCard recentSessionId={recent?.[0]?.id ?? null} onTarget={tryStep} />
 
-				{/* «Para repasar hoy» (Repaso, owner 2026-11-04): only when
-				    something is due — after the composer, before «Ahora». */}
-				<ReviewTodayCard />
-
-				{/* «Hoy para tu examen» («Exámenes», 2026-11-06): only with an
-				    exam plan for today. */}
-				<ExamsTodayCard />
+				{/* «Hoy» («Calendario», owner 2026-11-10): today's agenda — it
+				    replaces «Para repasar hoy» and «Hoy para tu examen». */}
+				<CalendarTodayCard />
 
 				{/* «Ahora» (stage 5): what is running in the background — hidden
 				    while empty, three at most with «Ver N más». */}
