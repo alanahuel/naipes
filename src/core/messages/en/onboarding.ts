@@ -53,5 +53,7 @@ export default {
 	"onboarding.entry.examTabs.title": "Exams in tabs",
 	"onboarding.entry.examPages.title": "Long lists in pages",
 	"onboarding.entry.examPages.body": "In exams, the syllabus, prior knowledge and instructions show 10 at a time, and each tab remembers its page.",
+	"onboarding.entry.calendar.title": "Calendar",
+	"onboarding.entry.calendar.body": "Plan your week with exams and review together: what you skip is rescheduled, you can split sessions, and your classes count for the exam — afterwards I ask what was covered.",
 	"onboarding.entry.examTabs.body": "Each exam’s page is organised in tabs: summary, syllabus, prior knowledge, and the subject’s and tutor’s instructions, which you can now write right there.",
 } satisfies Record<keyof typeof es, Message>;

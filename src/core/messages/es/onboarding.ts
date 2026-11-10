@@ -50,5 +50,7 @@ export default {
 	"onboarding.entry.examTabs.title": "Exámenes por pestañas",
 	"onboarding.entry.examPages.title": "Listas largas por páginas",
 	"onboarding.entry.examPages.body": "En los exámenes, el temario, los conocimientos previos y las instrucciones se muestran de 10 en 10, y cada pestaña recuerda su página.",
+	"onboarding.entry.calendar.title": "Calendario",
+	"onboarding.entry.calendar.body": "Organiza tu semana con exámenes y repaso juntos: lo que no hagas se recoloca solo, puedes partir sesiones, y tus clases cuentan para el examen — después te pregunto qué se dio.",
 	"onboarding.entry.examTabs.body": "La página de cada examen se organiza en pestañas: resumen, temario, conocimientos previos e instrucciones de la asignatura y del tutor, que ya puedes escribir desde ahí.",
 };

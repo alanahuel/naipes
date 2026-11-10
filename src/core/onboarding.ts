@@ -101,6 +101,7 @@ export const ONBOARDING_ENTRIES: readonly OnboardingEntry[] = [
 	{ id: "examPrerequisites", version: "0.17.0" },
 	{ id: "onboarding", version: "0.18.0" },
 	{ id: "examTabs", version: "0.19.0" },
+	{ id: "calendar", version: "0.20.0" },
 	{ id: "examPages", version: "0.19.1" },
 ];
 
