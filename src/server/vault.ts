@@ -897,18 +897,36 @@ function linkFrom(fromRel: string, toRel: string, label?: string, anchor?: strin
 	return noteLink(runtime().config?.obsidianFormat ?? false, fromRel, toRel, label, anchor);
 }
 
-function conceptLinkOf(s: VaultState, fromRel: string, nodeId: string, fallback: string): string {
-	const rel = Object.entries(s.concepts).find(([, id]) => id === nodeId)?.[0];
+/** Concept id → its note path (the first path claiming the id wins, as a
+ *  linear `Object.entries(...).find` would). Built once per export pass:
+ *  a per-link scan made the concept export O(links × concepts) — ~20 s of
+ *  blocked server on a 3k-concept graph (perf audit, 2026-11-10). */
+type ConceptRels = ReadonlyMap<string, string>;
+
+function conceptRelsOf(s: VaultState): ConceptRels {
+	const rels = new Map<string, string>();
+	for (const [rel, id] of Object.entries(s.concepts)) if (!rels.has(id)) rels.set(id, rel);
+	return rels;
+}
+
+function conceptLinkOf(rels: ConceptRels, fromRel: string, nodeId: string, fallback: string): string {
+	const rel = rels.get(nodeId);
 	return rel ? linkFrom(fromRel, rel, fallback) : fallback;
 }
 
-function chatConcepts(s: VaultState, fromRel: string, chatId: string, nodes: GraphNode[]): string[] {
+function chatConcepts(rels: ConceptRels, fromRel: string, chatId: string, nodes: GraphNode[]): string[] {
 	return nodes
 		.filter((node) => node.provenance.some((pt) => pt.chatId === chatId))
-		.map((node) => conceptLinkOf(s, fromRel, node.id, node.name));
+		.map((node) => conceptLinkOf(rels, fromRel, node.id, node.name));
 }
 
-function exportChat(chatId: string): void {
+/** What a batch of chat exports can share instead of re-reading per chat. */
+interface ChatExportContext {
+	nodes: GraphNode[];
+	rels: ConceptRels;
+}
+
+function exportChat(chatId: string, ctx?: ChatExportContext): void {
 	const config = runtime().config;
 	const s = state();
 	if (!config || !s) return;
@@ -919,7 +937,7 @@ function exportChat(chatId: string): void {
 	const rel = claimPath(practice ? VAULT_SUBFOLDERS.practice : VAULT_SUBFOLDERS.transcripts, record.title, chatId, owners);
 	relocate(config.root, s.chats[chatId], rel);
 	const abs = path.join(config.root, rel);
-	const concepts = chatConcepts(s, rel, chatId, getGraph(stores.graphStore).nodes);
+	const concepts = chatConcepts(ctx?.rels ?? conceptRelsOf(s), rel, chatId, ctx?.nodes ?? getGraph(stores.graphStore).nodes);
 	const body = [
 		`# ${record.title}`,
 		...(s.summaries[chatId] ? ["", `Resumen: ${linkFrom(rel, s.summaries[chatId], "resumen de la sesión")}`] : []),
@@ -993,10 +1011,27 @@ function exportConcepts(): void {
 	}
 	const previous = s.concepts;
 	s.concepts = next;
+	const rels = conceptRelsOf(s);
+	const byId = new Map<string, GraphNode>();
+	for (const n of graph.nodes) if (!byId.has(n.id)) byId.set(n.id, n);
+	// Chains indexed once (graph order kept): by conclusion, and by each
+	// distinct premise — a chain listing a premise twice still counts once.
+	const derivedBy = new Map<string, typeof graph.chains>();
+	const premiseOf = new Map<string, typeof graph.chains>();
+	for (const c of graph.chains) {
+		let d = derivedBy.get(c.conclusion);
+		if (!d) derivedBy.set(c.conclusion, (d = []));
+		d.push(c);
+		for (const p of new Set(c.premises)) {
+			let l = premiseOf.get(p);
+			if (!l) premiseOf.set(p, (l = []));
+			l.push(c);
+		}
+	}
 	// 2. Write every live concept.
 	for (const [rel, nodeId] of Object.entries(next)) {
-		const node = graph.nodes.find((n) => n.id === nodeId)!;
-		const link = (id: string) => conceptLinkOf(s, rel, id, graph.nodes.find((n) => n.id === id)?.name ?? id);
+		const node = byId.get(nodeId)!;
+		const link = (id: string) => conceptLinkOf(rels, rel, id, byId.get(id)?.name ?? id);
 		const sources: string[] = [];
 		for (const chatId of new Set(node.provenance.map((pt) => pt.chatId))) {
 			const vaultRel = vaultSources.get(chatId);
@@ -1023,9 +1058,8 @@ function exportConcepts(): void {
 			name: node.name,
 			statement: node.statement,
 			aliases: node.aliases,
-			derivedFrom: graph.chains.filter((c) => c.conclusion === node.id).map((c) => c.premises.map(link)),
-			leadsTo: graph.chains
-				.filter((c) => c.premises.includes(node.id))
+			derivedFrom: (derivedBy.get(node.id) ?? []).map((c) => c.premises.map(link)),
+			leadsTo: (premiseOf.get(node.id) ?? [])
 				.map((c) => ({ conclusion: link(c.conclusion), together: c.premises.filter((p) => p !== node.id).map(link) })),
 			sources,
 		});
@@ -1053,7 +1087,8 @@ function exportConcepts(): void {
 	saveState();
 
 	// Session notes list their concepts — refresh them against the new paths.
-	for (const chatId of Object.keys(s.chats)) exportChat(chatId);
+	const ctx: ChatExportContext = { nodes: graph.nodes, rels };
+	for (const chatId of Object.keys(s.chats)) exportChat(chatId, ctx);
 	// The graph changed: inbox suggestions may have appeared (phase 3).
 	notifySuggestions();
 }
@@ -1145,7 +1180,9 @@ export function reconfigureVault(): void {
 	rt.lastConceptRevision = -1;
 	guard("export concepts", exportConcepts);
 	guard("export chats", () => {
-		for (const chat of stores.chatStore.listChats()) exportChat(chat.id);
+		const s = state();
+		const ctx: ChatExportContext | undefined = s ? { nodes: getGraph(stores.graphStore).nodes, rels: conceptRelsOf(s) } : undefined;
+		for (const chat of stores.chatStore.listChats()) exportChat(chat.id, ctx);
 	});
 	guard("reconcile chats", reconcileChats);
 	guard("refresh summaries", refreshSummaries);
@@ -1160,6 +1197,7 @@ function refreshSummaries(): void {
 	const s = state();
 	if (!config || !s) return;
 	const nodes = getGraph(stores.graphStore).nodes;
+	const rels = conceptRelsOf(s);
 	for (const [chatId, rel] of Object.entries(s.summaries)) {
 		const record = stores.chatStore.getChat(chatId);
 		if (!record) continue;
@@ -1172,7 +1210,7 @@ function refreshSummaries(): void {
 		const body = summaryNoteBody(
 			title,
 			summaryProseOf(zone),
-			chatConcepts(s, rel, chatId, nodes),
+			chatConcepts(rels, rel, chatId, nodes),
 			s.chats[chatId] ? linkFrom(rel, s.chats[chatId], record.title) : null,
 		);
 		const next = composeManagedNote(current, [], body);
@@ -1292,7 +1330,7 @@ export async function summarizeChatToVault(chatId: string): Promise<VaultSummary
 	const owners = Object.fromEntries(Object.entries(s.summaries).map(([id, rel]) => [rel, id]));
 	const rel = claimPath(VAULT_SUBFOLDERS.sessions, record.title, chatId, owners);
 	relocate(config.root, s.summaries[chatId], rel);
-	const concepts = chatConcepts(s, rel, chatId, getGraph(stores.graphStore).nodes);
+	const concepts = chatConcepts(conceptRelsOf(s), rel, chatId, getGraph(stores.graphStore).nodes);
 	const body = summaryNoteBody(record.title, summary, concepts, s.chats[chatId] ? linkFrom(rel, s.chats[chatId], record.title) : null);
 	const abs = path.join(config.root, rel);
 	const fields: FrontmatterFields = [

@@ -1631,7 +1631,11 @@ function kindAppendix(record: Pick<ChatRecord, "exam">): string | undefined {
 			const tids = (link.pointIds ?? []).filter((p) => targetText.has(p));
 			const qids = (link.pointIds ?? []).filter((p) => prereqText.has(p));
 			const qnodes = link.prerequisiteNodes ?? [];
-			const names = new Map(qnodes.map((n) => [n, stores.graphStore.readNodes().find((x) => x.id === n)?.name ?? n]));
+			// One ledger read, not one per prerequisite (perf audit 2026-11-10);
+			// the first ledger line per id names it, as `find` did.
+			const ledgerNames = new Map<string, string>();
+			if (qnodes.length > 0) for (const x of stores.graphStore.readNodes()) if (!ledgerNames.has(x.id)) ledgerNames.set(x.id, x.name);
+			const names = new Map(qnodes.map((n) => [n, ledgerNames.get(n) ?? n]));
 			// The prerequisites block (owner-approved text B) always rides a
 			// placement session: the diagnosis applies to every miss.
 			const prereqs = `${examAppendix("placement-prerequisites", {

@@ -540,14 +540,22 @@ export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
 	}
 	const sessions: Record<string, string> = {};
 	const fileSources: Record<string, string> = {};
+	// Read the sources ledger ONCE: re-reading it per source id made every
+	// snapshot O(sources × ledger) — 0.2–0.8 s per GET /api/graph (perf
+	// audit, 2026-11-10). First record per id wins, as `find` did.
+	let sourcePaths: Map<string, string> | null = null;
 	for (const id of sourceIds) {
 		const chat = deps.chatStore.getChat(id);
 		if (chat) {
 			sessions[id] = chat.title;
 			continue;
 		}
-		const source = deps.graphStore.readSources().find((s) => s.id === id);
-		if (source) fileSources[id] = source.filePath;
+		if (!sourcePaths) {
+			sourcePaths = new Map();
+			for (const source of deps.graphStore.readSources()) if (!sourcePaths.has(source.id)) sourcePaths.set(source.id, source.filePath);
+		}
+		const filePath = sourcePaths.get(id);
+		if (filePath !== undefined) fileSources[id] = filePath;
 	}
 
 	const nodeSessions: Record<string, string[]> = {};
