@@ -69,7 +69,7 @@ export interface ServerEvents {
 	/** A calendar notice went out: an alert before a timed session/class
 	 *  (`key` = the item), or «¿Qué se dio en…?» after a class (`key` =
 	 *  the occurrence). */
-	"calendar-notice": { kind: "alert" | "confirm"; key: string; title: string; start?: string; chatId?: undefined };
+	"calendar-notice": { kind: "digest" | "evening" | "alert" | "confirm"; key: string; title: string; body: string; chatId?: undefined };
 	/** An exam notice went out — below target, 7 days, 1 day, or the exam
 	 *  digest/evening when Repaso had nothing due (`minutes` = today's plan):
 	 *  the bell adds it and opens the exam. */

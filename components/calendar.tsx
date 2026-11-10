@@ -31,6 +31,7 @@ import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 import {
 	EVENT_KINDS,
 	addDays,
+	calendarItemLabel,
 	clockToMinutes,
 	minutesToClock,
 	weekdayIndex,
@@ -116,39 +117,9 @@ export function useStartCalendar() {
 
 // ─── pure formatting (tested) ───────────────────────────────────────────────
 
-const short = (s: string, n = 48) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-
-/** A card's label: «Química · Enseñar «Enlace»», «Repaso · 8 ideas»… */
+/** A card's label (the shared core text). */
 export function itemLabel(item: CalendarItem, exams: readonly CalendarExamView[], t: Translate): string {
-	if (item.type === "event") return item.title ?? "";
-	const exam = exams.find((e) => e.id === item.examId);
-	const name = exam?.title ?? "";
-	let label: string;
-	switch (item.kind) {
-		case "repaso":
-			label = item.count ? t("calendar.item.repaso", { n: item.count }) : t("calendar.item.repasoPlain");
-			break;
-		case "review":
-			label = t("calendar.item.review", { exam: name });
-			break;
-		case "placement":
-			label = t("calendar.item.placement", { exam: name });
-			break;
-		case "practice":
-			label = t("calendar.item.practice", { exam: name });
-			break;
-		case "prepare":
-			label = t("calendar.item.prepare", { exam: name });
-			break;
-		case "teach": {
-			const point = item.pointId ? exam?.points.find((p) => p.id === item.pointId)?.text : exam?.prerequisites.find((q) => q.id === item.prerequisiteId)?.statement;
-			label = t(item.short ? "calendar.item.consolidate" : "calendar.item.teach", { exam: name, point: short(point ?? "") });
-			break;
-		}
-		default:
-			label = item.title ?? "";
-	}
-	return item.pinned && item.pinned.parts > 1 ? t("calendar.item.part", { label, part: item.pinned.part + 1, parts: item.pinned.parts }) : label;
+	return calendarItemLabel(item, exams, t);
 }
 
 /** «45 de 90 min»: what the day holds against its minutes — study cards

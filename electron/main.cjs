@@ -1001,7 +1001,7 @@ async function reviewTick() {
 	applyAutostart(prefs.autostart);
 	if (reviewServerOrigin) {
 		try {
-			for (const kind of ["digest", "evening"]) {
+			for (const kind of ["digest", "evening", "calendar"]) {
 				const answer = await askReviewNotice(kind);
 				if (typeof answer?.count === "number") reviewDueCount = answer.count;
 				if (answer?.notify && typeof answer.title === "string") showReviewNotification(answer.title, answer.body ?? "", answer.path);

@@ -1843,15 +1843,23 @@ export function deskNotice(kind: ReviewNoticeKind, now = Date.now()): DeskNotice
 	}
 	// The one-off exam notices ride the digest slot, inside its window.
 	if (kind === "digest") {
-		const d = new Date(now);
-		const minutes = d.getHours() * 60 + d.getMinutes();
-		noteOnTrack(state);
-		if (d.getHours() >= DAY_ROLLOVER_HOUR && minutes >= clockMinutes(settings.digestTime)) {
-			const notice = nextExamNotice(state, locale);
-			if (notice) return { notify: true, count: n, title: notice.title, body: notice.body, path: `/exams/${notice.examId}` };
-		}
+		const one = examOneOffNotice(state, now);
+		if (one) return { ...one, count: n };
 	}
 	return { notify: false, count: n };
+}
+
+/** The one-off exam notices (below target, 7 days, 1 day) — inside the
+ *  digest window, once each. Shared with the calendar's digest. */
+export function examOneOffNotice(state: ExamsState, now = Date.now()): { notify: true; title: string; body: string; path: string } | null {
+	const d = new Date(now);
+	const minutes = d.getHours() * 60 + d.getMinutes();
+	noteOnTrack(state);
+	if (d.getHours() >= DAY_ROLLOVER_HOUR && minutes >= clockMinutes(effectiveSettings().review.digestTime)) {
+		const notice = nextExamNotice(state, interfaceLocale());
+		if (notice) return { notify: true, title: notice.title, body: notice.body, path: `/exams/${notice.examId}` };
+	}
+	return null;
 }
 
 export { type ExamRecord };

@@ -815,6 +815,45 @@ export interface CalendarView {
 	settings: { weeklyMinutes: number[]; slots: Array<{ weekday: number; start: string; end: string }>; alertMinutes: number; prepareMinutes: number };
 }
 
+// ─── a card's label (shared by the UI and the notices) ──────────────────────
+
+type Tr = (key: "calendar.item.repaso" | "calendar.item.repasoPlain" | "calendar.item.review" | "calendar.item.placement" | "calendar.item.practice" | "calendar.item.prepare" | "calendar.item.teach" | "calendar.item.consolidate" | "calendar.item.part", vars?: Record<string, string | number>) => string;
+
+const clip = (s: string, n = 48) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+/** «Química · Enseñar «Enlace»», «Repaso · 8 ideas», an event's title. Pure. */
+export function calendarItemLabel(item: CalendarItem, exams: ReadonlyArray<Pick<CalendarExamView, "id" | "title" | "points" | "prerequisites">>, t: Tr): string {
+	if (item.type === "event") return item.title ?? "";
+	const exam = exams.find((e) => e.id === item.examId);
+	const name = exam?.title ?? "";
+	let label: string;
+	switch (item.kind) {
+		case "repaso":
+			label = item.count ? t("calendar.item.repaso", { n: item.count }) : t("calendar.item.repasoPlain");
+			break;
+		case "review":
+			label = t("calendar.item.review", { exam: name });
+			break;
+		case "placement":
+			label = t("calendar.item.placement", { exam: name });
+			break;
+		case "practice":
+			label = t("calendar.item.practice", { exam: name });
+			break;
+		case "prepare":
+			label = t("calendar.item.prepare", { exam: name });
+			break;
+		case "teach": {
+			const point = item.pointId ? exam?.points.find((p) => p.id === item.pointId)?.text : exam?.prerequisites.find((q) => q.id === item.prerequisiteId)?.statement;
+			label = t(item.short ? "calendar.item.consolidate" : "calendar.item.teach", { exam: name, point: clip(point ?? "") });
+			break;
+		}
+		default:
+			label = item.title ?? "";
+	}
+	return item.pinned && item.pinned.parts > 1 ? t("calendar.item.part", { label, part: item.pinned.part + 1, parts: item.pinned.parts }) : label;
+}
+
 // ─── editing (the learner touches a session → it is anchored) ───────────────
 
 /** Turn an automatic card into an anchored pinned session (moved, hour

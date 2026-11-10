@@ -165,4 +165,17 @@ export default {
 
 	"calendar.home.title": "Hoy · {used} de {budget} min",
 	"calendar.home.see": "Ver calendario",
+
+	"calendar.notice.digestTitle": { one: "Hoy: {n} sesión · ~{min} min", other: "Hoy: {n} sesiones · ~{min} min" },
+	"calendar.notice.digestBody": "{lines}.",
+	"calendar.notice.digestBodyMore": "{lines} y {k} más.",
+	"calendar.notice.eveningTitle": { one: "Te queda {n} sesión de hoy", other: "Te quedan {n} sesiones de hoy" },
+	"calendar.notice.eveningBody": "~{min} min. Lo que no hagas se recoloca solo.",
+	"calendar.notice.alertTitle": "{what} a las {start}",
+	"calendar.notice.alertBody": { one: "Empieza en {n} min.", other: "Empieza en {n} min." },
+	"calendar.notice.confirmTitle": "¿Qué se dio en {title}?",
+	"calendar.notice.confirmBody": "Márcalo y tu plan se ajusta.",
+	"calendar.notice.selfTitle": "¿Hiciste «{title}»?",
+	"calendar.notice.selfBody": "Respóndelo y tu plan se ajusta.",
+	"notices.calendar": "{title} — {body}",
 } as const;

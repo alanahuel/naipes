@@ -35,6 +35,7 @@ describe("review desktop helpers", () => {
 	it("only allow-listed paths navigate", () => {
 		assert.equal(rd.isNavigablePath("/review"), true);
 		assert.equal(rd.isNavigablePath("/exams"), true);
+		assert.equal(rd.isNavigablePath("/calendar"), true);
 		assert.equal(rd.isNavigablePath("/exams/exam_abc123_d4e5f6a7"), true);
 		for (const bad of ["/settings", "https://x", "//evil", undefined, "/review/../x", "/exams/../settings", "/exams/exam_X"]) assert.equal(rd.isNavigablePath(bad), false);
 	});

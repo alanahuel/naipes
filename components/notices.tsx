@@ -129,6 +129,20 @@ export function examNotice(
 	};
 }
 
+/** The bell notice for a calendar notice («Calendario», 2026-11-10): the
+ *  server's localized title and body; opens the calendar. One per key. */
+export function calendarNotice(event: { kind: string; key: string; title: string; body: string }, now = new Date()): Notice {
+	return {
+		id: `calendar:${event.kind}:${event.key}`,
+		at: now.toISOString(),
+		message: "notices.calendar",
+		vars: { title: event.title, body: event.body },
+		href: "/calendar",
+		tone: "ok",
+		read: false,
+	};
+}
+
 /** The bell notice for a knowledge-folder document event. Pure. */
 export function vaultNotice(
 	event:
@@ -373,6 +387,11 @@ export function NoticesProvider({ children }: { children: React.ReactNode }) {
 	// An exam notice (below target, countdowns, the exam-only digest).
 	useServerEvent("exam-notice", (event) => {
 		push([examNotice(event)]);
+	});
+
+	// «Calendario»: the agenda digest/evening, alerts, «¿Qué se dio?».
+	useServerEvent("calendar-notice", (event) => {
+		push([calendarNotice(event)]);
 	});
 
 	// A knowledge-folder document needs a decision (or lost scanned pages).

@@ -168,4 +168,17 @@ export default {
 
 	"calendar.home.title": "Today · {used} of {budget} min",
 	"calendar.home.see": "See calendar",
+
+	"calendar.notice.digestTitle": { one: "Today: {n} session · ~{min} min", other: "Today: {n} sessions · ~{min} min" },
+	"calendar.notice.digestBody": "{lines}.",
+	"calendar.notice.digestBodyMore": "{lines} and {k} more.",
+	"calendar.notice.eveningTitle": { one: "{n} session left today", other: "{n} sessions left today" },
+	"calendar.notice.eveningBody": "~{min} min. Whatever you skip is rescheduled on its own.",
+	"calendar.notice.alertTitle": "{what} at {start}",
+	"calendar.notice.alertBody": { one: "Starts in {n} min.", other: "Starts in {n} min." },
+	"calendar.notice.confirmTitle": "What was covered in {title}?",
+	"calendar.notice.confirmBody": "Mark it and your plan adjusts.",
+	"calendar.notice.selfTitle": "Did you do «{title}»?",
+	"calendar.notice.selfBody": "Answer it and your plan adjusts.",
+	"notices.calendar": "{title} — {body}",
 } satisfies Record<keyof typeof es, Message>;

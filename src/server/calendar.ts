@@ -12,6 +12,7 @@ import {
 	CONCRETE_DAYS,
 	anchorFrom,
 	baseMinutes,
+	calendarItemLabel,
 	isClock,
 	isDay,
 	isEventKind,
@@ -33,12 +34,13 @@ import {
 import { emit } from "../core/events.ts";
 import { addDays, studyPoints, type ExamRecord } from "../core/exams.ts";
 import { expandIcs, parseIcs } from "../core/ics.ts";
-import { reviewDay } from "../core/review.ts";
+import { reviewDay, reviewDayEnd, shouldSendNotice } from "../core/review.ts";
 import { formatMessage, type Locale } from "../core/i18n.ts";
-import { MESSAGES } from "../core/messages/index.ts";
-import { deleteFeedOccurrences, isFeedId, newCalendarId, readCalendar, updateCalendar, writeFeedOccurrences } from "../store/calendar.ts";
+import { MESSAGES, type MessageKey } from "../core/messages/index.ts";
+import { appendCalendarNotice, deleteFeedOccurrences, isFeedId, newCalendarId, readCalendar, readCalendarNotices, updateCalendar, writeFeedOccurrences, type CalendarNoticeLine } from "../store/calendar.ts";
 import { readExam } from "../store/exams.ts";
-import { getExamsState, startExamSession, startPrepareSession, type ExamsState } from "./exams.ts";
+import { examOneOffNotice, getExamsState, startExamSession, startPrepareSession, type DeskNotice, type ExamsState } from "./exams.ts";
+import { clockMoment } from "./calendar-context.ts";
 import { startReviewSession } from "./review.ts";
 import { effectiveSettings } from "./stores.ts";
 
@@ -604,6 +606,81 @@ export function removeFeed(id: string): boolean {
 	return found;
 }
 
-// ─── text helpers for the notices (phase 4) ─────────────────────────────────
+// ─── notices (owner-approved texts 2026-11-10; every click opens /calendar) ─
 
-export const calendarText = (locale: Locale, key: keyof (typeof MESSAGES)["es"], vars: Record<string, string | number> = {}) => formatMessage(MESSAGES[locale][key], vars, locale);
+const text = (locale: Locale, key: MessageKey, vars: Record<string, string | number> = {}) => formatMessage(MESSAGES[locale][key], vars, locale);
+
+/** The desktop notice for one tick kind. digest / evening: the day's
+ *  agenda (the review digest's window and «once a day» rules); "calendar":
+ *  an alert before a FIXED hour (owner: suggested hours move, so no alert)
+ *  or «¿Qué se dio?» after a class — one at a time, each once. */
+export function calendarDeskNotice(kind: "digest" | "evening" | "calendar", now = Date.now()): DeskNotice {
+	const state = getExamsState(now);
+	const locale = effectiveSettings().general.language;
+	const today = state.calendar.plan.days[0];
+	const count = state.review.model.items.filter((i) => !i.paused && i.released && i.due !== null && i.due < reviewDayEnd(now)).length;
+	const sent = readCalendarNotices();
+	const exams = state.exams.filter((c) => c.live).map((c) => examView(c.record));
+	const label = (i: CalendarItem) => calendarItemLabel(i, exams, (k, v) => text(locale, k, v));
+	const notify = (line: { kind: CalendarNoticeLine["kind"]; key: string }, title: string, body: string): DeskNotice => {
+		appendCalendarNotice({ kind: line.kind, key: line.key, day: state.today, at: new Date(now).toISOString() });
+		emit("calendar-notice", { kind: line.kind, key: line.key, title, body });
+		return { notify: true, count, title, body, path: "/calendar" };
+	};
+	if (kind === "digest" || kind === "evening") {
+		const items = (today?.items ?? []).filter((i) => !i.cancelled && i.state !== "done" && (i.type === "session" || !!i.start));
+		const sessions = items.filter((i) => i.type === "session");
+		const review = effectiveSettings().review;
+		const agenda = kind === "digest" ? items : sessions;
+		const send = shouldSendNotice({
+			kind,
+			now,
+			digestTime: review.digestTime,
+			eveningTime: review.eveningTime,
+			dueCount: agenda.length,
+			sent: sent.filter((l) => l.kind === kind).map((l) => ({ day: l.day, kind, at: l.at, count: 0 })),
+			reviewStartedToday: false,
+		});
+		if (send) {
+			const min = Math.round(sessions.reduce((x, i) => x + i.minutes, 0) + items.filter((i) => i.type === "event" && i.consumes).reduce((x, i) => x + i.minutes, 0));
+			if (kind === "digest") {
+				const lines = items.slice(0, 3).map((i) => (i.start ? `${i.start} ${label(i)}` : label(i))).join("; ");
+				const more = items.length - 3;
+				return notify(
+					{ kind, key: state.today },
+					text(locale, "calendar.notice.digestTitle", { n: items.length, min }),
+					more > 0 ? text(locale, "calendar.notice.digestBodyMore", { lines, k: more }) : text(locale, "calendar.notice.digestBody", { lines }),
+				);
+			}
+			const left = Math.round(sessions.reduce((x, i) => x + i.minutes, 0));
+			return notify({ kind, key: state.today }, text(locale, "calendar.notice.eveningTitle", { n: sessions.length }), text(locale, "calendar.notice.eveningBody", { min: left }));
+		}
+		if (kind === "digest") {
+			const one = examOneOffNotice(state, now);
+			if (one) return { ...one, count };
+		}
+		return { notify: false, count };
+	}
+	const done = new Set(sent.filter((l) => l.kind === "alert" || l.kind === "confirm").map((l) => `${l.kind}:${l.key}`));
+	const lead = effectiveSettings().calendar.alertMinutes;
+	if (lead > 0 && today) {
+		for (const i of today.items) {
+			if (i.hour !== "fixed" || !i.start || i.cancelled || i.state === "done" || done.has(`alert:${i.key}`)) continue;
+			const ms = clockMoment(today.day, i.start) - now;
+			if (ms <= 0 || ms > lead * 60_000) continue;
+			const n = Math.max(1, Math.ceil(ms / 60_000));
+			return notify({ kind: "alert", key: i.key }, text(locale, "calendar.notice.alertTitle", { what: label(i), start: i.start }), text(locale, "calendar.notice.alertBody", { n }));
+		}
+	}
+	const live = new Set(exams.map((e) => e.id));
+	for (const o of toConfirm(state.calendar.source.occurrences, addDays(state.today, -1))) {
+		if (!live.has(o.examId!) || done.has(`confirm:${o.key}`)) continue;
+		const self = o.kind === "selfStudy";
+		return notify(
+			{ kind: "confirm", key: o.key },
+			text(locale, self ? "calendar.notice.selfTitle" : "calendar.notice.confirmTitle", { title: o.title }),
+			text(locale, self ? "calendar.notice.selfBody" : "calendar.notice.confirmBody"),
+		);
+	}
+	return { notify: false, count };
+}

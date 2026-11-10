@@ -101,8 +101,9 @@ export function calendarRevision(): number {
 // ─── notices.jsonl ──────────────────────────────────────────────────────────
 
 export interface CalendarNoticeLine {
-	/** "alert" before a timed item; "confirm" after a class. */
-	kind: "alert" | "confirm";
+	/** "alert" before a timed item; "confirm" after a class; "digest" /
+	 *  "evening" the day's agenda notices. */
+	kind: "alert" | "confirm" | "digest" | "evening";
 	/** The item / occurrence key. */
 	key: string;
 	day: string;
@@ -121,7 +122,7 @@ export function readCalendarNotices(): CalendarNoticeLine[] {
 		if (!line.trim()) continue;
 		try {
 			const v = JSON.parse(line) as CalendarNoticeLine;
-			if ((v.kind === "alert" || v.kind === "confirm") && typeof v.key === "string" && typeof v.day === "string") out.push(v);
+			if ((v.kind === "alert" || v.kind === "confirm" || v.kind === "digest" || v.kind === "evening") && typeof v.key === "string" && typeof v.day === "string") out.push(v);
 		} catch {
 			/* torn line */
 		}

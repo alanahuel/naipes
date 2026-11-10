@@ -472,7 +472,7 @@ describe("«Repaso» desktop side (owner 2026-11-04, stage 2)", () => {
 		assert.deepEqual(JSON.parse(JSON.stringify(f.trays[0]!.menu.filter((i) => i.label).map((i) => i.label))), ["Abrir Naipes", "Repasar ahora", "Salir"]);
 		assert.equal(f.reviewIntervals().length, 1);
 		assert.equal(f.windows.length, 1);
-		assert.deepEqual(f.reviewCalls.map((c) => new URL(c.url).search), ["?kind=digest", "?kind=evening"]);
+		assert.deepEqual(f.reviewCalls.map((c) => new URL(c.url).search), ["?kind=digest", "?kind=evening", "?kind=calendar"]);
 	});
 
 	it("a --hidden (autostart) launch keeps the window closed while the tray exists", async () => {

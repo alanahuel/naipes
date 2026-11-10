@@ -181,6 +181,35 @@ describe("calendar service (isolated data dir)", () => {
 		}
 	});
 
+	it("notices: alert before a fixed hour (once), none for suggested hours; «¿Qué se dio?» after the class; agenda digest and evening", () => {
+		const day = addDays(today, 7);
+		const ev = cal.createCalendarEvent({ title: "Tutoría", kind: "tutoring", day, start: "17:00", minutes: 30, consumes: false, examId: exam.id }, now);
+		assert.ok(ev.ok);
+		const at = (h: number, m: number) => new Date(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8)), h, m).getTime();
+		assert.equal(cal.calendarDeskNotice("calendar", at(16, 40)).notify, false, "20 min before: outside the 10-min lead");
+		const alert = cal.calendarDeskNotice("calendar", at(16, 52));
+		assert.equal(alert.notify, true);
+		assert.equal(alert.title, "Tutoría a las 17:00");
+		assert.equal(alert.body, "Empieza en 8 min.");
+		assert.equal(alert.path, "/calendar");
+		// Suggested-hour sessions get no alert: the next tick finds nothing.
+		assert.equal(cal.calendarDeskNotice("calendar", at(16, 53)).notify, false, "once per item; suggested hours never alert");
+		const confirm = cal.calendarDeskNotice("calendar", at(17, 40));
+		assert.equal(confirm.title, "¿Qué se dio en Tutoría?");
+		assert.equal(confirm.body, "Márcalo y tu plan se ajusta.");
+		assert.equal(cal.calendarDeskNotice("calendar", at(17, 41)).notify, false);
+		const digest = cal.calendarDeskNotice("digest", at(9, 30));
+		assert.equal(digest.notify, true);
+		assert.match(digest.title!, /^Hoy: \d+ sesi(ón|ones) · ~\d+ min$/);
+		assert.match(digest.body!, /17:00 Tutoría/);
+		assert.equal(cal.calendarDeskNotice("digest", at(9, 31)).notify, false, "once a day");
+		const evening = cal.calendarDeskNotice("evening", at(19, 30));
+		assert.equal(evening.notify, true);
+		assert.match(evening.title!, /^Te queda(n)? \d+ sesi(ón|ones) de hoy$/);
+		assert.match(evening.body!, /Lo que no hagas se recoloca solo\.$/);
+		assert.ok(cal.deleteCalendarEvent(ev.ok ? ev.value.id : ""));
+	});
+
 	it("validates ranges", () => {
 		assert.equal(cal.parseRange(new URL("http://x/?from=2026-11-01&to=2026-10-01"), now).ok, false);
 		assert.equal(cal.parseRange(new URL("http://x/?from=2026-11-01&to=2027-11-01"), now).ok, false);

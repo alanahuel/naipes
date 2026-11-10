@@ -62,8 +62,9 @@ function trayLabels(language, dueCount) {
 }
 
 /** The renderer paths the shell may navigate to (np:navigate allow-list):
- *  Repaso, the exams list, and one exam («Exámenes», 2026-11-05). */
-const NAVIGABLE_PATHS = new Set(["/review", "/exams"]);
+ *  Repaso, the exams list, one exam («Exámenes», 2026-11-05) and the
+ *  calendar («Calendario», 2026-11-10). */
+const NAVIGABLE_PATHS = new Set(["/review", "/exams", "/calendar"]);
 const EXAM_PATH = /^\/exams\/exam_[a-z0-9_]{4,60}$/;
 
 function isNavigablePath(p) {
