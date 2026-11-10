@@ -33,7 +33,7 @@ import { BellIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useActivity, type ActivityFeed } from "@/components/activity-dock";
 import { useServerEvent } from "@/components/server-events";
-import { timeAgo } from "@/components/sessions";
+import { timeAgo } from "@/components/time-ago";
 import { useT } from "@/components/i18n";
 import { useUpdateState, type UpdateState } from "@/components/settings/update-settings.tsx";
 import type { JobKind, JobRecord, MessageKey, MessageVars } from "@/src/core";

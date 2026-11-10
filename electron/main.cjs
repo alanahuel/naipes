@@ -338,7 +338,9 @@ function startServer(port) {
 }
 
 /** No "ready" event exists — poll until the server answers (docs-confirmed). */
-function waitUntilUp(url, tries = 150) {
+/** Poll until the server answers (any status). 50 ms between tries (perf,
+ *  2026-11-10 — was 200 ms, up to 150 ms of a blank boot wasted). */
+function waitUntilUp(url, tries = 600) {
 	return new Promise((resolve, reject) => {
 		const attempt = (n) => {
 			const req = http.get(url, (res) => {
@@ -347,7 +349,7 @@ function waitUntilUp(url, tries = 150) {
 			});
 			req.on("error", () => {
 				if (n <= 0) reject(new Error(`server never answered on ${url}`));
-				else setTimeout(() => attempt(n - 1), 200);
+				else setTimeout(() => attempt(n - 1), 50);
 			});
 		};
 		attempt(tries);
@@ -1065,12 +1067,21 @@ async function main() {
 				for (const win of BrowserWindow.getAllWindows()) win.webContents.send("np:subscriptions:changed");
 			},
 		});
-		await subscriptions.ready;
+		// PARALLEL BOOT (perf, owner 2026-11-10): the server no longer waits
+		// for the subscriptions to load — it asks for their snapshot over IPC
+		// (subscription-ipc.cjs awaits `ready` per request), so both warm up
+		// at once. The window still opens only when both are done.
+		const bootStart = Date.now();
+		const subscriptionsReady = subscriptions.ready.then(() => log(`boot: subscriptions ready in ${Date.now() - bootStart} ms`));
+		// A failure still surfaces at the await below (same as before); this
+		// only keeps it from being reported as unhandled meanwhile.
+		subscriptionsReady.catch(() => {});
 		log(`starting server: ${serverEntry()}`);
 		log(`data dir: ${DATA_DIR()}${fs.existsSync(AUTH_FILE()) ? " · auth.json: present" : " · auth.json: ABSENT (no BYOK keys yet)"}`);
 		await startServer(new URL(url).port);
 		await waitUntilUp(url);
-		log(`server up: ${url}`);
+		log(`server up: ${url} (${Date.now() - bootStart} ms)`);
+		await subscriptionsReady;
 	} else {
 		log(`dev mode: ${devUrl}`);
 	}

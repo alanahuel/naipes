@@ -9,7 +9,7 @@
  * component in the first place.
  */
 
-import { createMermaidPlugin } from "@streamdown/mermaid";
+import type { createMermaidPlugin } from "@streamdown/mermaid";
 import type { MermaidConfig } from "mermaid";
 
 /** The chart's base font size (px) — mermaid sizes ALL text relative to
@@ -32,13 +32,17 @@ export function mermaidConfig(theme: "light" | "dark"): MermaidConfig {
 	};
 }
 
-const plugin = createMermaidPlugin();
+// LAZY (perf, owner 2026-11-10): mermaid (~600 KB with its plugin) loads
+// with the first chart, not with every chat page.
+let pluginPromise: Promise<ReturnType<typeof createMermaidPlugin>> | null = null;
+const loadPlugin = () => (pluginPromise ??= import("@streamdown/mermaid").then((m) => m.createMermaidPlugin()));
 
 /** Render one chart source to an svg string. The id is unique per call —
  *  mermaid caches rendered ids, and a repeated id across charts/renders
  *  returns the stale svg (the bug streamdown's own id minting avoids). */
 export async function renderMermaid(chart: string, theme: "light" | "dark" = "dark"): Promise<string> {
 	const id = `np-mermaid-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+	const plugin = await loadPlugin();
 	const { svg } = await plugin.getMermaid(mermaidConfig(theme)).render(id, chart);
 	return svg;
 }
