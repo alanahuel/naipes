@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createGraphSimulation, incrementalLayout, inferenceDepths } from "../src/core/layout.ts";
-import { settleGraphLayout } from "../src/core/layout-settle.ts";
+import { graphSettleIdle, relayoutGraphFresh, requestGraphSettle, settleGraphLayout } from "../src/core/layout-settle.ts";
 import type { GraphChain, GraphNode, Position } from "../src/core/contracts.ts";
 
 const node = (id: string): GraphNode => ({
@@ -133,6 +133,110 @@ describe("settleGraphLayout", () => {
 		assert.equal(written.length, 0);
 	});
 });
+describe("local + sliced settle (perf, owner 2026-11-10)", () => {
+	/** A memory store over a chain-shaped graph: n0–n1–…–n{k-1}, each
+	 *  consecutive pair a single-premise chain (a direct arrow). */
+	const chainStore = (k: number, extra: string[] = []) => {
+		const ids = Array.from({ length: k }, (_, i) => `n${i}`);
+		let nodes = ids.map(node);
+		let chains = ids.slice(1).map((id, i) => chain(`arg_${i}`, [ids[i]!], id));
+		let positions: Record<string, Position> = {};
+		let writes = 0;
+		const store = {
+			readNodes: () => nodes.map((n) => ({ ...n })),
+			readChains: () => chains.map((c) => ({ ...c, premises: [...c.premises] })),
+			readSources: () => [],
+			readPositions: () => ({ ...positions }),
+			writePositions: (p: Record<string, Position>) => {
+				writes++;
+				positions = { ...p };
+			},
+		};
+		return {
+			store,
+			ids,
+			get positions() {
+				return positions;
+			},
+			get writes() {
+				return writes;
+			},
+			addNode(id: string, linkTo?: string) {
+				nodes = [...nodes, node(id)];
+				if (linkTo) chains = [...chains, chain(`arg_new_${id}`, [linkTo], id)];
+			},
+			extra,
+		};
+	};
+
+	it("an incremental settle moves only the new node's 2-hop patch; everything else keeps its exact position", () => {
+		const g = chainStore(40);
+		settleGraphLayout(g.store);
+		const before = { ...g.positions };
+		assert.equal(Object.keys(before).length, 40);
+		g.addNode("fresh", "n0");
+		settleGraphLayout(g.store);
+		const after = g.positions;
+		assert.ok(after.fresh && Number.isFinite(after.fresh.x), "the new node got a resting position");
+		// Patch = fresh + n0 (1 hop) + n1 (2 hops); n2 is the pinned rim.
+		for (const id of g.ids.slice(2)) assert.deepEqual(after[id], before[id], `${id} outside the patch did not move`);
+	});
+
+	it("nothing new → no rewrite at all", () => {
+		const g = chainStore(10);
+		settleGraphLayout(g.store);
+		const writes = g.writes;
+		settleGraphLayout(g.store);
+		assert.equal(g.writes, writes, "a settle with nothing to place leaves the ledger untouched");
+	});
+
+	it("a burst of requests coalesces: one run absorbs every merge", async () => {
+		const g = chainStore(20);
+		settleGraphLayout(g.store);
+		const writes = g.writes;
+		for (let i = 0; i < 5; i++) {
+			g.addNode(`b${i}`, `n${i}`);
+			requestGraphSettle(g.store);
+		}
+		await graphSettleIdle();
+		assert.equal(g.writes, writes + 1, "five merges in one turn → one settle");
+		for (let i = 0; i < 5; i++) assert.ok(g.positions[`b${i}`], `b${i} placed`);
+	});
+
+	it("the sliced relayout yields to the event loop instead of blocking it", async () => {
+		const g = chainStore(400);
+		settleGraphLayout(g.store);
+		let turns = 0;
+		const ticker = setInterval(() => turns++, 0);
+		try {
+			await relayoutGraphFresh(g.store);
+		} finally {
+			clearInterval(ticker);
+		}
+		assert.ok(turns > 0, `timers ran while the 300-tick fresh relayout was in flight (${turns} turns)`);
+		assert.equal(Object.keys(g.positions).length, 400);
+	});
+
+	it("a drag commit that lands mid-settle wins for the nodes the settle did not move", async () => {
+		const g = chainStore(40);
+		settleGraphLayout(g.store);
+		g.addNode("fresh", "n0");
+		// The user's drag commit lands right AFTER the run read its
+		// starting ledger (i.e. mid-run): the write-back must keep it.
+		const read = g.store.readPositions;
+		let reads = 0;
+		g.store.readPositions = () => {
+			const snapshot = read();
+			if (++reads === 1) g.store.writePositions({ ...snapshot, n30: { x: 12345, y: -6789 } });
+			return snapshot;
+		};
+		requestGraphSettle(g.store);
+		await graphSettleIdle();
+		assert.deepEqual(g.positions.n30, { x: 12345, y: -6789 }, "the drag survived the settle's write-back");
+		assert.ok(g.positions.fresh, "and the new node was still placed");
+	});
+});
+
 describe("imp-link half distance (rendering arc, owner 2026-09-30)", () => {
 	const settle = (from: string, to: string, linkDistance: number) => {
 		const nodes = [{ id: from, x: 0, y: 0 }, { id: to, x: 500, y: 0 }];

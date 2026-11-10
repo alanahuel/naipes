@@ -26,7 +26,7 @@ import type {
 import { getGraph, mergeFindings, type DerivedGraph, type EmissionStats, type GraphDeps } from "../../core/graph.ts";
 import type { GraphStore } from "../../core/ports.ts";
 import { emit } from "../../core/events.ts";
-import { settleGraphLayout } from "../../core/layout-settle.ts";
+import { requestGraphSettle } from "../../core/layout-settle.ts";
 import { batchRuns, coverageOf, messageViewLines } from "../../core/coverage.ts";
 import { chunkSegments, type DocChunk, type DocSegment } from "../../core/doc-chunks.ts";
 import { failedOutputCallIds, type NpMessage } from "../../core/native-messages.ts";
@@ -1242,9 +1242,11 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 										.filter((slot) => slot.tokens > 0)
 										.map((slot) => ({ chatId, fp: slot.fp, tokens: slot.tokens, foldedAt })),
 								});
-								// The layout ledger evolves with the merge (sync — the
-								// next snapshot fetch must already reflect the new nodes).
-								settleGraphLayout(graphStore);
+								// The layout ledger evolves with the merge — sliced and
+								// coalesced off the request path (perf, 2026-11-10); until
+								// it lands the client seeds the new nodes by their
+								// neighbours, then slides them on "graph-layout-changed".
+								requestGraphSettle(graphStore);
 								console.info(
 									`[extraction ${jobKey}] merged: ${batchStats.nodes} nodes, ${batchStats.chains ?? 0} chains`,
 								);
@@ -1420,9 +1422,9 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 								mergedStats.chains! += merged.chains ?? 0;
 								if (merged.droppedChains)
 									mergedStats.droppedChains = (mergedStats.droppedChains ?? 0) + merged.droppedChains;
-								// The layout ledger evolves with each merge — the next
-								// snapshot fetch reflects every finished chunk.
-								settleGraphLayout(graphStore);
+								// The layout ledger evolves with each merge (sliced and
+								// coalesced: a folder sync's chunks share one settle).
+								requestGraphSettle(graphStore);
 								console.info(`[extraction ${jobKey}] merged: ${merged.nodes} nodes, ${merged.chains ?? 0} chains`);
 								return merged;
 							});

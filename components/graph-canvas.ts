@@ -334,6 +334,13 @@ const COMMIT_DEBOUNCE_MS = 250; // settle → ledger PUT delay (new drags cancel
 const REGION_MIN_INTERVAL_MS = 200;
 /** Local physics radius (owner, 2026-11-03): 2 logical hops. */
 const LOCAL_SIM_HOPS = 2;
+/** SLIDE TO REST (owner, 2026-11-10): when fresh data moves nodes the
+ *  canvas already shows (the server's sliced settle placed a merge's new
+ *  nodes, or «Reorganizar» landed), they glide from where they were
+ *  drawn to the new rest position instead of jumping. */
+const SLIDE_MS = 600;
+/** Below this world distance a node is "unchanged" (no slide). */
+const SLIDE_EPSILON = 0.5;
 /** Area labels: bigger + bolder than note labels (screen px factor). */
 const AREA_LABEL_SCALE = 1.5;
 const AREA_LABEL_WEIGHT = "600";
@@ -767,6 +774,9 @@ export class GraphCanvasRenderer {
 	/** Area id → hue, and node id → area id (for colors). */
 	private areaHue = new Map<string, number>();
 	private dragId: string | null = null;
+	/** In-flight slide to rest: per node, where it was drawn and where the
+	 *  new data puts it. Null when nothing is gliding. */
+	private slide: { start: number; moves: { n: CanvasNode; fx: number; fy: number; tx: number; ty: number }[] } | null = null;
 	/** A light-mode drag is under way (past the click slop). */
 	private lightDragged = false;
 	private dragOrigin: Pt | null = null;
@@ -945,6 +955,11 @@ export class GraphCanvasRenderer {
 	// ── Public API ──
 
 	setData(data: CanvasData): void {
+		// Where each node is drawn right now (mid-slide included), so moved
+		// nodes can glide from there (SLIDE_MS).
+		const drawn = new Map<string, { x: number; y: number }>();
+		for (const n of this.data?.nodes ?? []) drawn.set(n.id, { x: n.x, y: n.y });
+		this.slide = null;
 		this.data = data;
 		this.nodeById = new Map(data.nodes.map((n) => [n.id, n]));
 		let minX = Infinity;
@@ -998,9 +1013,54 @@ export class GraphCanvasRenderer {
 		this.edgeIndex = edgeIndex;
 		this.areaHue = areaHues((data.areas ?? []).map((a) => a.id));
 		this.buildSim();
+		this.startSlide(drawn);
 		this.inputsVersion++;
 		this.geoVersion++; // new data → rebuild world geometry
 		this.markDirty();
+	}
+
+	/** Begin the glide for every node whose drawn position differs from
+	 *  the fresh data (none on first load; reduced motion jumps). */
+	private startSlide(drawn: ReadonlyMap<string, { x: number; y: number }>): void {
+		if (drawn.size === 0 || !this.data) return;
+		const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+		if (reduced) return;
+		const moves: { n: CanvasNode; fx: number; fy: number; tx: number; ty: number }[] = [];
+		for (const n of this.data.nodes) {
+			const from = drawn.get(n.id);
+			if (!from || Math.hypot(from.x - n.x, from.y - n.y) < SLIDE_EPSILON) continue;
+			moves.push({ n, fx: from.x, fy: from.y, tx: n.x, ty: n.y });
+			n.x = from.x;
+			n.y = from.y;
+		}
+		if (moves.length > 0) this.slide = { start: performance.now(), moves };
+	}
+
+	/** One glide step (ease-out cubic); returns true while still moving. */
+	private advanceSlide(): boolean {
+		const slide = this.slide;
+		if (!slide) return false;
+		const t = Math.min((performance.now() - slide.start) / SLIDE_MS, 1);
+		const e = 1 - (1 - t) ** 3;
+		for (const m of slide.moves) {
+			m.n.x = m.fx + (m.tx - m.fx) * e;
+			m.n.y = m.fy + (m.ty - m.fy) * e;
+		}
+		this.geoVersion++;
+		if (t >= 1) this.slide = null;
+		return t < 1;
+	}
+
+	/** Jump every gliding node to its rest position (a drag interrupts). */
+	private finishSlide(): void {
+		const slide = this.slide;
+		if (!slide) return;
+		for (const m of slide.moves) {
+			m.n.x = m.tx;
+			m.n.y = m.ty;
+		}
+		this.slide = null;
+		this.geoVersion++;
 	}
 
 	setSettings(settings: GraphRenderSettings): void {
@@ -1247,6 +1307,7 @@ export class GraphCanvasRenderer {
 			} catch {
 				/* capture is best-effort */
 			}
+			this.finishSlide();
 			this.dragId = node.id;
 			this.dragOrigin = pos;
 			const n = this.simById.get(node.id);
@@ -1394,11 +1455,12 @@ export class GraphCanvasRenderer {
 			const hoverAnim = this.advanceHover();
 			const zoomAnim = this.advanceZoom(dt);
 			const simAnim = this.advanceSim();
+			const slideAnim = this.advanceSlide();
 			this.draw();
 			// Keep frames coming ONLY while an animation is in motion (hover
-			// fade, zoom glide, or live physics); an idle graph schedules no
-			// rAF at all.
-			this.animating = hoverAnim || zoomAnim || simAnim;
+			// fade, zoom glide, live physics, or a slide to rest); an idle
+			// graph schedules no rAF at all.
+			this.animating = hoverAnim || zoomAnim || simAnim || slideAnim;
 		} finally {
 			this.inTick = false;
 		}

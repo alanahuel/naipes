@@ -11,5 +11,5 @@ import { relayoutGraph } from "@/src/server";
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-	return Response.json(relayoutGraph());
+	return Response.json(await relayoutGraph());
 }

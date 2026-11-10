@@ -155,14 +155,18 @@ export function renameSessionsPatch(snapshot: Pick<GraphSnapshot, "sessions">, i
 
 /** Seed positions for nodes the ledger doesn't know yet (hygiene,
  *  2026-09-23 fix wave): they used to fall through to a ?? 0 and dump
- *  at the origin. Place them on a deterministic ring around the known
- *  positions' centroid — angle hashed from the id (FNV-1a), golden-angle
- *  spiral offset so even hash collisions spread. Stable across
- *  remounts, far enough off the mass to see, and they relax with the
- *  pack on the next drag. In-place on the provided map; pure otherwise. */
+ *  at the origin. BESIDE THEIR NEIGHBOURS (owner, 2026-11-10 — the
+ *  server settle is sliced now, so a merge's nodes are routinely read
+ *  before they have a rest position): a node with positioned neighbours
+ *  starts at their mean, nudged by a hashed offset; it slides to rest
+ *  when the settle lands. A node with none goes on a deterministic ring
+ *  around the known positions' centroid — angle hashed from the id
+ *  (FNV-1a), golden-angle spiral offset so even hash collisions spread.
+ *  Stable across remounts. In-place on the provided map; pure otherwise. */
 export function seedMissingNodePositions(
 	nodes: readonly { id: string }[],
 	positions: Map<string, { x: number; y: number }>,
+	edges: readonly { from: string; to: string }[] = [],
 ): Map<string, { x: number; y: number }> {
 	if (positions.size === 0 || nodes.every((n) => positions.has(n.id))) return positions;
 	let minX = Infinity;
@@ -179,6 +183,20 @@ export function seedMissingNodePositions(
 	const cy = (minY + maxY) / 2;
 	const radius = Math.max(maxX - minX, maxY - minY, 40) * 0.7 + 20;
 	const missing = nodes.filter((n) => !positions.has(n.id));
+	const neighbours = new Map<string, string[]>();
+	if (edges.length > 0) {
+		const missingIds = new Set(missing.map((n) => n.id));
+		const link = (a: string, b: string) => {
+			if (!missingIds.has(a) || a === b) return;
+			let list = neighbours.get(a);
+			if (!list) neighbours.set(a, (list = []));
+			list.push(b);
+		};
+		for (const e of edges) {
+			link(e.from, e.to);
+			link(e.to, e.from);
+		}
+	}
 	missing.forEach((n, i) => {
 		// FNV-1a hash → [0,1) → angle; the golden-angle spiral offset
 		// both spreads collisions and staggers long paths deterministically.
@@ -188,6 +206,22 @@ export function seedMissingNodePositions(
 			h = (h * 0x01000193) >>> 0;
 		}
 		const angle = ((h / 0xffffffff) * 2 * Math.PI + i * 2.39996323) % (2 * Math.PI);
+		let sx = 0;
+		let sy = 0;
+		let found = 0;
+		for (const nb of neighbours.get(n.id) ?? []) {
+			const p = positions.get(nb);
+			if (!p) continue;
+			sx += p.x;
+			sy += p.y;
+			found++;
+		}
+		if (found > 0) {
+			// Beside the neighbours (one link length off their mean), never
+			// on top of them.
+			positions.set(n.id, { x: sx / found + Math.cos(angle) * 20, y: sy / found + Math.sin(angle) * 20 });
+			return;
+		}
 		positions.set(n.id, {
 			x: cx + Math.cos(angle) * radius,
 			y: cy + Math.sin(angle) * radius,
@@ -1261,6 +1295,18 @@ export function GraphView({
 		}, 250);
 	});
 	useServerResync(() => readPipelineStatus());
+	// The server's sliced settle finished (perf, owner 2026-11-10): new
+	// nodes now have a resting position — refetch, and the canvas slides
+	// them there from where they were seeded. Debounced like the status.
+	const layoutDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	useServerEvent("graph-layout-changed", () => {
+		if (layoutDebounceRef.current) clearTimeout(layoutDebounceRef.current);
+		layoutDebounceRef.current = setTimeout(() => {
+			layoutDebounceRef.current = undefined;
+			setRefreshTick((t) => t + 1);
+		}, 250);
+	});
+	useEffect(() => () => clearTimeout(layoutDebounceRef.current), []);
 	useEffect(() => {
 		readPipelineStatus();
 		return () => {
@@ -1388,7 +1434,7 @@ export function GraphView({
 				// Hygiene (2026-09-23 fix wave): nodes the ledger doesn't know
 				// yet (raced mid-settle) get seeded ring positions instead of
 				// the old ?? 0 origin dump.
-				posRef.current = seedMissingNodePositions(snapshot.nodes, positions);
+				posRef.current = seedMissingNodePositions(snapshot.nodes, positions, snapshot.edges);
 				return () => {
 					posRef.current = null;
 				};

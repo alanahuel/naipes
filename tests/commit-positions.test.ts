@@ -13,6 +13,7 @@
  * the server modules (the seam is env-at-module-load, see
  * tests/data-dir-seam.test.ts).
  */
+import { graphSettleIdle } from "../src/core/layout-settle.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -85,13 +86,15 @@ describe("commitPositions (the arg_ fix)", () => {
 		}, "no settle recomputation — the client's rest state is the ledger");
 	});
 
-	it("a payload missing a view node (a merge landed mid-drag) triggers the absorbing settle", () => {
+	it("a payload missing a view node (a merge landed mid-drag) triggers the absorbing settle", async () => {
 		// The client never knew arg_chain1 (it merged after the drag began).
 		commitPositions({
 			n_a: { x: 1, y: 2 },
 			n_b: { x: 3, y: 4 },
 			n_c: { x: 5, y: 6 },
 		});
+		// The settle is sliced off the request path (perf, 2026-11-10).
+		await graphSettleIdle();
 		const after = readPositions();
 		assert.ok("arg_chain1" in after, "the settle laid out the node the client missed");
 		// The client's anchors are honored (warm start), not clobbered to 0.

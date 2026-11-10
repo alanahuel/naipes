@@ -21,6 +21,7 @@
  * deleted by this suite).
  */
 
+import { graphSettleIdle } from "../src/core/layout-settle.ts";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
@@ -2566,14 +2567,27 @@ describe("notes import completion and retry reliability", () => {
 		assert.equal(ledgers.readSources()[0]!.extractions?.length, 1);
 	});
 
-	for (const seam of ["layout", "usage"] as const) it(`a post-merge ${seam} failure is not false success and reports committed stats`, async () => {
+	it("a layout failure no longer fails the import: the settle runs off the merge path (perf, 2026-11-10)", async () => {
+		const ledgers = memoryLedgers();
+		const broken: GraphStore = { ...ledgers, writePositions: () => { throw new Error("synthetic layout failure"); } };
+		const originalError = console.error;
+		console.error = () => {};
+		try {
+			await make(broken).importNotes(input);
+			await graphSettleIdle();
+		} finally {
+			console.error = originalError;
+		}
+		assert.equal(ledgers.readNodes().length, 1, "the merge committed; the failed settle is only logged");
+		assert.equal(ledgers.readSources()[0]!.extractions?.length, 1);
+	});
+
+	it("a post-merge usage failure is not false success and reports committed stats", async () => {
 		const ledgers = memoryLedgers();
 		const originalUsage = ledgers.appendSourceUsage;
 		let failed = false;
 		const broken: GraphStore = { ...ledgers,
-			...(seam === "layout" ? { writePositions: () => { throw new Error("synthetic layout failure"); } } : {
-				appendSourceUsage: (id, entry) => { if (!failed) { failed = true; throw new Error("synthetic usage failure"); } originalUsage(id, entry); },
-			}),
+			appendSourceUsage: (id, entry) => { if (!failed) { failed = true; throw new Error("synthetic usage failure"); } originalUsage(id, entry); },
 		};
 		await assert.rejects(make(broken).importNotes(input), incomplete("failed", 1));
 		assert.equal(ledgers.readNodes().length, 1);

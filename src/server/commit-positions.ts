@@ -2,8 +2,8 @@
  * Server-side commit for the live physics drag (PUT /api/graph/positions).
  * The client's renderer anneals a drag to rest and PUTs the new rest
  * state; the server trusts it for the nodes it knows about and, if the
- * graph grew while the user was dragging (a merge landed), runs ONE
- * incremental settle (settleGraphLayout) so the fresh nodes are absorbed
+ * graph grew while the user was dragging (a merge landed), requests ONE
+ * incremental settle (requestGraphSettle — sliced, local) so the fresh nodes are absorbed
  * into the frame the user just arranged — client positions act as
  * anchors, never as a clobber.
  *
@@ -20,7 +20,7 @@
  */
 import type { Position } from "../core/contracts.ts";
 import { deriveView, getGraph } from "../core/graph.ts";
-import { settleGraphLayout } from "../core/layout-settle.ts";
+import { relayoutGraphFresh, requestGraphSettle } from "../core/layout-settle.ts";
 import { stores } from "./stores.ts";
 
 /** Max |x| or |y| accepted — NaN/Infinity clamp here, absurd too. */
@@ -64,7 +64,7 @@ export function commitPositions(input: unknown): Record<string, Position> {
 	// comparison broke once args counted as persistable).
 	for (const id of known) {
 		if (!(id in positions)) {
-			settleGraphLayout(stores.graphStore);
+			requestGraphSettle(stores.graphStore);
 			break;
 		}
 	}
@@ -74,10 +74,11 @@ export function commitPositions(input: unknown): Record<string, Position> {
  * The «Reorganizar» action (POST /api/graph/positions/relayout, owner
  * 2026-11-03): recompute the WHOLE resting layout from scratch — no
  * anchors, each folder area seeded in its own disc and pulled into an
- * island — and replace the ledger. Synchronous like every settle; the
- * client refetches the snapshot afterwards.
+ * island — and replace the ledger. Sliced like every settle (the server
+ * keeps answering meanwhile); resolves when it landed, and the client
+ * refetches the snapshot afterwards.
  */
-export function relayoutGraph(): { nodes: number } {
-	settleGraphLayout(stores.graphStore, { fresh: true });
+export async function relayoutGraph(): Promise<{ nodes: number }> {
+	await relayoutGraphFresh(stores.graphStore);
 	return { nodes: Object.keys(stores.graphStore.readPositions()).length };
 }

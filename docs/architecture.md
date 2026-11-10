@@ -355,7 +355,7 @@ flowchart TB
     EXT["EXTRACTOR (LLM) — sees ONLY the teacher-prose view (tree-blind, graph-blind)<br/>submits propositions + REASONING CHAINS (owner redesign, 2026-09-30)<br/>stored AS-IS — chains.jsonl is the truth (chains-primary, 2026-09-30)"]
     EXT --> AUD["AUDITOR (LLM, agentic loop) — sees findings ONLY, never the source;<br/>explores the graph via find / list_sessions / list_propositions tools,<br/>judges identity ONLY (link-or-create, equivalence bias) — sees propositions, never mints chains"]
     AUD --> MERGE["MERGER (deterministic, core/graph.ts) — the ONLY ledger writer:<br/>identity via validated linkTo · chain dedupe (premises+conclusion → one arg_ id) · coverage checkpoint"]
-    MERGE --> SETTLE["settleGraphLayout — resting positions ledger"]
+    MERGE --> SETTLE["requestGraphSettle — sliced, coalesced, LOCAL settle of the resting positions ledger<br/>(off the request path; emits graph-layout-changed)"]
     MERGE -->|"failure at ANY stage"| NOTHING["checkpoints nothing — the next trigger re-runs"]
 ```
 
@@ -379,7 +379,7 @@ flowchart TB
 
 **The teacher probes, nothing is injected** (supersedes the semantic-injection experiment, killed 2026-09-23): the teacher reaches the graph on its own terms through two read-only prober tools — `list_sessions` (birth sessions, the learner's files) and `list_propositions` (the names of what a session covered) — gated by the `agent.graphTools` setting (composing with `graph.enabled`). No topic embedding, no top-K selection, no session-start steer; the agent decides what to look at, and the graph never writes into a lesson unbidden. **Memory in the probe** (owner, 2026-11-09): behind the same gate, `list_propositions` also carries each idea's id and memory (recall today, reached mode, last seen, lapses, «to teach» — `src/core/idea-memory.ts`, from the review state), `find_ideas` searches every session (fuzzy over names, statements, aliases; answers name + id + memory, never the statement), and the `probe` quiz takes optional `target` + `mode`: a held idea is confirmed with one question at its reached mode, and the answer grades it in Repaso (`probeEvents`, docs/review.md). Free recall never counts.
 
-**Rendering**: a hand-rolled Canvas 2D renderer (`components/graph-canvas.ts` — one rAF loop, dirty-flag idle, d3-zoom camera, zoom-gated label fade, cluster hulls computed at draw time) over a d3-force layout in core (`layout.ts`, warm-started `incrementalLayout` + `settleGraphLayout`). Render settings and drag-committed positions persist server-side; the camera persists per-device in localStorage.
+**Rendering**: a hand-rolled Canvas 2D renderer (`components/graph-canvas.ts` — one rAF loop, dirty-flag idle, d3-zoom camera, zoom-gated label fade, cluster hulls computed at draw time) over a d3-force layout in core (`layout.ts`, warm-started `incrementalLayout` + `layout-settle.ts`). **The settle never blocks the server** (perf, owner 2026-11-10 — the synchronous full settle froze every page for 5–7 s per merge): merges and drag commits call `requestGraphSettle`, which runs in ≤10 ms slices between event-loop turns, coalesces a burst of merges into one run, and is LOCAL — only the nodes the ledger lacks plus their 2-hop patch move (pinned rim, as in the client's drag physics). Its write-back keeps any position written mid-run for nodes it did not move. «Reorganizar» (`relayoutGraphFresh`) is the same queue, fresh. Until the settle lands the canvas seeds new nodes beside their neighbours; on `graph-layout-changed` it refetches and slides moved nodes to rest (600 ms, none under reduced motion). `settleGraphLayout` (synchronous) remains for tests. Render settings and drag-committed positions persist server-side; the camera persists per-device in localStorage.
 
 ---
 
@@ -504,6 +504,7 @@ Before 2026-10-02 the client discovered server-side change by polling: a lattice
 | `jobs-changed` | `{chatId}` | every job-store write (create/update/delete-that-removed) |
 | `activity-changed` | `{}` | extraction `setPhase`/`finishExtraction`; practice `registerRow`/phase-writes/`finishPractice` |
 | `chats-changed` | `{}` | list-shape writes only: chat create/rename/delete-that-removed |
+| `graph-layout-changed` | `{}` | a sliced settle or «Reorganizar» rewrote the positions ledger (`core/layout-settle.ts`) |
 
 ### 10.3 Emitter laws
 

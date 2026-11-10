@@ -538,6 +538,28 @@ export interface IncrementalLayoutOptions {
 	 *  islands instead of untangling one random blob. Ignored when any
 	 *  node has a previous position. */
 	seedGroups?: boolean;
+	/** LOCAL SETTLE (perf, 2026-11-10): the ids to settle around — normally
+	 *  the nodes the positions ledger lacks. When set (and a positioned
+	 *  core exists), only these nodes plus their LOCAL_SETTLE_HOPS-hop
+	 *  neighborhood move; that patch's outer ring joins the simulation
+	 *  PINNED (the client's drag physics, graph-canvas startLocalSim), and
+	 *  every other node keeps its previous position exactly. Seeding,
+	 *  gravity target, area pull and anchor re-blend follow the full
+	 *  settle's rules, restricted to the patch — so a merge costs
+	 *  O(patch) per tick instead of O(graph). */
+	localTo?: ReadonlySet<string>;
+}
+
+/** Hops around the settled ids that move in a local settle (the client's
+ *  drag physics uses the same 2, graph-canvas LOCAL_SIM_HOPS). */
+export const LOCAL_SETTLE_HOPS = 2;
+
+/** Run a step generator to completion synchronously. */
+export function drainSteps<T>(steps: Generator<void, T, void>): T {
+	for (;;) {
+		const r = steps.next();
+		if (r.done) return r.value;
+	}
 }
 
 /** World units per sqrt(member) of a seeded group's disc radius. */
@@ -570,6 +592,19 @@ export function incrementalLayout(
 	previous: ReadonlyMap<string, Position>,
 	options: IncrementalLayoutOptions = {},
 ): Map<string, Position> {
+	return drainSteps(incrementalLayoutSteps(nodes, edges, previous, options));
+}
+
+/** incrementalLayout as a generator that yields after every simulation
+ *  tick, so a caller can spread the settle over many event-loop turns
+ *  (the server's sliced settle, core/layout-settle.ts) instead of
+ *  blocking for the whole run. Same result as incrementalLayout. */
+export function* incrementalLayoutSteps(
+	nodes: ReadonlyArray<Pick<GraphNode, "id">>,
+	edges: ReadonlyArray<LayoutEdge>,
+	previous: ReadonlyMap<string, Position>,
+	options: IncrementalLayoutOptions = {},
+): Generator<void, Map<string, Position>, void> {
 	const ticks = options.ticks ?? 300;
 	const retention = options.anchorRetention ?? ANCHOR_RETENTION;
 
@@ -704,7 +739,49 @@ export function incrementalLayout(
 		return { id: node.id, x, y };
 	});
 
-	const sim = createGraphSimulation(simNodes, edges, {
+	// LOCAL SETTLE: the moving patch (settled ids + hops) and its pinned
+	// rim. Without a positioned core there is nothing to stay still
+	// against — the bootstrap runs the full simulation.
+	let sNodes: LayoutNode[] = simNodes;
+	let sEdges: ReadonlyArray<LayoutEdge> = edges;
+	let moving: Set<string> | null = null;
+	if (options.localTo && hasCore) {
+		moving = new Set<string>();
+		const present = new Set(simNodes.map((n) => n.id));
+		let frontier = [...options.localTo].filter((id) => present.has(id));
+		for (const id of frontier) moving.add(id);
+		for (let hop = 0; hop < LOCAL_SETTLE_HOPS; hop++) {
+			const nextFrontier: string[] = [];
+			for (const id of frontier)
+				for (const nb of adjacency.get(id) ?? [])
+					if (!moving.has(nb)) {
+						moving.add(nb);
+						nextFrontier.push(nb);
+					}
+			frontier = nextFrontier;
+		}
+		const members = new Set(moving);
+		for (const id of moving) for (const nb of adjacency.get(id) ?? []) members.add(nb);
+		const simById = new Map(simNodes.map((n) => [n.id, n]));
+		sNodes = [];
+		for (const id of members) {
+			const n = simById.get(id);
+			if (!n) continue;
+			if (!moving.has(id)) {
+				n.fx = n.x;
+				n.fy = n.y;
+			}
+			sNodes.push(n);
+		}
+		sEdges = edges.filter((e) => members.has(e.from) && members.has(e.to));
+	}
+	if (moving && moving.size === 0) {
+		const out = new Map<string, Position>();
+		for (const n of simNodes) out.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 });
+		return out;
+	}
+
+	const sim = createGraphSimulation(sNodes, sEdges, {
 		gravity: {
 			x: cx,
 			y: cy,
@@ -722,9 +799,10 @@ export function incrementalLayout(
 	});
 	const dMode = options.depthAnchor?.mode ?? "off";
 	const dCenter = options.depthAnchor?.center ?? { x: cx, y: cy };
-	const byId = new Map(simNodes.map((n) => [n.id, n]));
+	const byId = new Map(sNodes.map((n) => [n.id, n]));
 	for (let i = 0; i < ticks; i++) {
 		sim.tick();
+		yield;
 		// Anchor re-blend (position space, alpha-independent — see the
 		// ANCHOR_RETENTION note). Pinned nodes (fx/fy) are left to d3.
 		// DEPTH-MODE PROJECTION: the re-blend preserves the user's
@@ -763,6 +841,9 @@ export function incrementalLayout(
 	}
 
 	const out = new Map<string, Position>();
-	for (const n of simNodes) out.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 });
+	for (const n of simNodes) {
+		// Pinned rim nodes report their (unchanged) pin, not d3's copy.
+		out.set(n.id, { x: n.fx ?? n.x ?? 0, y: n.fy ?? n.y ?? 0 });
+	}
 	return out;
 }

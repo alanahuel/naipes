@@ -42,6 +42,10 @@ export interface ServerEvents {
 	 *  `kind` = which front door. A partial run is "failed". A run the
 	 *  user cancelled emits nothing (they know). */
 	"extraction-ended": { source: string; title: string; kind: "chat" | "notes"; outcome: "ok" | "failed"; chatId?: undefined };
+	/** The graph's resting layout changed (a sliced settle or a
+	 *  «Reorganizar» finished writing the positions ledger — perf, owner
+	 *  2026-11-10): open graph views refetch and slide nodes to rest. */
+	"graph-layout-changed": Record<string, never>;
 	/** The session list changed (create, delete, title). */
 	"chats-changed": Record<string, never>;
 	/** Web subscription state changed. No account or credential data on the bus. */
@@ -109,6 +113,7 @@ export const SERVER_EVENT_TYPES = [
 	"jobs-changed",
 	"activity-changed",
 	"extraction-ended",
+	"graph-layout-changed",
 	"chats-changed",
 	"subscriptions-changed",
 	"record-changed",

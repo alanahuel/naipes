@@ -117,4 +117,14 @@ describe("seedMissingNodePositions (ledger stragglers)", () => {
 		const out = seedMissingNodePositions([{ id: "n1" }], pos);
 		assert.equal(out.size, 0);
 	});
+	it("a straggler with positioned neighbours starts beside them, not on the ring (perf, owner 2026-11-10)", () => {
+		const positions = new Map([
+			["a", { x: 0, y: 0 }],
+			["b", { x: 100, y: 0 }],
+			["far", { x: 5000, y: 5000 }],
+		]);
+		seedMissingNodePositions([{ id: "a" }, { id: "b" }, { id: "far" }, { id: "new" }], positions, [{ from: "a", to: "new" }, { from: "new", to: "b" }]);
+		const p = positions.get("new")!;
+		assert.ok(Math.hypot(p.x - 50, p.y) <= 21, `seeded within a link length of its neighbours' mean (got ${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
+	});
 });
