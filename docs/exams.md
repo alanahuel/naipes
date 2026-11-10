@@ -92,6 +92,7 @@ Knowledge the syllabus takes for granted (earlier-stage foundations it does not 
 - **Durations**: settings defaults (teach 25, afianzado 10, problem 6, review idea 2 minutes) until three measured samples of the learner's active time exist (gaps capped at 5 minutes).
 - **Budget** (`planBudget`): one global set of minutes per weekday for all exams. Review minutes are spread over the study days left; the rest goes earliest-deadline-first.
 - **Today** (`todayBlocks`): dated review → placement test (while pending) or mode practice → teach one point. Each block is its own session.
+- **«Calendario»** (owner 2026-11-10, `docs/calendar.md`): each date's budget is the calendar's (overrides, classes that consume time, pinned sittings, Repaso and «Preparar clase» taken out); the exam page's «Hoy» and «Plan» show the calendar filtered to the exam; a point a class confirmed is a short afianzado (`classCovered`), one a future class plans is not taught before it.
 - **Not enough time**: the exam page says which preset the budget reaches and offers «Subir N min/día», «Bajar a …», «Priorizar bloques» — nothing changes on its own.
 
 ## Sessions
