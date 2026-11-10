@@ -166,6 +166,7 @@ export type ExamAppendixName =
 	| "consolidate-prerequisite"
 	| "mock"
 	| "deepen"
+	| "prepare"
 	| "instructions";
 
 const examTemplates = new Map<ExamAppendixName, string>();

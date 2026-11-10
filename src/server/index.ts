@@ -61,3 +61,4 @@ export { listMcpDeletions, decideMcpDeletion } from "./mcp-deletions.ts";
 export { onboardingResponse, onboardingDone, applyOnboarding } from "./onboarding.ts";
 // Local Whisper dictation (owner, 2026-11-08): model downloads + file serving.
 export { whisperModelStatuses, startWhisperDownload, cancelOrDeleteWhisperModel, whisperModelFile, type WhisperModelStatus } from "./whisper-models.ts";
+export * from "./calendar.ts";

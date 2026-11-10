@@ -8,6 +8,8 @@ export default {
 	"exams.mode.discrimination": "Discriminar",
 	"exams.mode.composition": "Componer",
 	// Session titles and the learner's opening messages (owner-approved)
+	"exams.session.prepareTitle": "Preparar clase · {class}",
+	"exams.session.prepareOpening": "Preparemos la clase.",
 	"exams.session.deepenTitle": "Profundizar · {point}",
 	"exams.session.deepenOpening": "Quiero profundizar en: {point}.",
 	"exams.session.placementTitle": "Prueba de nivel · {exam}",

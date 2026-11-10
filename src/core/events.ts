@@ -63,6 +63,13 @@ export interface ServerEvents {
 	/** An exam record or its derived plan changed («Exámenes», 2026-11-05):
 	 *  create, mapping transitions, edits, exam sessions started. */
 	"exams-changed": { examId: string; chatId?: undefined };
+	/** The calendar changed («Calendario», 2026-11-10): an event, a
+	 *  pinned session, a date's minutes, a subscription refreshed. */
+	"calendar-changed": { chatId?: undefined };
+	/** A calendar notice went out: an alert before a timed session/class
+	 *  (`key` = the item), or «¿Qué se dio en…?» after a class (`key` =
+	 *  the occurrence). */
+	"calendar-notice": { kind: "alert" | "confirm"; key: string; title: string; start?: string; chatId?: undefined };
 	/** An exam notice went out — below target, 7 days, 1 day, or the exam
 	 *  digest/evening when Repaso had nothing due (`minutes` = today's plan):
 	 *  the bell adds it and opens the exam. */
@@ -108,6 +115,8 @@ export const SERVER_EVENT_TYPES = [
 	"compaction-changed",
 	"review-notice",
 	"exams-changed",
+	"calendar-changed",
+	"calendar-notice",
 	"exam-notice",
 	"vault-notice",
 	"phone-attachments",

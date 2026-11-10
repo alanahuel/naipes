@@ -77,7 +77,7 @@ export interface ChatRecord {
 	version?: number;
 }
 
-export type ExamSessionKind = "placement" | "practice" | "review" | "teach" | "mock" | "deepen";
+export type ExamSessionKind = "placement" | "practice" | "review" | "teach" | "mock" | "deepen" | "prepare";
 
 export interface ChatExamLink {
 	id: string;
@@ -101,6 +101,12 @@ export interface ChatExamLink {
 	/** Teach of a «conocimiento previo» (owner 2026-11-09): its id in the
 	 *  exam (no pointId then). */
 	prerequisiteId?: string;
+	/** «Preparar clase» («Calendario», owner 2026-11-10): the class
+	 *  occurrence it prepares, frozen with its name and moment (the topics
+	 *  ride `pointIds`). */
+	occurrence?: string;
+	className?: string;
+	classWhen?: string;
 }
 
 /** The chat record format this build writes and understands. */

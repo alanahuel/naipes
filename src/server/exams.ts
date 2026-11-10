@@ -101,6 +101,8 @@ import { DAY_ROLLOVER_HOUR, shouldSendNotice, type ReviewNoticeKind } from "../c
 import { effectiveSettings, stores } from "./stores.ts";
 import { decidePendingDocument, onVaultNoteSettled, reconfigureVault, vaultFolderTree, vaultNoteState, vaultNotesUnder } from "./vault.ts";
 import { materialPath, removeMaterialFile, writeMaterialFile } from "../store/exams.ts";
+import { calendarSource, computeCalendar, type CalendarComputed } from "./calendar-context.ts";
+import type { CalendarItem } from "../core/calendar.ts";
 
 // ─── i18n ───────────────────────────────────────────────────────────────────
 
@@ -128,6 +130,8 @@ export interface ExamComputed {
 	infeasible: Infeasibility | null;
 	/** An exam session was created for it today. */
 	startedToday: boolean;
+	/** Today's calendar items for this exam (sessions, classes). */
+	calendarToday: CalendarItem[];
 }
 
 export interface ExamsState {
@@ -137,6 +141,8 @@ export interface ExamsState {
 	durations: Durations;
 	days: string[];
 	review: ReviewState;
+	/** «Calendario» (owner 2026-11-10): the one plan every view reads. */
+	calendar: CalendarComputed;
 }
 
 /** Finished (or interrupted) mappings this process is not running. */
@@ -156,7 +162,7 @@ function save(exam: ExamRecord): void {
 	emit("exams-changed", { examId: exam.id });
 }
 
-function statusFor(record: ExamRecord, review: ReviewState, now: number): ExamStatusModel | null {
+function statusFor(record: ExamRecord, review: ReviewState, now: number, classCovered?: ReadonlySet<string>): ExamStatusModel | null {
 	if (record.blocks.length === 0) return null;
 	const items = new Map<string, ReviewItem>(review.model.items.map((i) => [i.nodeId, i]));
 	return computeExamStatus({
@@ -168,6 +174,7 @@ function statusFor(record: ExamRecord, review: ReviewState, now: number): ExamSt
 		nodesBornIn: review.nodesBornIn,
 		confidenceThreshold: effectiveSettings().review.confidenceThreshold,
 		dueEnd: reviewDayEnd(now),
+		...(classCovered?.size ? { classCovered } : {}),
 	});
 }
 
@@ -221,6 +228,7 @@ export function getExamsState(now = Date.now(), whatIf?: ExamsWhatIf): ExamsStat
 	// 2026-11-09): same-key ones across exams carry each other's ideas.
 	records = sharePrerequisiteIdeas(records, review.chats, review.nodesBornIn);
 
+	const calendarSrc = calendarSource(now, today);
 	const settings = effectiveSettings().exams;
 	const durations = effectiveDurations(
 		{ teach: settings.teachMinutes, consolidate: settings.consolidateMinutes, problem: settings.problemMinutes, review: settings.reviewMinutes },
@@ -231,7 +239,7 @@ export function getExamsState(now = Date.now(), whatIf?: ExamsWhatIf): ExamsStat
 	const computed: ExamComputed[] = records.map((stored) => {
 		const record: ExamRecord =
 			whatIf?.examId === stored.id ? { ...stored, status: "active", ...(whatIf.standard ? { standard: whatIf.standard } : {}) } : stored;
-		const status = statusFor(record, review, now);
+		const status = statusFor(record, review, now, calendarSrc.covered.get(record.id));
 		const live = isLiveExam(record, today) && status !== null;
 		const base = { status, durations, examDate: record.examDate, now, finalWindowDays: settings.finalWindowDays, priorityBlocks: record.priorityBlocks, items };
 		const work = live ? examWork({ ...base, status: status!, standard: record.standard }) : null;
@@ -239,23 +247,49 @@ export function getExamsState(now = Date.now(), whatIf?: ExamsWhatIf): ExamsStat
 			? (Object.fromEntries(PRESET_ORDER.map((p) => [p, examWork({ ...base, status: status!, standard: EXAM_PRESETS[p] }).total])) as Record<ExamPreset, number>)
 			: null;
 		const startedToday = review.chats.some((c) => c.exam?.id === record.id && reviewDay(Date.parse(c.createdAt)) === today);
-		return { record, status, live, work, presetWork, allocation: [], todayMinutes: 0, blocks: [], infeasible: null, startedToday };
+		return { record, status, live, work, presetWork, allocation: [], todayMinutes: 0, blocks: [], infeasible: null, startedToday, calendarToday: [] };
 	});
 
-	const plan = planBudget({
+	// The calendar takes out classes that consume time, pinned sittings,
+	// Repaso and preparations, then planBudget splits the rest by urgency.
+	const weeklyMinutes = whatIf?.weeklyMinutes ?? settings.weeklyMinutes;
+	const liveExams = computed.filter((c) => c.live);
+	let plan: ReturnType<typeof planBudget> = { allocations: {}, shortfall: {}, studyDays: {}, days: [] };
+	const calendarSettings = effectiveSettings().calendar;
+	const horizon = liveExams.reduce((h, c) => Math.max(h, daysBetween(today, c.record.examDate)), 0);
+	const calendar = computeCalendar({
+		now,
 		today,
-		weeklyMinutes: whatIf?.weeklyMinutes ?? settings.weeklyMinutes,
-		exams: computed.filter((c) => c.live).map((c) => ({ examId: c.record.id, examDate: c.record.examDate, work: c.work!.total, spread: c.work!.review })),
+		source: calendarSrc,
+		exams: liveExams.map((c) => ({ examId: c.record.id, examDate: c.record.examDate, standard: c.record.standard, status: c.status!, work: c.work!, priorityBlocks: c.record.priorityBlocks })),
+		items: review.model.items,
+		chats: review.chats,
+		durations,
+		weeklyMinutes,
+		slots: calendarSettings.slots,
+		prepareMinutes: calendarSettings.prepareMinutes,
+		horizon,
+		allocate: ({ budgetFor, work }) => {
+			plan = planBudget({
+				today,
+				weeklyMinutes,
+				budgetFor,
+				exams: liveExams.map((c) => ({ examId: c.record.id, examDate: c.record.examDate, work: work.get(c.record.id)!.work, spread: work.get(c.record.id)!.spread })),
+			});
+			return plan.allocations;
+		},
 	});
+	const todayPlan = calendar.plan.days[0];
 	for (const c of computed) {
 		if (!c.live) continue;
 		c.allocation = plan.allocations[c.record.id] ?? [];
 		c.todayMinutes = c.allocation[0] ?? 0;
 		c.blocks = todayBlocks({ status: c.status!, standard: c.record.standard, minutes: c.todayMinutes, durations, priorityBlocks: c.record.priorityBlocks });
-		const allocated = c.allocation.reduce((s, x) => s + x, 0);
+		c.calendarToday = (todayPlan?.items ?? []).filter((i) => i.examId === c.record.id);
+		const allocated = c.allocation.reduce((s, x) => s + x, 0) + (calendar.claims.get(c.record.id) ?? 0);
 		c.infeasible = infeasibility({ shortfall: plan.shortfall[c.record.id] ?? 0, daysLeft: plan.studyDays[c.record.id] ?? 0, allocated, presetWork: c.presetWork! });
 	}
-	return { now, today, exams: computed, durations, days: plan.days, review };
+	return { now, today, exams: computed, durations, days: plan.days, review, calendar };
 }
 
 // ─── API views ──────────────────────────────────────────────────────────────
@@ -1530,6 +1564,9 @@ export function startExamSession(id: string, kind: ExamSessionKind, pointId: str
 			seedGraphContext(chat.id, picksOf(point.nodeIds));
 			return { ok: true, session: { id: chat.id, title: chat.title, opening: t(locale, "exams.session.deepenOpening", { point: point.text }), kind } };
 		}
+		case "prepare":
+			// Started from the calendar only (startPrepareSession).
+			return { ok: false, status: 409, error: "a class preparation starts from the calendar" };
 		case "mock": {
 			const ids = spread(status.ideas.map((i) => i.nodeId), status, MOCK_PROBLEMS);
 			if (ids.length === 0) return { ok: false, status: 409, error: "the syllabus has no ideas yet" };
@@ -1644,7 +1681,26 @@ function kindAppendix(record: Pick<ChatRecord, "exam">): string | undefined {
 		}
 		case "mock":
 			return examAppendix("mock", { ...base, n: MOCK_PROBLEMS });
+		case "prepare": {
+			const points = (link.pointIds ?? []).filter((p) => pointText.has(p)).map((p) => `- ${pointText.get(p)}`).join("\n");
+			return examAppendix("prepare", { ...base, class: link.className ?? "", when: link.classWhen ?? "", points, minutes: effectiveSettings().calendar.prepareMinutes });
+		}
 	}
+}
+
+/** «Preparar clase» («Calendario», owner 2026-11-10; approved prompt
+ *  text): a short teach-kind session before a class with planned topics.
+ *  It teaches no point (the class does; a consolidation follows). */
+export function startPrepareSession(id: string, input: { occurrence: string; pointIds: string[]; className: string; classWhen: string }): ExamSessionStart {
+	const exam = readExam(id);
+	if (!exam || exam.status !== "active") return { ok: false, status: 404, error: "not_found" };
+	const locale = interfaceLocale();
+	const chat = createChat(t(locale, "exams.session.prepareTitle", { class: input.className }), undefined, {
+		exam: { id, kind: "prepare", pointIds: [...input.pointIds], occurrence: input.occurrence, className: input.className, classWhen: input.classWhen },
+	});
+	stampStrongModel(chat.id);
+	emit("exams-changed", { examId: id });
+	return { ok: true, session: { id: chat.id, title: chat.title, opening: t(locale, "exams.session.prepareOpening"), kind: "prepare" } };
 }
 
 // ─── notices (folded into the review digest/evening; owner-approved texts) ──

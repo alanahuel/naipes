@@ -41,6 +41,7 @@ import {
 	type ObsidianSettings,
 	type ReviewSettings,
 	type ExamSettings,
+	type CalendarSettings,
 	type DesktopSettings,
 	type GraphSettings,
 	type ModelSlot,
@@ -106,6 +107,8 @@ export interface EffectiveSettings {
 	review: Required<ReviewSettings>;
 	/** Exams with a deadline, concrete (factory values fill gaps). */
 	exams: Required<ExamSettings>;
+	/** «Calendario»: usual slots and tunables, concrete. */
+	calendar: Required<CalendarSettings>;
 	/** Desktop shell switches, concrete. */
 	desktop: Required<DesktopSettings>;
 }
@@ -249,6 +252,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 		},
 		review: { ...FACTORY_SETTINGS.review, ...record?.review },
 		exams: { ...FACTORY_SETTINGS.exams, ...record?.exams },
+		calendar: { ...FACTORY_SETTINGS.calendar, ...record?.calendar },
 		desktop: { ...FACTORY_SETTINGS.desktop, ...record?.desktop },
 	};
 }

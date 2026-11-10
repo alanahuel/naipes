@@ -33,6 +33,8 @@ export const PATHS = {
 	review: path.join(DATA_ROOT, "review"),
 	/** Exams with a deadline («Exámenes», owner 2026-11-05): src/store/exams.ts. */
 	exams: path.join(DATA_ROOT, "exams"),
+	/** «Calendario» (owner 2026-11-10): src/store/calendar.ts. */
+	calendar: path.join(DATA_ROOT, "calendar"),
 	/** Image attachments (owner, 2026-11-06): attachments/<chatId>/<id>.jpg
 	 *  — src/store/attachments.ts. */
 	attachments: path.join(DATA_ROOT, "attachments"),
@@ -132,6 +134,22 @@ export const REVIEW_FILES = {
 export const EXAM_FILES = {
 	dir: PATHS.exams,
 	notices: path.join(PATHS.exams, "notices.jsonl"),
+} as const;
+
+/**
+ * «Calendario» (owner 2026-11-10). The plan is never stored — it derives
+ * from the exams, Repaso and these files:
+ *   calendar.json   read-modify-write: events, occurrence states, per-date
+ *                   minutes, .ics subscriptions + what the learner set on
+ *                   imported series, pinned (anchored / started) sessions.
+ *   feeds/<id>.json the last fetch of a subscription, expanded.
+ *   notices.jsonl   append-only: alerts and «¿Qué se dio?» asks sent.
+ */
+export const CALENDAR_FILES = {
+	dir: PATHS.calendar,
+	data: path.join(PATHS.calendar, "calendar.json"),
+	feeds: path.join(PATHS.calendar, "feeds"),
+	notices: path.join(PATHS.calendar, "notices.jsonl"),
 } as const;
 
 /**

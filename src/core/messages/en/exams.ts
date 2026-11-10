@@ -10,6 +10,8 @@ export default {
 	"exams.mode.recall": "Recall",
 	"exams.mode.discrimination": "Discriminate",
 	"exams.mode.composition": "Compose",
+	"exams.session.prepareTitle": "Class prep · {class}",
+	"exams.session.prepareOpening": "Let’s prepare the class.",
 	"exams.session.deepenTitle": "Go deeper · {point}",
 	"exams.session.deepenOpening": "I want to go deeper into: {point}.",
 	"exams.session.placementTitle": "Placement test · {exam}",

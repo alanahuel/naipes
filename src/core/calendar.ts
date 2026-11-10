@@ -120,6 +120,9 @@ export interface PinnedSession {
 	short?: boolean;
 	/** prepare: the class occurrence it prepares. */
 	occurrence?: string;
+	/** repaso / exam review: the day whose due ideas it serves (that
+	 *  day's automatic one is not planned again). */
+	forDay?: string;
 	parts: SessionPart[];
 	anchored: boolean;
 	chatId?: string;
@@ -226,6 +229,7 @@ function sanitizePinned(raw: unknown): PinnedSession | null {
 		...(str(r.prerequisiteId, 120) ? { prerequisiteId: str(r.prerequisiteId, 120)! } : {}),
 		...(r.short === true ? { short: true } : {}),
 		...(str(r.occurrence, 200) ? { occurrence: str(r.occurrence, 200)! } : {}),
+		...(isDay(r.forDay) ? { forDay: r.forDay } : {}),
 		parts,
 		anchored: r.anchored === true,
 		...(str(r.chatId, 120) ? { chatId: str(r.chatId, 120)! } : {}),
@@ -767,6 +771,7 @@ export function anchorFrom(item: CalendarItem, id: string, parts: SessionPart[],
 		...(item.prerequisiteId ? { prerequisiteId: item.prerequisiteId } : {}),
 		...(item.short ? { short: true } : {}),
 		...(item.occurrence ? { occurrence: item.occurrence } : {}),
+		...(item.kind === "repaso" || item.kind === "review" ? { forDay: item.day } : {}),
 		parts,
 		anchored: true,
 		createdAt: nowIso,

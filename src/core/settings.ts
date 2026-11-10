@@ -282,6 +282,51 @@ export interface ExamSettings {
 
 export const EXAM_WEEKDAYS = 7;
 
+/** «Calendario» (owner 2026-11-10). The minutes per weekday stay in
+ *  `exams.weeklyMinutes`; this section holds the usual study slots and
+ *  the calendar's own tunables. */
+export interface CalendarSettings {
+	/** Usual study slots, Monday-first weekday + local "HH:MM" range. */
+	slots?: Array<{ weekday: number; start: string; end: string }>;
+	/** Minutes before a session or class with an hour that the alert fires
+	 *  (0 = off; factory 10). */
+	alertMinutes?: number;
+	/** A «preparar clase» session, minutes (factory 10). */
+	prepareMinutes?: number;
+}
+
+/** At most this many usual slots. */
+export const MAX_CALENDAR_SLOTS = 40;
+
+const CLOCK_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+export function isCalendarSlots(v: unknown): v is NonNullable<CalendarSettings["slots"]> {
+	return (
+		Array.isArray(v) &&
+		v.length <= MAX_CALENDAR_SLOTS &&
+		v.every((s) => {
+			if (s === null || typeof s !== "object") return false;
+			const x = s as Record<string, unknown>;
+			return Number.isInteger(x.weekday) && (x.weekday as number) >= 0 && (x.weekday as number) <= 6 && typeof x.start === "string" && typeof x.end === "string" && CLOCK_RE.test(x.start) && CLOCK_RE.test(x.end) && x.start < x.end;
+		})
+	);
+}
+
+export const CALENDAR_INT_FIELDS: Array<["alertMinutes" | "prepareMinutes", number, number]> = [
+	["alertMinutes", 0, 120],
+	["prepareMinutes", 5, 60],
+];
+
+function sanitizeCalendarSettings(raw: Record<string, unknown>): CalendarSettings {
+	const out: CalendarSettings = {};
+	if (isCalendarSlots(raw.slots)) out.slots = raw.slots.map((s) => ({ weekday: s.weekday, start: s.start, end: s.end }));
+	for (const [field, min, max] of CALENDAR_INT_FIELDS) {
+		const v = raw[field];
+		if (typeof v === "number" && Number.isInteger(v)) out[field] = Math.min(max, Math.max(min, v));
+	}
+	return out;
+}
+
 /** The desktop shell (owner, 2026-11-04 — «Repaso» stage 2). Read by
  *  electron/main.cjs straight from settings.json on its minute clock. */
 /** «Enviar desde el móvil» (owner, 2026-11-06 — image attachments phase
@@ -507,6 +552,7 @@ export interface UserSettings {
 	obsidian?: ObsidianSettings;
 	review?: ReviewSettings;
 	exams?: ExamSettings;
+	calendar?: CalendarSettings;
 	desktop?: DesktopSettings;
 	phone?: PhoneSettings;
 	mcp?: McpSettings;
@@ -542,6 +588,7 @@ export interface FactorySettings {
 	obsidian: Required<ObsidianSettings>;
 	review: Required<ReviewSettings>;
 	exams: Required<ExamSettings>;
+	calendar: Required<CalendarSettings>;
 	desktop: Required<DesktopSettings>;
 }
 
@@ -562,6 +609,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 	obsidian: { enabled: false, vaultPath: "", folders: [], outputFolder: DEFAULT_VAULT_OUTPUT_FOLDER, obsidianFormat: false, confirmAboveRuns: 6, suggestFolders: false, inboxFolder: "Bandeja" },
 	review: { targetRetention: 0.9, digestTime: "09:00", eveningTime: "19:00", newPerDay: 15, batchSize: 10, confidenceThreshold: 70 },
 	exams: { weeklyMinutes: [45, 45, 45, 45, 45, 90, 0], teachMinutes: 25, consolidateMinutes: 10, problemMinutes: 6, reviewMinutes: 2, finalWindowDays: 3, placementBatch: 10 },
+	calendar: { slots: [], alertMinutes: 10, prepareMinutes: 10 },
 	desktop: { tray: true, autostart: true },
 };
 
@@ -898,6 +946,9 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.exams !== null && typeof r.exams === "object" && !Array.isArray(r.exams)) {
 		out.exams = sanitizeExams(r.exams as Record<string, unknown>);
+	}
+	if (r.calendar !== null && typeof r.calendar === "object" && !Array.isArray(r.calendar)) {
+		out.calendar = sanitizeCalendarSettings(r.calendar as Record<string, unknown>);
 	}
 	if (r.desktop !== null && typeof r.desktop === "object" && !Array.isArray(r.desktop)) {
 		const raw = r.desktop as Record<string, unknown>;
