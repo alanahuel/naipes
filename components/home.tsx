@@ -16,7 +16,8 @@ import { useFieldCycle } from "@/components/field-cycle";
 import { StatsBar } from "@/components/stats-bar";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
-import type { ChatListItem, GraphSnapshot, TurnUsage } from "@/src/core";
+import type { ChatListItem, TurnUsage } from "@/src/core";
+import { graphChains } from "./graph-data";
 import { useT } from "@/components/i18n";
 import { OnboardingCard } from "@/components/onboarding-card";
 import type { OnboardingTarget } from "@/src/core";
@@ -46,11 +47,12 @@ function PracticePicker({
 	onSelectionChange: (picked: { id: string; name: string; statement: string }[]) => void;
 	onClose: () => void;
 }) {
-	const [snapshot, setSnapshot] = useState<GraphSnapshot | null>(null);
+	// The chain table's world, shared and revalidated (graph-data.ts).
+	const [snapshot, setSnapshot] = useState(() => graphChains.peek());
 	useEffect(() => {
 		if (!open) return;
-		fetch("/api/graph")
-			.then((res) => res.json() as Promise<GraphSnapshot>)
+		graphChains
+			.load()
 			.then(setSnapshot)
 			.catch(() => {});
 	}, [open]);

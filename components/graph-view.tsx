@@ -67,7 +67,8 @@ import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, use
 import { NOTES_IMPORT_ACCEPT, NotesImportConfirm, NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
 import Link from "next/link";
 import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, UploadIcon, WaypointsIcon } from "lucide-react";
-import { getStoredItem, incrementalLayout, noteDisplayName, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
+import { getStoredItem, incrementalLayout, noteDisplayName, propositionSessionHref, type GraphCanvasNode, type GraphCanvasSnapshot, type GraphCostSummary, type GraphSnapshot } from "@/src/core";
+import { graphCanvas, graphChains } from "./graph-data";
 import { planCostLabel } from "@/components/usage-format";
 import { GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
@@ -132,7 +133,7 @@ type RenderSettings = GraphRenderSettings;
  * query is empty or matches its name or statement (case-insensitive).
  * Exported for tests; the visibility feed just consumes its verdict.
  */
-export function isNodeVisible(node: Pick<GraphNode, "name" | "statement">, query: string): boolean {
+export function isNodeVisible(node: Pick<GraphCanvasNode, "name" | "statement">, query: string): boolean {
 	const q = query.trim().toLowerCase();
 	if (!q) return true;
 	return node.name.toLowerCase().includes(q) || node.statement.toLowerCase().includes(q);
@@ -263,7 +264,7 @@ function isDarkHex(hex: string): boolean {
 // ---- Component ------------------------------------------------------------
 
 interface Selection {
-	node: GraphNode;
+	node: GraphCanvasNode;
 	/** The sources that touched this node: chat ids (deep-linkable sessions)
 	 *  and notes-source ids ("src_…" — imported files, static entries). */
 	sourceIds: string[];
@@ -1108,11 +1109,13 @@ export function GraphView({
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const cardRef = useRef<HTMLDivElement | null>(null);
-	const [snapshot, setSnapshot] = useState<GraphSnapshot | null>(null);
+	// Seeded from the shared cache (perf, 2026-11-10): coming back to
+	// Inicio draws the last graph at once while it revalidates.
+	const [snapshot, setSnapshot] = useState<GraphCanvasSnapshot | null>(() => graphCanvas.peek());
 	const [selected, setSelected] = useState<Selection | null>(null);
 	// The latest snapshot for the renderer's click callbacks (they are
 	// constructed once, so they read through this ref, never a closure).
-	const snapshotRef = useRef<GraphSnapshot | null>(null);
+	const snapshotRef = useRef<GraphCanvasSnapshot | null>(null);
 	snapshotRef.current = snapshot;
 
 	// Search panel state: the query text + the settings section toggle.
@@ -1216,8 +1219,10 @@ export function GraphView({
 	}, [chainSelectOpen]);
 	useEffect(() => {
 		let cancelled = false;
-		fetch("/api/graph")
-			.then((res) => res.json() as Promise<GraphSnapshot>)
+		// Shared, revalidating cache (graph-data.ts): an unchanged graph
+		// resolves to the SAME object — no re-parse, no canvas rebuild.
+		graphCanvas
+			.load()
 			.then((data) => {
 				if (!cancelled) setSnapshot(data);
 			})
@@ -1226,6 +1231,22 @@ export function GraphView({
 			cancelled = true;
 		};
 	}, [refreshTick]);
+	// The chain table's world (GET /api/graph/chains) loads only while the
+	// table is open — the canvas payload no longer carries it.
+	const [world, setWorld] = useState(() => graphChains.peek());
+	useEffect(() => {
+		if (!chainsOpen) return;
+		let cancelled = false;
+		graphChains
+			.load()
+			.then((data) => {
+				if (!cancelled) setWorld(data);
+			})
+			.catch((err) => console.error("[graph] chains fetch failed:", err));
+		return () => {
+			cancelled = true;
+		};
+	}, [chainsOpen, refreshTick]);
 
 	// «Reorganizar» (owner, 2026-11-03): from-scratch server layout, then
 	// the usual refetch carries the new positions in.
@@ -1880,8 +1901,8 @@ export function GraphView({
 			    here.) */}
 			<ChainTableOverlay
 				open={chainsOpen && !isEmpty}
-				nodes={snapshot?.propositions ?? []}
-				chains={snapshot?.chains ?? []}
+				nodes={world?.propositions ?? []}
+				chains={world?.chains ?? []}
 				sessions={snapshot?.sessions ?? {}}
 				fileSources={snapshot?.fileSources ?? {}}
 				onClose={() => {
@@ -1893,7 +1914,7 @@ export function GraphView({
 				onSelectionChange={(ids) => {
 					// Resolve ids → nodes against the live snapshot; the
 					// caller holds the pick set (count + seed).
-					const props = snapshot?.propositions ?? [];
+					const props = world?.propositions ?? [];
 					const picked: { id: string; name: string; statement: string }[] = [];
 					for (const id of ids) {
 						const n = props.find((node) => node.id === id);

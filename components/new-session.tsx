@@ -13,7 +13,8 @@ import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { useT } from "@/components/i18n";
 import { SessionStarter } from "@/components/start-session";
-import type { ChatSettings, GraphSnapshot } from "@/src/core";
+import type { ChatSettings, GraphChainsView } from "@/src/core";
+import { graphChains } from "./graph-data";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
  *  bar lifts — resolved nodes as the learner SAW them at pick time. */
@@ -255,14 +256,14 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		setPicks(next);
 	};
 	const [pickerOpen, setPickerOpen] = useState(false);
-	const [snapshot, setSnapshot] = useState<GraphSnapshot | null>(null);
+	const [snapshot, setSnapshot] = useState<GraphChainsView | null>(null);
 	const openPicker = () => {
 		if (snapshot) {
 			setPickerOpen(true);
 			return;
 		}
-		void fetch("/api/graph")
-			.then((r) => r.json() as Promise<GraphSnapshot>)
+		void graphChains
+			.load()
 			.then((snap) => {
 				setSnapshot(snap);
 				setPickerOpen(true);

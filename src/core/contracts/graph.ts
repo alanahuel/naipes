@@ -307,6 +307,25 @@ export interface Cluster {
 	areaId: string;
 }
 
+/** A canvas node on the wire (perf, owner 2026-11-10): what GET /api/graph
+ *  carries per node — the name the canvas draws, the statement the graph
+ *  search matches, the provenance the detail card lists. Aliases and
+ *  createdAt (chain-table fields) ride GraphChainsView instead. */
+export type GraphCanvasNode = Pick<GraphNode, "id" | "name" | "statement" | "provenance">;
+
+/** GET /api/graph (perf, owner 2026-11-10): the snapshot without the
+ *  chain table's world (`propositions`, `chains` — GET /api/graph/chains)
+ *  and with slim nodes; `counts` keeps the home pills' numbers. */
+export interface GraphCanvasSnapshot extends Omit<GraphSnapshot, "nodes" | "propositions" | "chains"> {
+	nodes: GraphCanvasNode[];
+	counts: { propositions: number; chains: number };
+}
+
+/** GET /api/graph/chains: the stored world the chain table and the
+ *  session picker read (full proposition records + merged chains), with
+ *  the source labels the table groups by. */
+export interface GraphChainsView extends Pick<GraphSnapshot, "propositions" | "chains" | "sessions" | "fileSources"> {}
+
 export interface GraphSnapshot {
 	/** Proposition nodes + the DERIVED implication nodes (one per chain,
 	 *  id = chain id) — what the canvas renders. */

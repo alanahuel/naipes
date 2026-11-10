@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
-import { LEDGER_FILES, POSITIONS_FILE } from "../../config.ts";
-import type { GraphSnapshot } from "../core/contracts.ts";
+import * as path from "node:path";
+import { LEDGER_FILES, PATHS, POSITIONS_FILE, SOURCES_FILE } from "../../config.ts";
+import type { GraphCanvasSnapshot, GraphChainsView } from "../core/contracts.ts";
 import type { GraphCostSummary } from "../core/cost-summary.ts";
 import { graphCostSummary } from "../core/cost-summary.ts";
 import { graphSnapshot } from "../core/graph.ts";
@@ -19,8 +20,66 @@ import { callCost } from "./pricing.ts";
  * answers in sessions (turn-service), never from here — the home view
  * reflects whatever the pipeline has merged so far.
  */
-export function graphView(): GraphSnapshot {
-	return graphSnapshot(stores);
+/** A serialized response body + its validator. */
+export interface CachedBody {
+	etag: string;
+	body: string;
+}
+
+/** One snapshot build serves both wire views until something it reads
+ *  changes (perf, owner 2026-11-10): the graph ledgers + positions
+ *  (graphRevision), the notes sources (labels, areas), and the chat files
+ *  (session titles). Rebuilding it per request cost 30–700 ms of blocked
+ *  server and ~7 MB of JSON for every visit to Inicio. */
+let viewCache: { key: string; canvas: CachedBody; chains: CachedBody } | null = null;
+
+function mtimeOf(file: string): number {
+	try {
+		return fs.statSync(file).mtimeMs;
+	} catch {
+		return 0;
+	}
+}
+
+function chatsSignature(): string {
+	let names: string[];
+	try {
+		names = fs.readdirSync(PATHS.chats).filter((f) => f.endsWith(".json"));
+	} catch {
+		return "none";
+	}
+	let latest = 0;
+	for (const name of names) latest = Math.max(latest, mtimeOf(path.join(PATHS.chats, name)));
+	return `${names.length}:${latest}`;
+}
+
+function views(): { canvas: CachedBody; chains: CachedBody } {
+	const key = `${graphRevision()}|${mtimeOf(SOURCES_FILE)}|${chatsSignature()}`;
+	if (viewCache?.key === key) return viewCache;
+	const { propositions, chains, nodes, ...rest } = graphSnapshot(stores);
+	const canvas: GraphCanvasSnapshot = {
+		...rest,
+		nodes: nodes.map((n) => ({ id: n.id, name: n.name, statement: n.statement, provenance: n.provenance })),
+		counts: { propositions: propositions.length, chains: chains.length },
+	};
+	const world: GraphChainsView = { propositions, chains, sessions: rest.sessions, fileSources: rest.fileSources };
+	const tag = Buffer.from(key).toString("base64url");
+	viewCache = {
+		key,
+		canvas: { etag: `"c-${tag}"`, body: JSON.stringify(canvas) },
+		chains: { etag: `"w-${tag}"`, body: JSON.stringify(world) },
+	};
+	return viewCache;
+}
+
+/** GET /api/graph — the canvas view (GraphCanvasSnapshot), cached. */
+export function graphCanvasBody(): CachedBody {
+	return views().canvas;
+}
+
+/** GET /api/graph/chains — the chain table's world (GraphChainsView). */
+export function graphChainsBody(): CachedBody {
+	return views().chains;
 }
 
 /** The graph view's cost surface (GET /api/graph/costs — the 2026-09 cost

@@ -25,7 +25,8 @@ import { GraphCostControl } from "@/components/graph-view.tsx";
 import { NOTES_IMPORT_ACCEPT, NotesImportConfirm, NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
 import { Hint } from "@/components/ui/hint";
 import { useT } from "@/components/i18n";
-import type { ChatSummary, GraphCostSummary, GraphSnapshot } from "@/src/core";
+import type { ChatSummary, GraphCostSummary } from "@/src/core";
+import { graphCanvas, graphChains } from "./graph-data";
 
 /** The quiet centered summary — a pure body (props in, markup out) so
  * the render suite can pin it statically. Very quiet by owner ruling:
@@ -96,15 +97,18 @@ export function MinimalHome({
 	onChainSelectClose?: () => void;
 }) {
 	const t = useT();
-	const [snapshot, setSnapshot] = useState<GraphSnapshot | null>(null);
+	// Shared graph caches (perf, 2026-11-10): the canvas view for the
+	// counts and labels; the chain table's world only while it is open.
+	const [snapshot, setSnapshot] = useState(() => graphCanvas.peek());
+	const [world, setWorld] = useState(() => graphChains.peek());
 	const [costs, setCosts] = useState<GraphCostSummary | null>(null);
 	const [chats, setChats] = useState<ChatSummary[]>([]);
 	const [chainsOpen, setChainsOpen] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	const readState = useCallback(() => {
-		fetch("/api/graph")
-			.then((res) => res.json() as Promise<GraphSnapshot>)
+		graphCanvas
+			.load()
 			.then(setSnapshot)
 			.catch(() => {});
 		fetch("/api/graph/costs")
@@ -119,6 +123,19 @@ export function MinimalHome({
 	useEffect(() => {
 		readState();
 	}, [readState]);
+	useEffect(() => {
+		if (!chainsOpen) return;
+		let cancelled = false;
+		graphChains
+			.load()
+			.then((data) => {
+				if (!cancelled) setWorld(data);
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, [chainsOpen]);
 
 	// The practice chip opens the table in select mode (GraphView's law):
 	// the pick intent raises the overlay; Done/close reports back down.
@@ -150,8 +167,8 @@ export function MinimalHome({
 			{/* The quiet summary — centered, biased up off the composer. */}
 			<div className="pointer-events-none flex h-full items-center justify-center pb-40">
 				<KnowledgeSummary
-					propositions={snapshot?.propositions.length ?? 0}
-					chains={snapshot?.chains.length ?? 0}
+					propositions={snapshot?.counts.propositions ?? 0}
+					chains={snapshot?.counts.chains ?? 0}
 					teachSessions={teachSessions}
 					practiceSessions={practiceSessions}
 					importedNotes={Object.keys(snapshot?.fileSources ?? {}).length}
@@ -208,9 +225,9 @@ export function MinimalHome({
 			    order, so a full-bleed surface covering the drag band must
 			    paint after everything it covers. */}
 			<ChainTableOverlay
-				open={chainsOpen && (snapshot?.propositions.length ?? 0) > 0}
-				nodes={snapshot?.propositions ?? []}
-				chains={snapshot?.chains ?? []}
+				open={chainsOpen && (world?.propositions.length ?? 0) > 0}
+				nodes={world?.propositions ?? []}
+				chains={world?.chains ?? []}
 				sessions={snapshot?.sessions ?? {}}
 				fileSources={snapshot?.fileSources ?? {}}
 				onClose={() => {
@@ -222,7 +239,7 @@ export function MinimalHome({
 				onSelectionChange={(ids) => {
 					// Resolve ids → nodes against the live snapshot; the
 					// caller holds the pick set (count + seed).
-					const props = snapshot?.propositions ?? [];
+					const props = world?.propositions ?? [];
 					const picked: { id: string; name: string; statement: string }[] = [];
 					for (const id of ids) {
 						const n = props.find((node) => node.id === id);

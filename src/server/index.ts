@@ -10,6 +10,7 @@ export * from "./chats.ts";
 export * from "./attachments.ts";
 export * from "./phone.ts";
 export * from "./graph.ts";
+export * from "./cached-json.ts";
 export { NotesImportError } from "../agent/subagents/extraction.ts";
 export * from "./commit-positions.ts";
 export * from "./jobs.ts";
