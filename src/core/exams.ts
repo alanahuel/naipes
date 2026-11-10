@@ -1353,6 +1353,9 @@ export interface PointStatus {
 	/** Prerequisites resting under it that are not unlocked yet — the
 	 *  plan does not teach it meanwhile (owner 2026-11-09). */
 	blockedBy: string[];
+	/** A class (or own study) confirmed it was taught («Calendario», owner
+	 *  2026-11-10): a short afianzado instead of a full teach. */
+	classCovered?: boolean;
 }
 
 /** One «conocimiento previo»'s standing (owner 2026-11-09). */
@@ -1413,6 +1416,8 @@ export interface ExamStatusInput {
 	nodesBornIn: ReadonlyMap<string, readonly string[]>;
 	confidenceThreshold: number;
 	dueEnd: number;
+	/** Points a class confirmed as taught («Calendario», owner 2026-11-10). */
+	classCovered?: ReadonlySet<string>;
 }
 
 const meetsLevel = (idea: Pick<IdeaStatus, "toTeach" | "level" | "recallAtExam">, level: ModeLevel, recall: number) =>
@@ -1545,7 +1550,18 @@ export function computeExamStatus(input: ExamStatusInput): ExamStatusModel {
 		const probe = probes.get(p.id) ?? null;
 		const members = nodeIds.map((id) => ideaById.get(id)!).filter(Boolean);
 		const extension = (p.extension ?? []).filter((id) => ideaById.has(id));
-		const base = { id: p.id, blockId: p.blockId, text: p.text, nodeIds, probe, taughtSession: taughtSession.has(p.id), extension, blockedBy: lockedUnder(p.id) };
+		const covered = !!input.classCovered?.has(p.id) && !taughtSession.has(p.id);
+		const base = {
+			id: p.id,
+			blockId: p.blockId,
+			text: p.text,
+			nodeIds,
+			probe,
+			taughtSession: taughtSession.has(p.id),
+			extension,
+			blockedBy: lockedUnder(p.id),
+			...(covered ? { classCovered: true } : {}),
+		};
 		if (p.targets) {
 			// Researched (owner 2026-11-06): targets decide. An unlinked
 			// target is probed first; known → a short consolidation, else
@@ -1554,15 +1570,19 @@ export function computeExamStatus(input: ExamStatusInput): ExamStatusModel {
 				const linked = tg.nodeIds.map((id) => ideaById.get(id)).filter((i): i is IdeaStatus => !!i);
 				const tProbe = probes.get(tg.id) ?? null;
 				const mastered = linked.length > 0 && linked.every(meetsStandard);
+				// Taught in class (owner 2026-11-10): an unlinked target is
+				// consolidated, never probed nor taught again.
 				const state: TargetStatus["state"] = mastered
 					? "mastered"
 					: linked.length > 0
 						? "linked"
-						: tProbe === null && !taughtSession.has(p.id)
-							? "placement"
-							: tProbe === "known"
-								? "consolidate"
-								: "teach";
+						: covered
+							? "consolidate"
+							: tProbe === null && !taughtSession.has(p.id)
+								? "placement"
+								: tProbe === "known"
+									? "consolidate"
+									: "teach";
 				return { id: tg.id, statement: tg.statement, nodeIds: linked.map((i) => i.nodeId), probe: tProbe, mastered, state };
 			});
 			const score = targets.length ? targets.filter((x) => x.mastered).length / targets.length : 0;
@@ -1572,7 +1592,8 @@ export function computeExamStatus(input: ExamStatusInput): ExamStatusModel {
 		}
 		const gap = p.nodeIds.length === 0;
 		const score = members.length ? members.filter(meetsStandard).length / members.length : 0;
-		const need: PointNeed = gap && !taughtSession.has(p.id) ? (probe === null ? "placement" : probe === "known" ? "consolidate" : "teach") : ideaNeed(members);
+		const need: PointNeed =
+			gap && !taughtSession.has(p.id) ? (covered ? "consolidate" : probe === null ? "placement" : probe === "known" ? "consolidate" : "teach") : ideaNeed(members);
 		return { ...base, gap, score, need, targets: null };
 	});
 
@@ -1603,7 +1624,7 @@ export function computeExamStatus(input: ExamStatusInput): ExamStatusModel {
 	const pendingPoints = [
 		...prerequisites.filter((q) => q.state === "placement" && q.nodeIds.length === 0).map((q) => q.id),
 		...points.flatMap((p) =>
-			p.targets ? p.targets.filter((x) => x.state === "placement").map((x) => x.id) : p.gap && !p.taughtSession && p.probe === null ? [p.id] : [],
+			p.targets ? p.targets.filter((x) => x.state === "placement").map((x) => x.id) : p.gap && !p.taughtSession && !p.classCovered && p.probe === null ? [p.id] : [],
 		),
 	];
 	return {
@@ -1873,7 +1894,7 @@ export function examWork(input: {
 			}
 			met = p.targets.length > 0 && p.targets.every((x) => x.mastered);
 		} else if (p.gap && !p.taughtSession) {
-			teach = p.probe === "known" ? durations.consolidate : durations.teach;
+			teach = p.probe === "known" || p.classCovered ? durations.consolidate : durations.teach;
 			practice = ideasPerPoint * target * durations.problem;
 			review = ideasPerPoint * reviewsFor(null) * durations.review;
 		} else {
@@ -1955,11 +1976,19 @@ export interface PlanResult {
  * first; ties → the one furthest from its standard). Days run from today
  * to the day before the last exam. Pure.
  */
-export function planBudget(input: { today: string; weeklyMinutes: readonly number[]; exams: readonly PlanExam[] }): PlanResult {
+export function planBudget(input: {
+	today: string;
+	weeklyMinutes: readonly number[];
+	exams: readonly PlanExam[];
+	/** «Calendario» (owner 2026-11-10): a date's own budget — its override,
+	 *  minus classes that consume time, pinned sessions and Repaso. Absent
+	 *  → the weekday's minutes. */
+	budgetFor?: (day: string) => number;
+}): PlanResult {
 	const exams = [...input.exams].filter((e) => daysBetween(input.today, e.examDate) > 0);
 	const horizon = exams.reduce((h, e) => Math.max(h, daysBetween(input.today, e.examDate)), 0);
 	const days = Array.from({ length: horizon }, (_, i) => addDays(input.today, i));
-	const budgetOf = (day: string) => input.weeklyMinutes[weekdayIndex(day)] ?? 0;
+	const budgetOf = (day: string) => Math.max(0, input.budgetFor ? input.budgetFor(day) : (input.weeklyMinutes[weekdayIndex(day)] ?? 0));
 	// Spread work (reviews) is owed a little every study day until the exam.
 	const spreadLeft = new Map(exams.map((e) => [e.examId, Math.min(e.work, e.spread ?? 0)]));
 	const fixedLeft = new Map(exams.map((e) => [e.examId, e.work - spreadLeft.get(e.examId)!]));
