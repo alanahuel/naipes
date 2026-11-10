@@ -13,6 +13,7 @@
  * exams-changed, turn-settled, chats-changed and focus.
  */
 
+import { useSharedFetch } from "./shared-fetch";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
@@ -47,28 +48,14 @@ import {
 // ─── data ───────────────────────────────────────────────────────────────────
 
 /** `null` = the default range (today + 6); "wait" = nothing to ask yet. */
+// Shared + coalesced (components/shared-fetch.ts, perf 2026-11-10): the
+// tabs mount two or three of these, the exam page one more — one copy per
+// URL, one fetch per burst of triggers.
+const CALENDAR_EVENTS = ["calendar-changed", "exams-changed", "turn-settled", "chats-changed", "review-notice"] as const;
+
 export function useCalendar(range: { from: string; to: string } | null | "wait") {
-	const [data, setData] = useState<CalendarView | null | undefined>(undefined);
 	const url = range === "wait" ? null : range ? `/api/calendar?from=${range.from}&to=${range.to}` : "/api/calendar";
-	const reload = useCallback(() => {
-		if (!url) return;
-		fetch(url)
-			.then((r) => (r.ok ? (r.json() as Promise<CalendarView>) : Promise.reject(new Error(String(r.status)))))
-			.then(setData)
-			.catch(() => setData((prev) => (prev === undefined ? null : prev)));
-	}, [url]);
-	useEffect(() => {
-		reload();
-		const onFocus = () => reload();
-		window.addEventListener("focus", onFocus);
-		return () => window.removeEventListener("focus", onFocus);
-	}, [reload]);
-	useServerEvent("calendar-changed", reload);
-	useServerEvent("exams-changed", reload);
-	useServerEvent("turn-settled", reload);
-	useServerEvent("chats-changed", reload);
-	useServerEvent("review-notice", reload);
-	return { data, reload };
+	return useSharedFetch<CalendarView>(url, CALENDAR_EVENTS);
 }
 
 async function send(url: string, method: string, body?: unknown): Promise<{ ok: boolean; body: Record<string, unknown> }> {

@@ -327,7 +327,7 @@ export function NoticesProvider({ children }: { children: React.ReactNode }) {
 	pathRef.current = pathname;
 	useServerEvent("turn-settled", ({ chatId }) => {
 		if (!chatId || pathRef.current === `/chat/${chatId}`) return;
-		void fetch(`/api/chats/${chatId}`)
+		void fetch(`/api/chats/${chatId}?meta=1`)
 			.then((r) => (r.ok ? (r.json() as Promise<{ title?: string }>) : null))
 			.then((chat) => {
 				if (!chat?.title) return;

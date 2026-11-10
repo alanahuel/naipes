@@ -18,6 +18,7 @@
  * move it and on window focus. Everything derived lives on the server.
  */
 
+import { useSharedFetch } from "./shared-fetch";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -97,29 +98,12 @@ interface ExamsListResponse {
 	exams: ExamSummaryView[];
 }
 
-function useFresh<T>(url: string | null) {
-	const [data, setData] = useState<T | null | undefined>(undefined);
-	const reload = useCallback(() => {
-		if (!url) return;
-		fetch(url)
-			.then((r) => (r.ok ? (r.json() as Promise<T>) : Promise.reject(new Error(String(r.status)))))
-			.then(setData)
-			.catch(() => setData((prev) => (prev === undefined ? null : prev)));
-	}, [url]);
-	useEffect(() => {
-		reload();
-		const onFocus = () => reload();
-		window.addEventListener("focus", onFocus);
-		return () => window.removeEventListener("focus", onFocus);
-	}, [reload]);
-	useServerEvent("exams-changed", reload);
-	useServerEvent("turn-settled", reload);
-	useServerEvent("chats-changed", reload);
-	return { data, reload, setData };
-}
+// Shared + coalesced (components/shared-fetch.ts, perf 2026-11-10): every
+// reader of one URL shares one copy, and a burst of triggers is one fetch.
+const EXAM_EVENTS = ["exams-changed", "turn-settled", "chats-changed"] as const;
 
-export const useExams = () => useFresh<ExamsListResponse>("/api/exams");
-export const useExam = (id: string) => useFresh<ExamDetailView>(`/api/exams/${encodeURIComponent(id)}`);
+export const useExams = () => useSharedFetch<ExamsListResponse>("/api/exams", EXAM_EVENTS);
+export const useExam = (id: string) => useSharedFetch<ExamDetailView>(`/api/exams/${encodeURIComponent(id)}`, EXAM_EVENTS);
 
 async function sendJson(url: string, method: string, body?: unknown): Promise<{ ok: boolean; body: Record<string, unknown> }> {
 	try {
@@ -662,7 +646,7 @@ async function uploadMaterials(examId: string, materials: DraftMaterial[]): Prom
 export function NewExamWizard() {
 	const t = useT();
 	const router = useRouter();
-	const { data: tree } = useFresh<{ folders: VaultFolderInfo[]; watched: string[] }>("/api/exams/folders");
+	const { data: tree } = useSharedFetch<{ folders: VaultFolderInfo[]; watched: string[] }>("/api/exams/folders", EXAM_EVENTS);
 	const [title, setTitle] = useState("");
 	const [date, setDate] = useState("");
 	const [text, setText] = useState("");
