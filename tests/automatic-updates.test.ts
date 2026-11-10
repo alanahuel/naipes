@@ -45,8 +45,9 @@ function fixture({ packaged = true, updaterMissing = false, localBuild = false, 
 	const fakeFetch = async (url: string, init?: { headers?: Record<string, string> }) => {
 		if (url.includes("/api/review/notify")) {
 			reviewCalls.push({ url, headers: init?.headers ?? {} });
-			const kind = new URL(url).searchParams.get("kind")!;
-			const body = reviewAnswers[kind];
+			// One call per minute (perf, 2026-11-10): kind=all answers
+			// digest, evening and calendar in that order.
+			const body = { answers: ["digest", "evening", "calendar"].map((kind) => reviewAnswers[kind]).filter(Boolean) };
 			return { ok: true, status: 200, json: async () => body };
 		}
 		fetches.push(url);
@@ -472,7 +473,7 @@ describe("«Repaso» desktop side (owner 2026-11-04, stage 2)", () => {
 		assert.deepEqual(JSON.parse(JSON.stringify(f.trays[0]!.menu.filter((i) => i.label).map((i) => i.label))), ["Abrir Naipes", "Repasar ahora", "Salir"]);
 		assert.equal(f.reviewIntervals().length, 1);
 		assert.equal(f.windows.length, 1);
-		assert.deepEqual(f.reviewCalls.map((c) => new URL(c.url).search), ["?kind=digest", "?kind=evening", "?kind=calendar"]);
+		assert.deepEqual(f.reviewCalls.map((c) => new URL(c.url).search), ["?kind=all"], "one call per minute for all three kinds");
 	});
 
 	it("a --hidden (autostart) launch keeps the window closed while the tray exists", async () => {

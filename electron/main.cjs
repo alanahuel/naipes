@@ -974,14 +974,17 @@ function applyAutostart(enabled) {
 	}
 }
 
-async function askReviewNotice(kind) {
-	const res = await fetch(`${reviewServerOrigin}/api/review/notify?kind=${kind}`, {
+async function askReviewNotices() {
+	// One call for digest, evening and calendar (perf, 2026-11-10): the
+	// server computes the exams/calendar state once for all three.
+	const res = await fetch(`${reviewServerOrigin}/api/review/notify?kind=all`, {
 		method: "POST",
 		headers: desktopAPISecret ? { [DESKTOP_API_HEADER]: desktopAPISecret } : {},
 		signal: AbortSignal.timeout(15_000),
 	});
 	if (!res.ok) throw new Error(`HTTP ${res.status}`);
-	return res.json();
+	const body = await res.json();
+	return Array.isArray(body?.answers) ? body.answers : [];
 }
 
 function showReviewNotification(title, body, path) {
@@ -1001,8 +1004,7 @@ async function reviewTick() {
 	applyAutostart(prefs.autostart);
 	if (reviewServerOrigin) {
 		try {
-			for (const kind of ["digest", "evening", "calendar"]) {
-				const answer = await askReviewNotice(kind);
+			for (const answer of await askReviewNotices()) {
 				if (typeof answer?.count === "number") reviewDueCount = answer.count;
 				if (answer?.notify && typeof answer.title === "string") showReviewNotification(answer.title, answer.body ?? "", answer.path);
 			}

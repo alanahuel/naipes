@@ -54,6 +54,34 @@ function appendLine<T>(file: string, record: T): void {
 	fs.mkdirSync(path.dirname(file), { recursive: true });
 	ensureGraphFormat(); // the lazy format stamp (graph-format.ts)
 	fs.appendFileSync(file, `${JSON.stringify(record)}\n`, "utf-8");
+	ledgerCache.delete(file);
+}
+
+// ─── parsed-ledger cache (perf, owner 2026-11-10) ────────────────────────────
+// Every graph read re-read and re-parsed the whole JSONL ledger (~10 ms for
+// nodes.jsonl at 2.7 MB), several times per request and per settle. The
+// parsed, validated records are kept per file, keyed by the file's mtime +
+// size (a write from ANY process moves them) and dropped on this store's
+// own writes. The records are DEEP-FROZEN: a caller that tried to mutate a
+// shared record fails loudly instead of corrupting every later read; each
+// read returns a fresh array, so sorting/pushing the list stays safe.
+const ledgerCache = new Map<string, { key: string; records: readonly unknown[] }>();
+
+function deepFreeze<T>(value: T): T {
+	if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
+		Object.freeze(value);
+		for (const child of Object.values(value)) deepFreeze(child);
+	}
+	return value;
+}
+
+function statKey(file: string): string | null {
+	try {
+		const st = fs.statSync(file);
+		return `${st.mtimeMs}:${st.size}`;
+	} catch {
+		return null; // absent — nothing to cache
+	}
 }
 
 function readRawLines(file: string): unknown[] {
@@ -86,7 +114,17 @@ const isString = (v: unknown): v is string => typeof v === "string";
 /** Strict shape guards — anything not matching a W4 ledger shape is skipped. */
 function readValid<T>(file: string, isValid: (v: unknown) => v is T): T[] {
 	assertGraphFormat(); // honest refusal on a newer-stamped data dir
-	return readRawLines(file).filter(isValid);
+	const key = statKey(file);
+	if (key === null) {
+		ledgerCache.delete(file);
+		return [];
+	}
+	const hit = ledgerCache.get(file);
+	if (hit && hit.key === key) return [...(hit.records as T[])];
+	const records = readRawLines(file).filter(isValid);
+	for (const r of records) deepFreeze(r);
+	ledgerCache.set(file, { key, records });
+	return [...records];
 }
 
 /** Provenance points are (chatId, messageId) pairs — message-granular. */
@@ -227,6 +265,7 @@ export const graphStore: GraphStore = {
 				const body = records.map((record) => JSON.stringify(record)).join("\n") + (records.length > 0 ? "\n" : "");
 				fs.writeFileSync(tmp, body, "utf-8");
 				fs.renameSync(tmp, file);
+				ledgerCache.delete(file);
 			} catch (err) {
 				try {
 					fs.unlinkSync(tmp);

@@ -44,7 +44,11 @@ type SettleGraphStore = {
 function* settleSteps(graphStore: SettleGraphStore, options: { fresh?: boolean }): Generator<void, boolean, void> {
 	const graph = getGraph(graphStore);
 	if (graph.nodes.length === 0) return false;
+	// Yield points between the setup stages too (each is tens of ms on a
+	// 4k-node graph): the sliced driver decides whether to give the turn.
+	yield;
 	const view = deriveView(graph);
+	yield;
 	// FRESH (the «Reorganizar» action, owner 2026-11-03): no anchors at
 	// all — the layout is recomputed from scratch, seeded per area.
 	const previous = options.fresh
@@ -67,6 +71,7 @@ function* settleSteps(graphStore: SettleGraphStore, options: { fresh?: boolean }
 		// PROPOSITIONS ONLY (owner, 2026-09-30): implication nodes never
 		// partition; the stored world clusters, its image follows.
 		const communities = birthSessionPartition(graph.nodes);
+		yield;
 		// The SAME imp-node assignment the snapshot renders (majority among
 		// premises' births — core/session-clusters.ts): the resting ledger and
 		// the live sim must agree on where bundles belong, or the first live
@@ -78,6 +83,7 @@ function* settleSteps(graphStore: SettleGraphStore, options: { fresh?: boolean }
 		const fileSources: Record<string, string> = {};
 		for (const s of graphStore.readSources()) fileSources[s.id] = s.filePath;
 		const { areas } = buildAreas(communities, fileSources);
+		yield;
 		next = yield* incrementalLayoutSteps(view.nodes, view.edges, previous, {
 			clusters: areas,
 			...(options.fresh ? { seedGroups: true, ticks: FRESH_TICKS } : {}),
@@ -91,8 +97,11 @@ function* settleSteps(graphStore: SettleGraphStore, options: { fresh?: boolean }
 	// node keeps what the ledger holds NOW (a drag commit that landed
 	// mid-run wins); ids that left the view meanwhile drop; nodes that
 	// arrived meanwhile wait for the follow-up run their merge requested.
+	yield;
 	const current = graphStore.readPositions();
-	const live = deriveView(getGraph(graphStore)).nodes;
+	const liveGraph = getGraph(graphStore);
+	yield;
+	const live = deriveView(liveGraph).nodes;
 	const merged: Record<string, Position> = {};
 	for (const { id } of live) {
 		const ours = next.get(id);

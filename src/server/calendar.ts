@@ -614,8 +614,13 @@ const text = (locale: Locale, key: MessageKey, vars: Record<string, string | num
  *  agenda (the review digest's window and «once a day» rules); "calendar":
  *  an alert before a FIXED hour (owner: suggested hours move, so no alert)
  *  or «¿Qué se dio?» after a class — one at a time, each once. */
-export function calendarDeskNotice(kind: "digest" | "evening" | "calendar", now = Date.now()): DeskNotice {
-	const state = getExamsState(now);
+export function calendarDeskNotice(
+	kind: "digest" | "evening" | "calendar",
+	now = Date.now(),
+	// The desktop's minute clock asks all three kinds at once (perf, owner
+	// 2026-11-10): one exams/calendar/review computation serves them all.
+	state: ReturnType<typeof getExamsState> = getExamsState(now),
+): DeskNotice {
 	const locale = effectiveSettings().general.language;
 	const today = state.calendar.plan.days[0];
 	const count = state.review.model.items.filter((i) => !i.paused && i.released && i.due !== null && i.due < reviewDayEnd(now)).length;
