@@ -107,8 +107,8 @@ export interface VaultState {
 	dismissed: Record<string, { hash: string; folder: string }>;
 	/** Inbox suggestions already announced in the bell: path → "hash|folder". */
 	suggested: Record<string, string>;
-	/** Notes PARKED after the model never submitted findings for them
-	 *  (owner, 2026-11-09): path → the content that failed. Not retried
+	/** Notes PARKED after a failed extraction (owner, 2026-11-09; any
+	 *  failure since 2026-11-11): path → the content that failed. Not retried
 	 *  while the file keeps that content, until «Reintentar» in Settings. */
 	failed: Record<string, FailedNote>;
 }
@@ -458,7 +458,7 @@ async function processNote(rel: string): Promise<void> {
 	const hash = hashOf(bytes);
 	if (s.notes[rel]?.hash === hash) return; // unchanged — costs nothing
 	if (s.pending[rel]?.hash === hash && s.confirmed[rel] !== hash) return; // still waiting for «Leer»
-	if (s.failed[rel]?.hash === hash) return; // parked: the model refused this content
+	if (s.failed[rel]?.hash === hash) return; // parked: its last extraction failed
 
 	// Moved here (phase 3): a known note with this exact content whose old
 	// path is gone — re-key it, no extraction.
@@ -532,10 +532,14 @@ async function processNote(rel: string): Promise<void> {
 	try {
 		await extraction.importNotes({ filePath: rel, text, ...(segments ? { segments } : {}) });
 	} catch (err) {
-		// Only the MODEL refusing this content parks it (owner, 2026-11-09):
-		// network, quota, keys, configuration and cancellation retry later.
-		if (err instanceof NotesImportError && err.modelOnly) {
-			s.failed[rel] = { hash, at: new Date().toISOString(), error: err.message };
+		// EVERY failed run parks the note (owner, 2026-11-11): a long book
+		// whose run fails halfway (quota, network, an aborted chunk) was
+		// re-extracted from chunk 1 on every start, spending the user's
+		// quota forever. What the run merged stays in the graph; the note
+		// waits until its content changes or «Reintentar». Only "busy"
+		// (another run of this file is in flight) is not a failure.
+		if (!(err instanceof NotesImportError && err.outcome === "busy")) {
+			s.failed[rel] = { hash, at: new Date().toISOString(), error: err instanceof Error ? err.message : String(err) };
 			saveState();
 			console.info(`[vault] ${rel}: parked until it changes or «Reintentar»`);
 		}
@@ -1237,7 +1241,7 @@ export interface VaultOverview {
 	status: { enabled: boolean; watching: boolean; queued: number; running: number; synced: number; lastError: string | null };
 	/** Documents waiting for «Leer». */
 	pending: Array<{ path: string } & PendingDocument>;
-	/** Notes parked after the model never submitted findings. */
+	/** Notes parked after a failed extraction. */
 	failed: Array<{ path: string } & FailedNote>;
 }
 

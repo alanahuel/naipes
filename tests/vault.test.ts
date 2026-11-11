@@ -258,7 +258,7 @@ describe("vault sync", () => {
 		assert.deepEqual(nodeNames(), ["Energía", "Masa"]);
 	});
 
-	it("keeps a legacy manual import when the new extraction fails", async () => {
+	it("keeps a legacy manual import when the new extraction fails, and parks the note (owner, 2026-11-11)", async () => {
 		const handler = await import("../src/server/chat-handler.ts");
 		const { notesSourceId } = await import("../src/agent/subagents/extraction.ts");
 		const legacy = notesSourceId("cuatro.md");
@@ -276,10 +276,14 @@ describe("vault sync", () => {
 			vault.reconfigureVault();
 			await vault.whenVaultIdle();
 			assert.ok(nodeNames().includes("Fuerza"), "the legacy import survives the failure");
+			assert.deepEqual(vault.failedNotes().map((f) => f.path), ["Notas/cuatro.md"], "any failure parks the note");
+			vault.reconfigureVault();
+			await vault.whenVaultIdle();
+			assert.ok(nodeNames().includes("Fuerza"), "not retried on the next start");
 		} finally {
 			handler.extraction.importNotes = working;
 		}
-		vault.reconfigureVault();
+		assert.equal(vault.retryFailedNote("Notas/cuatro.md"), true);
 		await vault.whenVaultIdle();
 		assert.ok(nodeNames().includes("Aceleración"));
 		assert.ok(!nodeNames().includes("Fuerza"), "adopted once the retry succeeds");
@@ -361,26 +365,33 @@ describe("vault sync", () => {
 		}
 	});
 
-	it("never parks a failure that is not the model's (network, quota, configuration)", async () => {
+	it("parks a run that failed halfway (quota, network) instead of re-extracting it on every start (owner, 2026-11-11)", async () => {
 		const handler = await import("../src/server/chat-handler.ts");
 		const { NotesImportError } = await import("../src/agent/subagents/extraction.ts");
 		const working = handler.extraction.importNotes;
+		let outcome: "partial" | "busy" = "partial";
 		handler.extraction.importNotes = async (input) => {
 			imports.push({ filePath: input.filePath, text: input.text });
-			throw new NotesImportError("failed", { nodes: 0, chains: 0 }, "fetch failed");
+			throw new NotesImportError(outcome, { nodes: 3, chains: 1 }, "Claude Code request failed.");
 		};
 		try {
 			write("Notas/red.md", "# Latencia\n");
 			vault.reconfigureVault();
 			await vault.whenVaultIdle();
-			assert.deepEqual(vault.failedNotes(), []);
+			assert.deepEqual(vault.failedNotes().map((f) => f.path), ["Notas/red.md"]);
+			imports.length = 0;
+			vault.reconfigureVault();
+			await vault.whenVaultIdle();
+			assert.deepEqual(imports, [], "not retried on the next start");
+
+			// "busy" (another run of the file in flight) is not a failure.
+			outcome = "busy";
+			assert.equal(vault.retryFailedNote("Notas/red.md"), true);
+			await vault.whenVaultIdle();
+			assert.deepEqual(vault.failedNotes(), [], "busy never parks");
 		} finally {
 			handler.extraction.importNotes = working;
 		}
-		imports.length = 0;
-		vault.reconfigureVault();
-		await vault.whenVaultIdle();
-		assert.deepEqual(imports.map((i) => i.filePath), ["Notas/red.md"], "retried on the next start, as before");
 		fs.rmSync(path.join(VAULT, "Notas/red.md"));
 		vault.reconfigureVault();
 		await vault.whenVaultIdle();
