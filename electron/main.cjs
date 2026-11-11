@@ -263,14 +263,78 @@ function log(line) {
 	}
 	// Belt and braces: also append to userData/logs so a misbehaving child
 	// can be diagnosed after the window is gone. Best effort only.
+	// BUFFERED + ROTATED (perf, owner 2026-11-10): every server output line
+	// used to cost a synchronous mkdir + append on the main process — the
+	// one that also routes every renderer request — and main.log grew
+	// without bound (2.9 MB after a week). Lines now batch into one async
+	// append per microtask turn; past LOG_MAX_BYTES the file rolls to main.log.1.
+	logBuffer.push(`[${stamp}] ${line}\n`);
+	if (!logFlushQueued) {
+		logFlushQueued = true;
+		void Promise.resolve().then(flushLog);
+	}
+}
+
+const LOG_MAX_BYTES = 5 * 1024 * 1024;
+let logBuffer = [];
+let logFlushQueued = false;
+let logWriting = false;
+let logSize = -1;
+
+function logFile() {
+	return path.join(app.getPath("userData"), "logs", "main.log");
+}
+
+function rotateLogIfNeeded(file, incoming) {
+	if (logSize < 0) {
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		try {
+			logSize = fs.statSync(file).size;
+		} catch {
+			logSize = 0;
+		}
+	}
+	if (logSize + incoming > LOG_MAX_BYTES && logSize > 0) {
+		fs.renameSync(file, `${file}.1`);
+		logSize = 0;
+	}
+	logSize += incoming;
+}
+
+function flushLog() {
+	logFlushQueued = false;
+	if (logWriting || logBuffer.length === 0) return;
+	const chunk = logBuffer.join("");
+	logBuffer = [];
+	logWriting = true;
 	try {
-		const dir = path.join(app.getPath("userData"), "logs");
-		fs.mkdirSync(dir, { recursive: true });
-		fs.appendFileSync(path.join(dir, "main.log"), `[${stamp}] ${line}\n`);
+		const file = logFile();
+		rotateLogIfNeeded(file, Buffer.byteLength(chunk));
+		fs.appendFile(file, chunk, () => {
+			logWriting = false;
+			if (logBuffer.length > 0 && !logFlushQueued) {
+				logFlushQueued = true;
+				void Promise.resolve().then(flushLog);
+			}
+		});
+	} catch {
+		logWriting = false; /* best effort */
+	}
+}
+
+// Whatever is still buffered at exit goes out synchronously.
+process.on("exit", () => {
+	if (logBuffer.length === 0) return;
+	try {
+		const file = logFile();
+		const chunk = logBuffer.join("");
+		logBuffer = [];
+		rotateLogIfNeeded(file, Buffer.byteLength(chunk));
+		fs.appendFileSync(file, chunk);
 	} catch {
 		/* best effort */
 	}
-}
+});
 
 function startServer(port) {
 	return new Promise((resolve, reject) => {
@@ -1180,10 +1244,28 @@ async function main() {
 	// Settings → «Conexión MCP» (owner, 2026-11-08): the command an MCP
 	// client launches. AppImage: the .AppImage file itself (process.execPath
 	// is its per-launch mount). null from a checkout — `pnpm mcp` there.
+	// PLAIN NODE (perf, owner 2026-11-10): `--mcp` booted a whole Chromium
+	// (zygotes, GPU, network service — ~590 MB per MCP client) only to spawn
+	// the Node server. The launch now runs this binary as Node directly
+	// (ELECTRON_RUN_AS_NODE) with a tiny loader: in an AppImage the bundle
+	// lives under the per-launch mount, which the AppImage runtime exports
+	// as APPDIR; elsewhere resourcesPath is stable. `--mcp` keeps working
+	// for configurations created before.
 	ipcMain.handle("np:mcp:command", (event) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win || !trustedAppWindows.has(win) || !app.isPackaged) return null;
-		return { command: process.env.APPIMAGE || process.execPath, args: ["--mcp"] };
+		const entry = ["server", "standalone", "mcp", "naipes-mcp.mjs"];
+		const appImage = !!process.env.APPIMAGE;
+		const resources = appImage ? 'require("path").join(process.env.APPDIR,"resources")' : JSON.stringify(process.resourcesPath);
+		const loader =
+			`const p=require("path"),r=${resources};` +
+			`try{process.env.NP_APP_VERSION??=require(p.join(r,"app.asar","package.json")).version}catch{}` +
+			`import(require("url").pathToFileURL(p.join(r,${entry.map((x) => JSON.stringify(x)).join(",")})).href)`;
+		return {
+			command: process.env.APPIMAGE || process.execPath,
+			args: ["-e", loader],
+			env: { ELECTRON_RUN_AS_NODE: "1", NP_DATA_DIR: DATA_DIR() },
+		};
 	});
 	ipcMain.on("np:expand-window", (event) => {
 		const win = BrowserWindow.fromWebContents(event.sender);

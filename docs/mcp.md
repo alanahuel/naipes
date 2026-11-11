@@ -7,12 +7,14 @@ Owner design, 2026-11-08. Naipes ships an [MCP](https://modelcontextprotocol.io)
 Settings → Connections → **Conexión MCP** shows the ready-to-paste configuration for the installed app:
 
 ```sh
-claude mcp add --scope user naipes [-e NAIPES_MCP_TOKEN=…] -- <Naipes executable> --mcp
+claude mcp add --scope user naipes -e ELECTRON_RUN_AS_NODE=1 -e NP_DATA_DIR=<profile>/data [-e NAIPES_MCP_TOKEN=…] -- <Naipes executable> -e '<loader>'
 ```
 
 and the `mcpServers` JSON for Claude Desktop and other clients. The executable is the `.AppImage` file itself on Linux AppImage installs (`$APPIMAGE`), else `process.execPath`. From a checkout: `pnpm mcp` (`NP_DATA_DIR` picks the data folder).
 
-`naipes --mcp` (electron/main.cjs) runs before the single-instance lock — the app may be open — and re-executes the binary as Node (`ELECTRON_RUN_AS_NODE`) on the bundled server `server/standalone/mcp/naipes-mcp.mjs` with the profile's data folder. stdout is the protocol channel; everything else logs to stderr.
+**Plain Node launch (perf, owner 2026-11-10).** The command Settings → «Conexión MCP» hands out runs the app binary directly as Node (`ELECTRON_RUN_AS_NODE=1` in the client's env) with a one-line `-e` loader that imports `server/standalone/mcp/naipes-mcp.mjs` — under `$APPDIR/resources` for an AppImage (the per-launch mount the AppImage runtime exports), under the stable `resourcesPath` elsewhere — and reads the app version from `app.asar/package.json`. No Chromium boots: the old `--mcp` launch started zygotes, a GPU process and a network service (~590 MB per MCP client) only to spawn that Node child.
+
+The legacy `naipes --mcp` (electron/main.cjs) still works for configurations created before; it runs before the single-instance lock — the app may be open — and re-executes the binary as Node (`ELECTRON_RUN_AS_NODE`) on the bundled server `server/standalone/mcp/naipes-mcp.mjs` with the profile's data folder. stdout is the protocol channel; everything else logs to stderr.
 
 ## Three layers
 
